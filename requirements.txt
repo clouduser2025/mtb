@@ -1,5 +1,9 @@
+
+smartapi-python
+
 fastapi
 uvicorn
-smartapi-python
+gunicorn
+SmartApi
 pyotp
 logzero
