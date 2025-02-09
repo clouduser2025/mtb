@@ -3,6 +3,6 @@ pycryptodome
 fastapi
 uvicorn
 gunicorn
-
+ebsocket-client
 pyotp
 logzero
