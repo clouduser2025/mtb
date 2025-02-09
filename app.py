@@ -68,17 +68,15 @@ class BuyRequest(BaseModel):
     points_condition: float  # Used for trailing stop loss
 
 # --- REGISTER USER ---
-from fastapi import Request
-
 @app.post("/api/register_user")
-async def register_user(user: User, request: Request):
-    body = await request.json()
-    print("Received JSON:", body)  # Debugging line
-    
-    cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)", 
-                   (user.username, user.broker, user.api_key, user.totp_token, user.default_quantity))
-    conn.commit()
-    return {"message": "User registered successfully"}
+def register_user(user: User):
+    try:
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)", 
+                    (user.username, user.broker, user.api_key, user.totp_token, user.default_quantity))
+        conn.commit()
+        return {"message": "User registered successfully"}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="User already exists")
 
 # --- FETCH ALL USERS ---
 @app.get("/api/get_users")

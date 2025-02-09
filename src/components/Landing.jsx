@@ -787,17 +787,20 @@ const handleDeleteUser = async (username) => {
                       </Form.Group>
                     </Col>
                     <Col md={3}>
-                      <Form.Group controlId="buyConditionType">
-                        <Form.Label>Buy Condition Type</Form.Label>
-                        <Form.Select
-                          value={buyConditionType}
-                          onChange={(e) => setBuyConditionType(e.target.value)}
-                        >
-                          <option value="fixed">Fixed Value</option>
-                          <option value="percentage">Percentage from Market</option>
-                          <option value="points">Points from Market</option>
-                        </Form.Select>
-                      </Form.Group>
+                    <Form.Group controlId="buyConditionType">
+                      <Form.Label>Buy Strategy</Form.Label>
+                      <Form.Select
+                        value={buyConditionType}
+                        onChange={(e) => setBuyConditionType(e.target.value)}
+                      >
+                        <option value="Fixed">Fixed Value</option>
+                        <option value="Percentage">Percentage from Market</option>
+                        <option value="RSI">RSI-Based Buy</option>
+                        <option value="MovingAverage">Moving Average Buy</option>
+                        <option value="Support">Support Level Buy</option>
+                      </Form.Select>
+                    </Form.Group>
+
                     </Col>
                     <Col md={3}>
                       <Form.Group controlId="buyConditionValue">
