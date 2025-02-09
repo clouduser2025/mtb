@@ -484,20 +484,24 @@ useEffect(() => {
 };
 
 const handleDeleteUser = async (username) => {
+  console.log(`Deleting user: ${username}`); // ✅ Debugging log
+
   try {
-      const response = await fetch(`/api/delete_user/${username}`, {
+      const response = await fetch(`http://127.0.0.1:8000/api/delete_user/${username}`, {
           method: 'DELETE',
       });
 
+      const data = await response.json();
+      console.log("API Response:", data);  // ✅ Debugging log
+
       if (response.ok) {
-          setUsers(users.filter(user => user.username !== username)); // Remove deleted user
+          setUsers(users.filter(user => user.username !== username));  // ✅ Update UI
           setMessage({ text: 'User deleted successfully!', type: 'success' });
       } else {
-          const data = await response.json();
-          setMessage({ text: data.error || 'Failed to delete user', type: 'danger' });
+          setMessage({ text: data.detail || 'Failed to delete user', type: 'danger' });
       }
   } catch (error) {
-      console.error("Error deleting user:", error);
+      console.error("❌ Error deleting user:", error);
       setMessage({ text: 'Server error. Try again later.', type: 'danger' });
   }
 };

@@ -1,6 +1,6 @@
 
 smartapi-python
-
+pycryptodome
 fastapi
 uvicorn
 gunicorn
