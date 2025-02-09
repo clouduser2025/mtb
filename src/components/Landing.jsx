@@ -60,37 +60,7 @@ const Landing = () => {
 
   // For trailing, we track a "base" price
   const basePriceRef = useRef(null);
-  const [ltp, setLtp] = useState(null); // Stores last traded price
-  const [loadingLtp, setLoadingLtp] = useState(false); // Tracks LTP loading state
-  
-  const fetchLtp = async () => {
-    if (!formData.symbol) {
-      setMessage({ text: "Enter a stock symbol first.", type: "warning" });
-      return;
-    }
-  
-    setLoadingLtp(true);
-    try {
-      const response = await fetch("http://127.0.0.1:5000/api/fetch_ltp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ exchange: "NSE", symbol: formData.symbol })
-      });
-  
-      const data = await response.json();
-      if (data.status) {
-        setLtp(data.ltp);
-        setMessage({ text: `LTP fetched: ${data.ltp}`, type: "success" });
-      } else {
-        setMessage({ text: "Failed to fetch LTP.", type: "danger" });
-      }
-    } catch (error) {
-      setMessage({ text: "Server error. Try again later.", type: "danger" });
-    } finally {
-      setLoadingLtp(false);
-    }
-  };
-  
+
   /********************************************************
    *          FETCH REGISTERED USERS (ORIGINAL)           *
    ********************************************************/
@@ -122,37 +92,86 @@ const Landing = () => {
       }
     // Existing sell logic...
   }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, sellThreshold, buyConditionType, buyConditionValue]);
-  
+  useEffect(() => {
+    const fetchUsers = async () => {
+        try {
+            const response = await fetch('/api/get_users');  // New API call
+            const data = await response.json();
+            setUsers(data);
+        } catch (error) {
+            console.error("Error fetching users:", error);
+        }
+    };
+    fetchUsers();
+}, []);
+// ✅ Define `executeBuyTrade` to Send Trade Request to Backend
+const executeBuyTrade = async (price) => {
+  if (selectedUsers.length === 0) {
+      console.log("No users selected for trade.");
+      return;
+  }
+
+  const buyData = {
+      users: selectedUsers,
+      symbol: formData.symbol,
+      buy_price: price,
+      buy_condition_type: buyConditionType,
+      buy_condition_value: buyConditionValue,
+      stop_loss_type: stopLossType,
+      stop_loss_value: stopLossValue,
+      points_condition: pointsCondition
+  };
+
+  try {
+      const response = await fetch('/api/buy_trade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buyData),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+          console.log(`✅ Trade executed at ${price}:`, data);
+          setEntryPrice(price);
+          basePriceRef.current = price;
+      } else {
+          console.error("❌ Trade execution failed:", data.error);
+      }
+  } catch (error) {
+      console.error("❌ API Error executing trade:", error);
+  }
+};
+
   /********************************************************
    *        ORIGINAL: REGISTER USER SUBMIT HANDLER        *
    ********************************************************/
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
+    console.log("Submitting form data:", formData); // ✅ Debugging
+
     try {
-      const response = await fetch('/api/register_user', {
+      const response = await fetch('http://127.0.0.1:8000/api/register_user', { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
+
       const data = await response.json();
+      console.log("API Response:", data);  // ✅ Debugging
+
       if (response.ok) {
         setMessage({ text: 'User registered successfully!', type: 'success' });
-        setUsers([...users, data]);
-        setFormData({
-          username: "",
-          broker: "Angel",
-          api_key: "",
-          totp_token: "",
-          default_quantity: "",
-        });
-        setShowRegisterModal(false);
+        setUsers([...users, formData]);  // ✅ Update users list
+        setFormData({ username: "", broker: "Angel", api_key: "", totp_token: "", default_quantity: "" });
       } else {
-        setMessage({ text: data.error || 'Failed to register user', type: 'danger' });
+        setMessage({ text: data.message || 'Registration failed', type: 'danger' });
       }
     } catch (error) {
+      console.error("Error registering user:", error);
       setMessage({ text: 'Server error. Try again later.', type: 'danger' });
     }
-  };
+};
+
 
   /********************************************************
    *          ORIGINAL BUY/SELL BUTTON CLICK HANDLERS     *
@@ -192,35 +211,51 @@ const Landing = () => {
   /********************************************************
    *   WATCH CURRENT PRICE => CHECK BUY/SELL THRESHOLDS   *
    ********************************************************/
-  useEffect(() => {
-    if (!isSimulating) return;
+// ✅ Fetch Users from Backend
+useEffect(() => {
+  const fetchUsers = async () => {
+      try {
+          const response = await fetch('/api/get_users');  // New API call
+          const data = await response.json();
+          setUsers(data);
+      } catch (error) {
+          console.error("Error fetching users:", error);
+      }
+  };
+  fetchUsers();
+}, []);
 
-    // If we haven't entered a trade yet, check thresholds
-    if (entryPrice === null) {
-      // Initial buy/sell threshold check remains the same
-      if (actionType === 'buy' && currentPrice >= buyThreshold) {
-        console.log(`** BUY triggered at ${currentPrice} (≥ ${buyThreshold}) **`);
-        setEntryPrice(currentPrice);
-        basePriceRef.current = currentPrice;
-      } else if (actionType === 'sell' && currentPrice <= sellThreshold) {
-        console.log(`** SELL (short) triggered at ${currentPrice} (≤ ${sellThreshold}) **`);
-        setEntryPrice(currentPrice);
-        basePriceRef.current = currentPrice;
+// ✅ Buy Condition Execution
+useEffect(() => {
+  if (!isSimulating) return;
+
+  if (actionType === 'buy' && entryPrice === null) {
+      let conditionMet = false;
+      
+      switch (buyConditionType) {
+          case 'fixed':
+              conditionMet = currentPrice >= buyConditionValue;
+              break;
+          case 'percentage':
+              conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100)); 
+              break;
+          case 'points':
+              conditionMet = currentPrice >= (buyThreshold + buyConditionValue);
+              break;
+          default:
+              conditionMet = false;
       }
-    } else {
-      // Implement stop-loss logic
-      if (actionType === 'buy') {
-        simulateStopLossForBuy(currentPrice);
-      } else if (actionType === 'sell') {
-        simulateStopLossForSell(currentPrice);
+
+      if (conditionMet) {
+          console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
+          executeBuyTrade(currentPrice);
       }
-    }
-}, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, sellThreshold, stopLossType, stopLossValue, pointsCondition]);
+  }
+}, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue]);
 
   /********************************************************
    *        STOP-LOSS SCENARIOS (BUY => SELL)             *
    ********************************************************/
-  
   const simulateStopLossForBuy = (price) => {
     const entry = entryPrice;
     const base = basePriceRef.current;
@@ -414,23 +449,59 @@ const Landing = () => {
   /********************************************************
    *   WHEN USER SUBMITS THE "BUY/SELL + STOP-LOSS" FORM  *
    ********************************************************/
-  const handleStopLossSubmission = (e) => {
+  const handleStopLossSubmission = async (e) => {
     e.preventDefault();
 
-    // Clear old position or base
-    setEntryPrice(null);
-    basePriceRef.current = null;
+    const buyData = {
+        users: selectedUsers,  // Sends selected users to backend
+        symbol: formData.symbol,
+        buy_threshold: buyThreshold,
+        buy_condition_type: buyConditionType,
+        buy_condition_value: buyConditionValue,
+        stop_loss_type: stopLossType,
+        stop_loss_value: stopLossValue,
+        points_condition: pointsCondition
+    };
 
-    console.log(`ActionType = ${actionType}`);
-    console.log(`BuyThreshold = ${buyThreshold}, SellThreshold = ${sellThreshold}`);
-    console.log(`StopLossType = ${stopLossType}, Value = ${stopLossValue}, PointsCond = ${pointsCondition}`);
+    try {
+        const response = await fetch('/api/buy_trade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buyData),
+        });
 
-    // Start sim so we can watch for threshold crossing
-    startSimulation();
+        const data = await response.json();
+        if (response.ok) {
+            console.log("Trade executed successfully:", data);
+            setMessage({ text: 'Trade executed successfully!', type: 'success' });
+        } else {
+            setMessage({ text: data.error || 'Trade execution failed', type: 'danger' });
+        }
+    } catch (error) {
+        console.error("Error executing trade:", error);
+        setMessage({ text: 'Server error. Try again later.', type: 'danger' });
+    }
+};
 
-    // Hide form
-    setShowStopLossForm(false);
-  };
+const handleDeleteUser = async (username) => {
+  try {
+      const response = await fetch(`/api/delete_user/${username}`, {
+          method: 'DELETE',
+      });
+
+      if (response.ok) {
+          setUsers(users.filter(user => user.username !== username)); // Remove deleted user
+          setMessage({ text: 'User deleted successfully!', type: 'success' });
+      } else {
+          const data = await response.json();
+          setMessage({ text: data.error || 'Failed to delete user', type: 'danger' });
+      }
+  } catch (error) {
+      console.error("Error deleting user:", error);
+      setMessage({ text: 'Server error. Try again later.', type: 'danger' });
+  }
+};
+
 
   /********************************************************
    *                     RENDER (JSX)                     *
@@ -483,20 +554,20 @@ const Landing = () => {
                 </tr>
               </thead>
               <tbody>
-                {users.length > 0 ? (
-                  users.map((user, index) => (
-                    <tr key={index}>
+              {users.map((user, index) => (
+                  <tr key={index}>
                       <td>{user.username}</td>
                       <td>{user.broker}</td>
                       <td>{user.default_quantity}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="3" className="text-center">No Users Registered</td>
+                      <td>
+                          <Button variant="danger" size="sm" onClick={() => handleDeleteUser(user.username)}>
+                              Delete
+                          </Button>
+                      </td>
                   </tr>
-                )}
-              </tbody>
+              ))}
+          </tbody>
+
             </Table>
           </Container>
         )}
@@ -563,8 +634,6 @@ const Landing = () => {
           </Col>
         </Row>
 
-
-        
         {/* The Big Form: for Buy or Sell thresholds + Stop-Loss */}
         {showStopLossForm && (
           <Container className="mt-4 p-3 border rounded shadow-sm">
@@ -747,36 +816,9 @@ const Landing = () => {
         )}
 
         {/* Simulation Info */}
-        {/* LTP Output Table */}
-        {ltp !== null && (
-          <Container className="mt-4">
-            <h4 className="text-center">Live Market Data</h4>
-            <Table striped bordered hover>
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Exchange</th>
-                  <th>Last Traded Price (LTP)</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>{formData.symbol || "N/A"}</td>
-                  <td>NSE</td>
-                  <td><strong>{ltp}</strong></td>
-                  <td>{new Date().toLocaleTimeString()}</td>
-                </tr>
-              </tbody>
-            </Table>
-          </Container>
-        )}
-
-        {/* Simulation Info */}
         <Row className="mt-4">
           <Col>
             <h5>Simulation Info</h5>
-
             <p>
               Current Price: <strong>{currentPrice}</strong>
               {isSimulating ? ' (Simulating...)' : ''}
