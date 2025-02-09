@@ -27,6 +27,7 @@ const Landing = () => {
     totp_token: "",
     default_quantity: "",
   });
+  const [showLtpForm, setShowLtpForm] = useState(false); // Controls LTP Form visibility
 
   // Original: Buy or Sell? 
   const [actionType, setActionType] = useState(null);
@@ -60,6 +61,40 @@ const Landing = () => {
 
   // For trailing, we track a "base" price
   const basePriceRef = useRef(null);
+  
+const [exchange, setExchange] = useState("NSE"); // Default to NSE
+const [ltpSymbol, setLtpSymbol] = useState(""); // Stock Symbol
+const [symbolToken, setSymbolToken] = useState(""); // Optional Token
+const [ltpPrice, setLtpPrice] = useState(null); // LTP Value
+const [loadingLtp, setLoadingLtp] = useState(false); // Loading Indicator
+
+const fetchLtp = async () => {
+  if (!ltpSymbol) {
+    alert("Please enter a stock symbol.");
+    return;
+  }
+
+  setLoadingLtp(true); // Start loading indicator
+
+  try {
+    const response = await fetch(`http://127.0.0.1:8001/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
+    const data = await response.json();
+
+    if (response.status) {
+      setLtpPrice(data.ltp);
+    } else {
+      setLtpPrice(null);
+      alert("Failed to fetch LTP. Please check the symbol.");
+    }
+  } catch (error) {
+    console.error("Error fetching LTP:", error);
+    alert("Server error. Try again later.");
+  } finally {
+    setLoadingLtp(false); // Stop loading indicator
+  }
+};
+
+
 
   /********************************************************
    *          FETCH REGISTERED USERS (ORIGINAL)           *
@@ -92,6 +127,8 @@ const Landing = () => {
       }
     // Existing sell logic...
   }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, sellThreshold, buyConditionType, buyConditionValue]);
+
+  
   useEffect(() => {
     const fetchUsers = async () => {
         try {
@@ -104,6 +141,8 @@ const Landing = () => {
     };
     fetchUsers();
 }, []);
+
+
 // ✅ Define `executeBuyTrade` to Send Trade Request to Backend
 const executeBuyTrade = async (price) => {
   if (selectedUsers.length === 0) {
@@ -506,7 +545,6 @@ const handleDeleteUser = async (username) => {
   }
 };
 
-
   /********************************************************
    *                     RENDER (JSX)                     *
    ********************************************************/
@@ -520,11 +558,13 @@ const handleDeleteUser = async (username) => {
         <Col xs="auto">
           <Button 
             onClick={() => setShowRegisterModal(true)} 
-            style={{ backgroundColor: "#4169E1", borderColor: "#4169E1", color: "white" }} // Royal Blue
+            style={{ backgroundColor: "#6A0DAD", borderColor: "#6A0DAD", color: "white" }} // Deep Purple
           >
             <FontAwesomeIcon icon={faUserPlus} /> Register User
           </Button>
         </Col>
+
+
         <Col xs="auto">
           <Button 
             onClick={() => setShowUsers(!showUsers)} 
@@ -577,27 +617,30 @@ const handleDeleteUser = async (username) => {
         )}
         
         {/* Updated: AngelOne Trading Buttons (Refined Colors) */}
+        {/* Updated: AngelOne Trading Buttons (Refined Colors) */}
         <Row className="justify-content-center mb-3">
-          <Col xs="auto">
-            <Button
-              onClick={() => window.open('https://www.angelone.in/trade/markets/equity/overview', '_blank')}
-              style={{ backgroundColor: "#2C3E50", borderColor: "#2C3E50", color: "white" }} // Dark Blue
-            >
-              Market Overview
-            </Button>
-          </Col>
-          <Col xs="auto">
-            <Button
-              onClick={() => window.open('https://www.angelone.in/trade/indices/indian', '_blank')}
-              style={{ backgroundColor: "#4682B4", borderColor: "#4682B4", color: "white" }} // Steel Blue
-            >
-              Indices
-            </Button>
-          </Col>
+        <Col xs="auto">
+          <Button
+            onClick={() => window.open('https://www.angelone.in/trade/markets/equity/overview', '_blank')}
+            style={{ backgroundColor: "#008B8B", borderColor: "#008B8B", color: "white" }} // Dark Cyan
+          >
+            Market Overview
+          </Button>
+        </Col>
+
+        <Col xs="auto">
+          <Button
+            onClick={() => window.open('https://www.angelone.in/trade/indices/indian', '_blank')}
+            style={{ backgroundColor: "#000000", borderColor: "#000000", color: "white" }} // Black
+          >
+            Indices
+          </Button>
+        </Col>
+
           <Col xs="auto">
             <Button
               onClick={() => window.open('https://www.angelone.in/trade/watchlist/chart', '_blank')}
-              style={{ backgroundColor: "#00BFFF", borderColor: "#00BFFF", color: "white" }} // Deep Sky Blue
+              style={{ backgroundColor: "#00BFFF", borderColor: "#00BFFF", color: "white" }}
             >
               Chart
             </Button>
@@ -605,13 +648,89 @@ const handleDeleteUser = async (username) => {
           <Col xs="auto">
             <Button
               onClick={() => window.open('https://www.angelone.in/trade/watchlist/option-chain', '_blank')}
-              style={{ backgroundColor: "#6A0DAD", borderColor: "#6A0DAD", color: "white" }} // Dark Purple
+              style={{ backgroundColor: "#DC143C", borderColor: "#DC143C", color: "white" }} // Crimson Red
             >
               Option Chain
             </Button>
           </Col>
+
+          <Col xs="auto">
+            {/* ✅ Changed the color of the fifth button */}
+            <Button
+              onClick={() => setShowLtpForm(!showLtpForm)}
+              style={{ backgroundColor: "#FF4500", borderColor: "#FF4500", color: "white" }} // Orange Red color
+            >
+              Fetch LTP
+            </Button>
+          </Col>
         </Row>
 
+        {/* Show LTP Form when button is clicked */}
+        {showLtpForm && (
+          <Container className="mt-4 p-3 border rounded shadow-sm">
+            <h4 className="text-primary">🔍 Live Fetch LTP</h4>
+            <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
+              <Row className="mb-3">
+                {/* Select Exchange (Dropdown) */}
+                <Col md={3}>
+                  <Form.Group controlId="exchange">
+                    <Form.Label>Select Exchange</Form.Label>
+                    <Form.Select
+                      value={exchange}
+                      onChange={(e) => setExchange(e.target.value)}
+                    >
+                      <option value="NSE">NSE</option>
+                      <option value="BSE">BSE</option>
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+
+                {/* Input for Stock Symbol */}
+                <Col md={3}>
+                  <Form.Group controlId="ltpSymbol">
+                    <Form.Label>Enter Stock Symbol</Form.Label>
+                    <Form.Control
+                      type="text"
+                      placeholder="e.g. RELIANCE"
+                      value={ltpSymbol}
+                      onChange={(e) => setLtpSymbol(e.target.value)}
+                      required
+                    />
+                  </Form.Group>
+                </Col>
+
+                {/* Input for Symbol Token (Optional) */}
+                <Col md={3}>
+                  <Form.Group controlId="symbolToken">
+                    <Form.Label>Enter Symbol Token (Optional)</Form.Label>
+                    <Form.Control
+                      type="text"
+                      placeholder="e.g. 3045"
+                      value={symbolToken}
+                      onChange={(e) => setSymbolToken(e.target.value)}
+                    />
+                  </Form.Group>
+                </Col>
+
+                {/* Fetch LTP Button */}
+                <Col md={2}>
+                  <Button type="submit" variant="primary" className="mt-4">
+                    Fetch LTP
+                  </Button>
+                </Col>
+              </Row>
+            </Form>
+
+
+            {loadingLtp && <p>Loading...</p>}
+
+            {ltpPrice !== null && (
+              <Alert variant="success">
+                📈 Latest Price of <strong>{ltpSymbol}</strong>: ₹{ltpPrice}
+              </Alert>
+            )}
+          </Container>
+        )}
 
         {/* Updated: Buy / Sell Buttons with Trading Candle Colors */}
         <Row className="justify-content-center mb-3">
@@ -819,25 +938,7 @@ const handleDeleteUser = async (username) => {
           </Container>
         )}
 
-        {/* Simulation Info */}
-        <Row className="mt-4">
-          <Col>
-            <h5>Simulation Info</h5>
-            <p>
-              Current Price: <strong>{currentPrice}</strong>
-              {isSimulating ? ' (Simulating...)' : ''}
-            </p>
-            {entryPrice ? (
-              <p>
-                You have {actionType === 'buy' ? 'BOUGHT' : 'SHORTED'} at <strong>{entryPrice}</strong>.
-                Tracking stop-loss scenario(s)...
-              </p>
-            ) : (
-              <p>No open position. Waiting for threshold cross (or press "Stop Simulation").</p>
-            )}
-            <p><em>Open console (F12) for logs about thresholds & stop-loss triggers.</em></p>
-          </Col>
-        </Row>
+
       </Container>
 
       {/* ORIGINAL Registration Modal */}
