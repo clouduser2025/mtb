@@ -1,9 +1,8 @@
-
 smartapi-python
 pycryptodome
 fastapi
 uvicorn
 gunicorn
-SmartApi
+
 pyotp
 logzero
