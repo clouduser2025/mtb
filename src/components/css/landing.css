@@ -43,39 +43,6 @@
     scrollbar-width: none;
   }
 
-  .train-card {
-    background-color: #ffffff;
-    border: none;
-    padding: 10px;
-    box-shadow: rgba(17, 17, 26, 0.1) 0px 4px 16px,
-      rgba(17, 17, 26, 0.05) 0px 8px 32px;
-  }
-  
-  .train-card-body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  
-  .image-container {
-    display: flex;
-    overflow: hidden;
-    position: relative;
-    width: 100%;
-  }
-  
-  .image-wrapper {
-    position: relative;
-    min-width: 600px   ;
-    margin-right: 20px;
-    animation: moveImages 10s linear infinite;
-  }
-  
-  .train-image {
-width: 600px;
-    opacity: 0.8;
-    height: 180px;
-  }
   
   .top-overlay {
     position: absolute;
@@ -112,15 +79,7 @@ width: 600px;
     min-width: 80px; /* Optional: ensure consistent width for overlays */
   }
   
-  .bogie-number {
-    font-size: 1.3rem;
-    font-weight: bold;
-  }
-  
-  .container-number {
-    font-size: 0.7rem;
-  }
-  
+ 
 
   .custom-table {
     font-size: 1rem;
@@ -145,12 +104,145 @@ width: 600px;
  
   }
 
-  
-  
+  /* 📌 Table Styling */
+.users-table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.table th, .table td {
+  padding: 14px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* 🌟 Colorful Header Styling */
+.table-header {
+  font-weight: bold;
+  padding: 14px;
+  text-transform: uppercase;
+}
+
+.rounded-left {
+  border-top-left-radius: 12px;
+}
+
+.rounded-right {
+  border-top-right-radius: 12px;
+}
+
+/* ✨ Hover Effect for Rows */
+.table-row:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  transition: 0.3s ease-in-out;
+}
+
+/* 🚀 Improved Delete Button */
+.btn-delete {
+  background-color: #dc3545;
+  border: none;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.btn-delete:hover {
+  background-color: #c82333;
+  transform: scale(1.05);
+}
+
+/* 🔹 Improve Table Responsiveness */
+.table-responsive {
+  overflow-x: auto;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 🔹 Table Container - Add Margin Below */
+.users-table-container {
+  margin-bottom: 30px; /* Adds space between table & next section */
+}
+
+/* 🌟 Improve Table Padding */
+.users-table th, .users-table td {
+  padding: 14px 16px; /* Increase padding for better spacing */
+  text-align: center;
+}
+
+/* ✨ Add Spacing to Buttons Below Table */
+.market-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 12px; /* Adds equal space between buttons */
+  margin-bottom: 20px; /* Adds space between buttons & next section */
+}
+
+/* 📌 Live LTP Box - Add Spacing */
+.ltp-container {
+  margin-top: 20px; /* Space between LTP section & buttons */
+  padding: 20px;
+  border-radius: 10px;
+  background: #f8f9fa;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+/* 📌 Live LTP Box - Add More Margin Below */
+.ltp-container {
+  margin-top: 20px; /* Space above */
+  margin-bottom: 40px; /* 🔥 Increased space below */
+  padding: 20px;
+  border-radius: 10px;
+  background: #f8f9fa;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 🎨 Dropdown Button - Gradient */
+.btn-dropdown {
+  background: linear-gradient(45deg, #6a11cb, #2575fc);
+  color: rgb(210, 32, 189);
+  border: none;
+  font-weight: bold;
+  padding: 10px 15px;
+  border-radius: 8px;
+  transition: all 0.3s ease-in-out;
+}
+
+.btn-dropdown:hover {
+  opacity: 0.85;
+  transform: scale(1.05);
+  background: linear-gradient(45deg, #2575fc, #6a11cb); /* Reverse gradient on hover */
+}
+
+/* 🎨 Dropdown Menu - Background Styling */
+.dropdown-menu-custom {
+  background: rgb(210, 39, 193);
+  border-radius: 10px;
+  border: none;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  overflow-y: auto;
+  max-height: 200px; /* Enables scrolling */
+}
+
+/* 📌 Dropdown Items - Normal State */
+.dropdown-menu-custom .dropdown-item {
+  color: #000080;
+  font-weight: bold;
+  padding: 12px 15px;
+  transition: all 0.3s ease-in-out;
+  border-radius: 5px;
+}
+
+/* 🌟 Dropdown Items - Hover Effect */
+.dropdown-menu-custom .dropdown-item:hover {
+  background: linear-gradient(45deg, #ff8c00, #ff4500); /* Orange Gradient */
+  color: rgb(229, 153, 31);
+  border-radius: 5px;
+  transform: scale(1.05);
+}
+
   /* Dashboard Button Styling */
 .dashboard-button {
-  width: 220px; /* Set a fixed width */
-  height: 70px; /* Increase height */
+  width: 320px; /* Set a fixed width */
+  height: 90px; /* Increase height */
   font-size: 18px; /* Larger text */
   font-weight: bold;
   color: white;
@@ -166,17 +258,19 @@ width: 600px;
 }
 
 /* Gradient Colors */
-.btn-market { background: linear-gradient(45deg, #FF8C00, #FF4500); } /* Market Overview */
+.btn-market { background: linear-gradient(45deg, #2798de, #392398); } /* Market Overview */
 .btn-indices { background: linear-gradient(45deg, #000000, #434343); } /* Indices */
-.btn-chart { background: linear-gradient(45deg, #009fff, #ec2f4b); } /* Chart */
-.btn-option { background: linear-gradient(45deg, #DC143C, #B22222); } /* Option Chain */
-.btn-ltp { background: linear-gradient(45deg, #FF4500, #FF6347); } /* Fetch LTP */
+.btn-chart { background: linear-gradient(45deg, #6c28a4, #0c9e21); } /* Chart */
+.btn-option { background: linear-gradient(45deg, #DC143C, #d79b19); } /* Option Chain */
+.btn-ltp { background: linear-gradient(45deg, #b12c85, #2b4eba); } /* Fetch LTP */
 .btn-buy { background: linear-gradient(45deg, #32CD32, #008000); } /* Buy */
 .btn-sell { background: linear-gradient(45deg, #FF4500, #DC143C); } /* Sell */
 .btn-stop { background: linear-gradient(45deg, #2C3E50, #4CA1AF); } /* Stop Simulation */
 .btn-register { background: linear-gradient(45deg, #6a11cb, #2575fc); } /* Register */
 .btn-users { background: linear-gradient(45deg, #8e44ad, #3498db); } /* View Users */
 .btn-login { background: linear-gradient(45deg, #7B68EE, #00BFFF); } /* Angel Login */
+.btn-trades {background: linear-gradient(45deg, #e5585f, #1b880e); /* Trades Dashboard Gradient */
+}
 
 /* Hover Effect */
 .dashboard-button:hover {
@@ -189,3 +283,7 @@ width: 600px;
 .d-flex.flex-wrap {
   justify-content: center;
 } 
+
+.trading-chart-container {
+  margin-bottom: 50px; /* Adjust as needed */
+}

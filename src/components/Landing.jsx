@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Container, Button, Table, Form, Alert, Modal, Row, Col } from 'react-bootstrap';
+import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
+  faUserCog, 
   faUserPlus, 
   faUsers, 
   faSignInAlt, 
@@ -12,229 +13,170 @@ import './css/landing.css';
 
 const Landing = () => {
   /********************************************************
-   *           ORIGINAL STATES & REGISTRATION             *
+   *           STATES & REGISTRATION SETUP              *
    ********************************************************/
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState([]); // Initially an empty array
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  // Use checkboxes to select 1–3 users
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [message, setMessage] = useState({ text: "", type: "" });
+  const [openTrades, setOpenTrades] = useState([]);  // Open trades array from backend
+
+  // New state to toggle the trades dashboard display
+  const [showTradesDashboard, setShowTradesDashboard] = useState(false);
 
   const [formData, setFormData] = useState({
     username: "",
     broker: "Angel",
     api_key: "",
     totp_token: "",
+    symbol: "",  // used for trade symbol
     default_quantity: "",
   });
-  const [showLtpForm, setShowLtpForm] = useState(false); // Controls LTP Form visibility
-
-  // Original: Buy or Sell? 
+  
+  // Action type: 'buy' or 'sell'
   const [actionType, setActionType] = useState(null);
-  // Show/hide the combined threshold + stop-loss form
   const [showStopLossForm, setShowStopLossForm] = useState(false);
 
   /********************************************************
-   *          NEW: PRICE SIMULATION + THRESHOLDS          *
+   *         PRICE SIMULATION & TRADING SETUP           *
    ********************************************************/
-  const [currentPrice, setCurrentPrice] = useState(90); // Starting point for simulation
+  const [currentPrice, setCurrentPrice] = useState(90); // Starting simulated price
   const [isSimulating, setIsSimulating] = useState(false);
   const simulationRef = useRef(null);
 
-  // For "Buy" threshold => buy if price >= this
+  // Thresholds and entry price
   const [buyThreshold, setBuyThreshold] = useState(100);
-
-  // For "Sell" threshold => short if price <= this
-  // Use `&#8804;` in the label so JSX doesn't parse "≤" incorrectly.
   const [sellThreshold, setSellThreshold] = useState(120);
-
-  // Once we actually buy or short, store that entry price
   const [entryPrice, setEntryPrice] = useState(null);
 
-  // STOP-LOSS form fields
-  const [stopLossType, setStopLossType] = useState('fixed'); // 'fixed', 'percentage', 'points'
-  const [stopLossValue, setStopLossValue] = useState(95);    // numeric
-  // Add these new state variable declarations here
-  const [buyConditionType, setBuyConditionType] = useState('fixed'); // Initializes the condition type for buying
-  const [buyConditionValue, setBuyConditionValue] = useState(0); // Initializes the condition value for buying
-  const [pointsCondition, setPointsCondition] = useState(0); // relevant for trailing scenarios
-
-  // For trailing, we track a "base" price
+  // Stop-loss and condition settings for BUY
+  const [stopLossType, setStopLossType] = useState('Fixed'); // Options: "Fixed", "Percentage", "Points"
+  const [stopLossValue, setStopLossValue] = useState(95);
+  const [buyConditionType, setBuyConditionType] = useState('Fixed Value'); // Options: "Fixed Value", "Percentage", "Points"
+  const [buyConditionValue, setBuyConditionValue] = useState(0);
+  const [pointsCondition, setPointsCondition] = useState(0);
   const basePriceRef = useRef(null);
-  
-const [exchange, setExchange] = useState("NSE"); // Default to NSE
-const [ltpSymbol, setLtpSymbol] = useState(""); // Stock Symbol
-const [symbolToken, setSymbolToken] = useState(""); // Optional Token
-const [ltpPrice, setLtpPrice] = useState(null); // LTP Value
-const [loadingLtp, setLoadingLtp] = useState(false); // Loading Indicator
 
-const fetchLtp = async () => {
-  if (!ltpSymbol) {
-    alert("Please enter a stock symbol.");
-    return;
-  }
+  // Stop-gain and condition settings for SELL
+  const [sellConditionType, setSellConditionType] = useState('Fixed Value'); // Options: "Fixed Value", "Percentage", "Points"
+  const [sellConditionValue, setSellConditionValue] = useState(0);
 
-  setLoadingLtp(true); // Start loading indicator
-
-  try {
-    const response = await fetch(`http://127.0.0.1:8001/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
-    const data = await response.json();
-
-    if (response.status) {
-      setLtpPrice(data.ltp);
-    } else {
-      setLtpPrice(null);
-      alert("Failed to fetch LTP. Please check the symbol.");
-    }
-  } catch (error) {
-    console.error("Error fetching LTP:", error);
-    alert("Server error. Try again later.");
-  } finally {
-    setLoadingLtp(false); // Stop loading indicator
-  }
-};
-
-
+  // LTP (Last Traded Price) settings
+  const [exchange, setExchange] = useState("NSE");
+  const [ltpSymbol, setLtpSymbol] = useState("");
+  const [symbolToken, setSymbolToken] = useState("");
+  const [ltpPrice, setLtpPrice] = useState(null);
+  const [loadingLtp, setLoadingLtp] = useState(false);
 
   /********************************************************
-   *          FETCH REGISTERED USERS (ORIGINAL)           *
+   *                 API FUNCTIONS                      *
    ********************************************************/
-    useEffect(() => {
-      if (!isSimulating) return;
-    
-      // Check buy conditions
-      if (actionType === 'buy' && entryPrice === null) {
-        let conditionMet = false;
-        switch (buyConditionType) {
-          case 'fixed':
-            conditionMet = currentPrice >= buyConditionValue;
-            break;
-          case 'percentage':
-            conditionMet = currentPrice >= currentPrice * (1 + buyConditionValue / 100);
-            break;
-          case 'points':
-            conditionMet = currentPrice >= currentPrice + buyConditionValue;
-            break;
-          default:
-            conditionMet = false;
-        }
-    
-        if (conditionMet) {
-          console.log(`** BUY triggered at ${currentPrice} based on condition **`);
-          setEntryPrice(currentPrice);
-          basePriceRef.current = currentPrice;
-        }
-      }
-    // Existing sell logic...
-  }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, sellThreshold, buyConditionType, buyConditionValue]);
-
-  
-  useEffect(() => {
-    const fetchUsers = async () => {
-        try {
-            const response = await fetch('/api/get_users');  // New API call
-            const data = await response.json();
-            setUsers(data);
-        } catch (error) {
-            console.error("Error fetching users:", error);
-        }
-    };
-    fetchUsers();
-}, []);
-
-
-// ✅ Define `executeBuyTrade` to Send Trade Request to Backend
-const executeBuyTrade = async (price) => {
-  if (selectedUsers.length === 0) {
-      console.log("No users selected for trade.");
+  const fetchLtp = async () => {
+    if (!ltpSymbol) {
+      alert("Please enter a stock symbol.");
       return;
-  }
-
-  const buyData = {
-      users: selectedUsers,
-      symbol: formData.symbol,
-      buy_price: price,
-      buy_condition_type: buyConditionType,
-      buy_condition_value: buyConditionValue,
-      stop_loss_type: stopLossType,
-      stop_loss_value: stopLossValue,
-      points_condition: pointsCondition
-  };
-
-  try {
-      const response = await fetch('/api/buy_trade', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buyData),
-      });
-
-      const data = await response.json();
-      if (response.ok) {
-          console.log(`✅ Trade executed at ${price}:`, data);
-          setEntryPrice(price);
-          basePriceRef.current = price;
-      } else {
-          console.error("❌ Trade execution failed:", data.error);
-      }
-  } catch (error) {
-      console.error("❌ API Error executing trade:", error);
-  }
-};
-
-  /********************************************************
-   *        ORIGINAL: REGISTER USER SUBMIT HANDLER        *
-   ********************************************************/
-  const handleRegisterSubmit = async (e) => {
-    e.preventDefault();
-    console.log("Submitting form data:", formData); // ✅ Debugging
-
+    }
+    setLoadingLtp(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/api/register_user', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
+      const response = await fetch(`http://127.0.0.1:8001/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
       const data = await response.json();
-      console.log("API Response:", data);  // ✅ Debugging
-
-      if (response.ok) {
-        setMessage({ text: 'User registered successfully!', type: 'success' });
-        setUsers([...users, formData]);  // ✅ Update users list
-        setFormData({ username: "", broker: "Angel", api_key: "", totp_token: "", default_quantity: "" });
+      if (response.status) {
+        setLtpPrice(data.ltp);
       } else {
-        setMessage({ text: data.message || 'Registration failed', type: 'danger' });
+        setLtpPrice(null);
+        alert("Failed to fetch LTP. Please check the symbol.");
       }
     } catch (error) {
-      console.error("Error registering user:", error);
-      setMessage({ text: 'Server error. Try again later.', type: 'danger' });
+      console.error("Error fetching LTP:", error);
+      alert("Server error. Try again later.");
+    } finally {
+      setLoadingLtp(false);
     }
-};
-
-
-  /********************************************************
-   *          ORIGINAL BUY/SELL BUTTON CLICK HANDLERS     *
-   ********************************************************/
-  const handleBuyClick = () => {
-    setActionType('buy');
-    setShowStopLossForm(true);
   };
 
-  const handleSellClick = () => {
-    setActionType('sell');
-    setShowStopLossForm(true);
+  const fetchTrades = async () => {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/get_trades");
+      if (!response.ok) {
+        throw new Error("Failed to fetch trades");
+      }
+      const data = await response.json();
+      
+      // ✅ Ensure user role is included
+      const updatedTrades = data.trades.map(trade => ({
+        ...trade,
+        user_role: trade.user_role || "Trader", // Default role if missing
+      }));
+  
+      setOpenTrades(updatedTrades);
+    } catch (error) {
+      console.error("Error fetching trades:", error);
+    }
+  };
+  
+
+  const UserActionsDropdown = ({ setShowRegisterModal, setShowUsers, showUsers }) => {
+    return (
+      <Dropdown as={ButtonGroup}>
+        {/* Main Icon Button */}
+        <Dropdown.Toggle variant="primary" id="dropdown-basic" className="user-actions-dropdown">
+          <FontAwesomeIcon icon={faUserCog} />
+        </Dropdown.Toggle>
+  
+        {/* Dropdown Menu */}
+        <Dropdown.Menu>
+          <Dropdown.Item onClick={() => setShowRegisterModal(true)}>
+            <FontAwesomeIcon icon={faUserPlus} className="me-2" /> Register
+          </Dropdown.Item>
+          <Dropdown.Item onClick={() => setShowUsers(!showUsers)}>
+            <FontAwesomeIcon icon={faUsers} className="me-2" /> View Users
+          </Dropdown.Item>
+          <Dropdown.Item onClick={() => window.open('https://www.angelone.in/login/?redirectUrl=account', '_blank')}>
+            <FontAwesomeIcon icon={faSignInAlt} className="me-2" /> Angel Login
+          </Dropdown.Item>
+        </Dropdown.Menu>
+      </Dropdown>
+    );
   };
 
+  // ------------------------------
+  // Fetch registered users on component mount
+  // ------------------------------
+  const fetchUsers = async () => {
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/get_users", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+  
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+  
+      const data = await response.json();
+      console.log("Fetched users:", data.users);
+      setUsers(data.users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
   /********************************************************
-   *           PRICE SIMULATION (start/stop)              *
+   *             SIMULATION & CONDITION CHECK           *
    ********************************************************/
+  // Price simulation start/stop functions
   const startSimulation = () => {
     if (!isSimulating) {
       setIsSimulating(true);
       simulationRef.current = setInterval(() => {
-        // Randomly move price by -2..+4
-        const change = Math.floor(Math.random() * 7) - 2;
-        setCurrentPrice((prev) => Math.max(1, prev + change));
+        const change = Math.floor(Math.random() * 7) - 2; // random change from -2 to +4
+        setCurrentPrice(prev => Math.max(1, prev + change));
       }, 1000);
     }
   };
@@ -247,252 +189,77 @@ const executeBuyTrade = async (price) => {
     }
   };
 
-  /********************************************************
-   *   WATCH CURRENT PRICE => CHECK BUY/SELL THRESHOLDS   *
-   ********************************************************/
-// ✅ Fetch Users from Backend
-useEffect(() => {
-  const fetchUsers = async () => {
-      try {
-          const response = await fetch('/api/get_users');  // New API call
-          const data = await response.json();
-          setUsers(data);
-      } catch (error) {
-          console.error("Error fetching users:", error);
-      }
-  };
-  fetchUsers();
-}, []);
-
-// ✅ Buy Condition Execution
-useEffect(() => {
-  if (!isSimulating) return;
-
-  if (actionType === 'buy' && entryPrice === null) {
+  // When simulating price for BUY trades, check the condition and trigger trade if met
+  useEffect(() => {
+    if (!isSimulating) return;
+    if (actionType === 'buy' && entryPrice === null) {
       let conditionMet = false;
-      
       switch (buyConditionType) {
-          case 'fixed':
-              conditionMet = currentPrice >= buyConditionValue;
-              break;
-          case 'percentage':
-              conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100)); 
-              break;
-          case 'points':
-              conditionMet = currentPrice >= (buyThreshold + buyConditionValue);
-              break;
-          default:
-              conditionMet = false;
+        case 'Fixed Value':
+          conditionMet = currentPrice >= buyConditionValue;
+          break;
+        case 'Percentage':
+          // Using buyThreshold as the market price reference
+          conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100));
+          break;
+        case 'Points':
+          conditionMet = currentPrice >= (buyThreshold + buyConditionValue);
+          break;
+        default:
+          conditionMet = false;
       }
-
       if (conditionMet) {
-          console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
-          executeBuyTrade(currentPrice);
+        console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
+        executeBuyTrade(currentPrice);
       }
-  }
-}, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue]);
+    }
+  }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue]);
 
-  /********************************************************
-   *        STOP-LOSS SCENARIOS (BUY => SELL)             *
-   ********************************************************/
-  const simulateStopLossForBuy = (price) => {
-    const entry = entryPrice;
-    const base = basePriceRef.current;
-
-    switch (true) {
-      /**
-       * Scenario 1: Fixed
-       * e.g. if price <= stopLossValue => SELL
-       */
-      case stopLossType === 'fixed':
-        if (price <= stopLossValue) {
-          console.log(`Scenario 1: Price ${price} <= ${stopLossValue}, SELL triggered!`);
-          finalizeTrade(price, 'sell');
-        }
-        break;
-
-      /**
-       * Scenario 2: Trailing % (pointsCondition=0 => no negative dips)
-       * e.g. 50 => lock 50% if price above entry
-       */
-      case (stopLossType === 'percentage' && pointsCondition === 0):
-        if (price > base) {
-          const newStop = entry + (price - entry) * (stopLossValue / 100);
-          console.log(`Scenario 2: Price=${price}, trailingStop=${newStop}`);
-          if (price <= newStop) {
-            console.log(`Scenario 2: Price ${price} <= stop ${newStop}, SELL triggered!`);
-            finalizeTrade(price, 'sell');
-          }
-        }
-        break;
-
-      /**
-       * Scenario 3: Trailing % with Negative Points Condition
-       * e.g. if price dips 2 below base => update base
-       */
-      case (stopLossType === 'percentage' && pointsCondition < 0):
-        if (price <= base + pointsCondition) {
-          basePriceRef.current = price;
-          console.log(`Scenario 3: Base updated => ${price}`);
-        }
-        if (price > basePriceRef.current) {
-          const newStop =
-            basePriceRef.current + 
-            (price - basePriceRef.current) * (stopLossValue / 100);
-          console.log(`Scenario 3: Price=${price}, trailingStop=${newStop}`);
-          if (price <= newStop) {
-            console.log(`Scenario 3: SELL triggered at ${price}!`);
-            finalizeTrade(price, 'sell');
-          }
-        }
-        break;
-
-      /**
-       * Scenario 4: Trailing with Points
-       */
-      case (stopLossType === 'points'):
-        if (price > base) {
-          const newStop = price - stopLossValue;
-          console.log(`Scenario 4: Price=${price}, trailingStop=${newStop}`);
-          if (price <= newStop) {
-            console.log(`Scenario 4: SELL triggered at price=${price}`);
-            finalizeTrade(price, 'sell');
-          }
-        }
-        break;
-
-      /**
-       * Scenario 5: Combined Logic (Percentage + small dips)
-       */
-      default:
-        if (stopLossType === 'percentage' && pointsCondition < 0) {
-          if (price <= base + pointsCondition) {
-            basePriceRef.current = price;
-            console.log(`Scenario 5: Base updated => ${price}`);
-          }
-          if (price > basePriceRef.current) {
-            const newStop =
-              basePriceRef.current +
-              (price - basePriceRef.current) * (stopLossValue / 100);
-            console.log(`Scenario 5: Price=${price}, trailingStop=${newStop}`);
-            if (price <= newStop) {
-              console.log(`Scenario 5: SELL triggered at ${price}!`);
-              finalizeTrade(price, 'sell');
-            }
-          }
-        }
-        break;
+  // Execute trade (Buy Order) for selected users
+  const executeBuyTrade = async (price) => {
+    if (selectedUsers.length === 0) {
+      console.log("No users selected for trade.");
+      return;
+    }
+    const buyData = {
+      users: selectedUsers,
+      symbol: formData.symbol,
+      buy_threshold: buyThreshold,
+      buy_condition_type: buyConditionType,
+      buy_condition_value: buyConditionValue,
+      stop_loss_type: stopLossType,
+      stop_loss_value: stopLossValue,
+      points_condition: pointsCondition
+    };
+    try {
+      const response = await fetch('/api/buy_trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buyData)
+      });
+      const data = await response.json();
+      if (response.ok) {
+        console.log(`✅ BUY Trade executed at ${price}:`, data);
+        setEntryPrice(price);
+        basePriceRef.current = price;
+      } else {
+        console.error("❌ BUY Trade execution failed:", data.error);
+      }
+    } catch (error) {
+      console.error("❌ API Error executing BUY trade:", error);
     }
   };
 
-  /********************************************************
-   *        STOP-LOSS SCENARIOS (SELL => BUY)             *
-   ********************************************************/
-  const simulateStopLossForSell = (price) => {
-    const entry = entryPrice;
-    const base = basePriceRef.current;
-
-    switch (true) {
-      /**
-       * Scenario 1: Fixed (Short)
-       * e.g. short=120, stopLossValue=125 => if price>=125 => buy
-       */
-      case stopLossType === 'fixed':
-        if (price >= stopLossValue) {
-          console.log(`(Short) Scenario 1: Price ${price} >= ${stopLossValue}, BUY triggered!`);
-          finalizeTrade(price, 'buy');
-        }
-        break;
-
-      /**
-       * Scenario 2: Trailing % (Short), pointsCondition=0
-       * e.g. short=120 => price=110 => profit=10 => lock 50% => stop=115 => if price≥115 => buy
-       */
-      case (stopLossType === 'percentage' && pointsCondition === 0):
-        if (price < base) {
-          const profit = base - price;
-          const newStop = entry - (profit * (stopLossValue / 100));
-          console.log(`(Short) Scenario 2: Price=${price}, trailingStop=${newStop}`);
-          if (price >= newStop) {
-            console.log(`(Short) Scenario 2: Price ${price} >= stop ${newStop}, BUY triggered!`);
-            finalizeTrade(price, 'buy');
-          }
-        }
-        break;
-
-      /**
-       * Scenario 3: Negative Points Condition (Short)
-       */
-      case (stopLossType === 'percentage' && pointsCondition < 0):
-        if (price >= base - pointsCondition) {
-          basePriceRef.current = price;
-          console.log(`(Short) Scenario 3: Base updated => ${price}`);
-        }
-        if (price < basePriceRef.current) {
-          const profit = basePriceRef.current - price;
-          const newStop = basePriceRef.current - (profit * (stopLossValue / 100));
-          console.log(`(Short) Scenario 3: Price=${price}, trailingStop=${newStop}`);
-          if (price >= newStop) {
-            console.log(`(Short) Scenario 3: BUY triggered at ${price}`);
-            finalizeTrade(price, 'buy');
-          }
-        }
-        break;
-
-      /**
-       * Scenario 4: Points (Short)
-       */
-      case (stopLossType === 'points'):
-        if (price < base) {
-          const newStop = price + stopLossValue;
-          console.log(`(Short) Scenario 4: Price=${price}, trailingStop=${newStop}`);
-          if (price >= newStop) {
-            console.log(`(Short) Scenario 4: BUY triggered at ${price}`);
-            finalizeTrade(price, 'buy');
-          }
-        }
-        break;
-
-      /**
-       * Scenario 5: Combined (Short)
-       */
-      default:
-        if (stopLossType === 'percentage' && pointsCondition < 0) {
-          if (price >= base - pointsCondition) {
-            basePriceRef.current = price;
-            console.log(`(Short) Scenario 5: Base updated => ${price}`);
-          }
-          if (price < basePriceRef.current) {
-            const profit = basePriceRef.current - price;
-            const newStop = basePriceRef.current - (profit * (stopLossValue / 100));
-            console.log(`(Short) Scenario 5: Price=${price}, trailingStop=${newStop}`);
-            if (price >= newStop) {
-              console.log(`(Short) Scenario 5: BUY triggered at ${price}`);
-              finalizeTrade(price, 'buy');
-            }
-          }
-        }
-        break;
-    }
-  };
-
-  /********************************************************
-   *        FINALIZE TRADE => EXIT + STOP SIMULATION      *
-   ********************************************************/
-  const finalizeTrade = (exitPrice, exitAction) => {
-    console.log(`Exiting position with a ${exitAction.toUpperCase()} at price=${exitPrice}`);
-    setEntryPrice(null); // no open position
-    stopSimulation(); 
-  };
-
-  /********************************************************
-   *   WHEN USER SUBMITS THE "BUY/SELL + STOP-LOSS" FORM  *
-   ********************************************************/
+  // Handle form submission for trade (buy or sell)
   const handleStopLossSubmission = async (e) => {
     e.preventDefault();
-
-    const buyData = {
-        users: selectedUsers,  // Sends selected users to backend
+    if (selectedUsers.length === 0) {
+      alert("Please select at least one user (maximum 3) for the trade.");
+      return;
+    }
+    if (actionType === 'buy') {
+      const buyData = {
+        users: selectedUsers,
         symbol: formData.symbol,
         buy_threshold: buyThreshold,
         buy_condition_type: buyConditionType,
@@ -500,50 +267,208 @@ useEffect(() => {
         stop_loss_type: stopLossType,
         stop_loss_value: stopLossValue,
         points_condition: pointsCondition
-    };
-
-    try {
+      };
+      try {
         const response = await fetch('/api/buy_trade', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(buyData),
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buyData)
         });
-
         const data = await response.json();
         if (response.ok) {
-            console.log("Trade executed successfully:", data);
-            setMessage({ text: 'Trade executed successfully!', type: 'success' });
+          console.log("BUY Trade executed successfully:", data);
+          setMessage({ text: 'Buy trade executed successfully!', type: 'success' });
         } else {
-            setMessage({ text: data.error || 'Trade execution failed', type: 'danger' });
+          setMessage({ text: data.error || 'Buy trade execution failed', type: 'danger' });
         }
-    } catch (error) {
-        console.error("Error executing trade:", error);
+      } catch (error) {
+        console.error("Error executing BUY trade:", error);
         setMessage({ text: 'Server error. Try again later.', type: 'danger' });
-    }
-};
-
-const handleDeleteUser = async (username) => {
-  console.log(`Deleting user: ${username}`); // ✅ Debugging log
-
-  try {
-      const response = await fetch(`http://127.0.0.1:8000/api/delete_user/${username}`, {
-          method: 'DELETE',
-      });
-
-      const data = await response.json();
-      console.log("API Response:", data);  // ✅ Debugging log
-
-      if (response.ok) {
-          setUsers(users.filter(user => user.username !== username));  // ✅ Update UI
-          setMessage({ text: 'User deleted successfully!', type: 'success' });
-      } else {
-          setMessage({ text: data.detail || 'Failed to delete user', type: 'danger' });
       }
-  } catch (error) {
-      console.error("❌ Error deleting user:", error);
-      setMessage({ text: 'Server error. Try again later.', type: 'danger' });
-  }
-};
+    } else if (actionType === 'sell') {
+      const sellData = {
+        users: selectedUsers,
+        symbol: formData.symbol,
+        sell_threshold: sellThreshold,
+        sell_condition_type: sellConditionType,
+        sell_condition_value: sellConditionValue,
+        stop_gain_type: stopLossType, // using same field names as backend expects
+        stop_gain_value: stopLossValue,
+        points_condition: pointsCondition
+      };
+      try {
+        const response = await fetch('/api/sell_trade', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sellData)
+        });
+        const data = await response.json();
+        if (response.ok) {
+          console.log("SELL Trade executed successfully:", data);
+          setMessage({ text: 'Sell trade executed successfully!', type: 'success' });
+        } else {
+          setMessage({ text: data.error || 'Sell trade execution failed', type: 'danger' });
+        }
+      } catch (error) {
+        console.error("Error executing SELL trade:", error);
+        setMessage({ text: 'Server error. Try again later.', type: 'danger' });
+      }
+    }
+  };
+
+  // Registration submit handler
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+    console.log("Submitting user:", formData);
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/register_user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: formData.username,
+          broker: formData.broker,
+          api_key: formData.api_key,
+          totp_token: formData.totp_token,
+          default_quantity: parseInt(formData.default_quantity, 10),
+        }),
+      });
+      const data = await response.json();
+      console.log("API Response:", data);
+      if (response.ok) {
+        setMessage({ text: "User registered successfully!", type: "success" });
+        fetchUsers(); // Refresh user list
+        setFormData({ username: "", broker: "Angel", api_key: "", totp_token: "", default_quantity: "", symbol: "" });
+      } else {
+        setMessage({ text: data.detail || "Registration failed", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error registering user:", error);
+      setMessage({ text: "Server error. Try again later.", type: "danger" });
+    }
+  };
+
+  // Delete user handler
+  const handleDeleteUser = async (username) => {
+    console.log(`Deleting user: ${username}`);
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/delete_user/${username}`, {
+        method: "DELETE"
+      });
+      const data = await response.json();
+      console.log("API Response:", data);
+      if (response.ok) {
+        setUsers(users.filter(user => user.username !== username));
+        setMessage({ text: "User deleted successfully!", type: "success" });
+      } else {
+        setMessage({ text: data.detail || "Failed to delete user", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      setMessage({ text: "Server error. Try again later.", type: "danger" });
+    }
+  };
+  const AdvancedChart = ({ symbol, openTrades }) => {
+    const chartContainerRef = useRef(null);
+    const tvWidgetRef = useRef(null);
+  
+    useEffect(() => {
+      loadTradingViewScript(() => {
+        if (!window.TradingView) return;
+  
+        tvWidgetRef.current = new window.TradingView.widget({
+          autosize: true,
+          symbol: symbol || "NASDAQ:AAPL",
+          interval: "5",
+          container_id: "advanced_chart_container",
+          datafeed: window.TradingView.defaultDatafeed, // ✅ Gets data from TradingView
+          library_path: "/charting_library/",
+          locale: "en",
+          disabled_features: ["header_saveload"],
+          enabled_features: [],
+          onChartReady: () => console.log("Advanced chart is ready"),
+        });
+      });
+    }, [symbol]);
+  
+    const updateMarkers = (trades) => {
+      if (!tvWidgetRef.current) return;
+    
+      // ✅ Ensure the widget is fully initialized
+      if (typeof tvWidgetRef.current.on !== "function") {
+        console.error("TradingView widget is not initialized properly.");
+        return;
+      }
+    
+      tvWidgetRef.current.on("chart_ready", () => {
+        const chart = tvWidgetRef.current.chart(); // ✅ Correct way to access the chart
+        const currentTime = Math.floor(Date.now() / 1000); // UNIX timestamp
+    
+        let priceOffset = {}; // Track how many trades exist at a given price
+    
+        trades.forEach((trade) => {
+          const basePrice = trade.entry_price;
+    
+          // Offset price if multiple trades exist at the same level
+          if (!priceOffset[basePrice]) {
+            priceOffset[basePrice] = 0;
+          } else {
+            priceOffset[basePrice] += 0.5; // Offset by 0.5 points
+          }
+    
+          // 🎨 Assign unique icons & colors for users
+          const userIcons = {
+            "John": { icon: "👨‍💼", color: "🔵" },  // Businessman icon (Blue)
+            "Alice": { icon: "👩‍💼", color: "🟢" },  // Businesswoman icon (Green)
+            "Bob": { icon: "🧑‍💻", color: "🟠" }   // Developer icon (Orange)
+          };
+    
+          // Get user icon & color (default to 🧑‍💻 and ⚪ if not found)
+          const userData = userIcons[trade.username] || { icon: "🧑‍💻", color: "⚪" };
+    
+          // ✅ Add marker with hover effect showing username, role, and color icon
+          chart.createShape(
+            { time: currentTime, price: basePrice + priceOffset[basePrice] },
+            {
+              shape: trade.position_type === "LONG" ? "arrow_up" : "arrow_down",
+              text: `${userData.color} ${userData.icon} ${trade.username}\n(${trade.user_role})`, // ✅ Colored User Icon + Name + Role (Hover Effect)
+              color: trade.position_type === "LONG" ? "green" : "red",
+              disableUndo: true
+            }
+          );
+        });
+      });
+    };
+    
+  
+    useEffect(() => {
+      if (tvWidgetRef.current) {
+        updateMarkers(openTrades); // ✅ Updates chart when trades change
+      }
+    }, [openTrades]);
+  
+    return <div id="advanced_chart_container" ref={chartContainerRef} style={{ height: "500px", width: "100%" }}></div>;
+  };
+  
+  const loadTradingViewScript = (callback) => {
+    if (window.TradingView) {
+      callback();
+      return;
+    }
+  
+    const script = document.createElement("script");
+    script.src = "https://s3.tradingview.com/tv.js";
+    script.async = true;
+    script.onload = callback; // Ensure script loads before calling TradingView
+    document.body.appendChild(script);
+  };
+  
+  
+  // ------------------------------
+  // Price Simulation for testing
+  // ------------------------------
+  const startPriceSimulation = () => {
+    startSimulation();
+  };
 
   /********************************************************
    *                     RENDER (JSX)                     *
@@ -551,218 +476,212 @@ const handleDeleteUser = async (username) => {
   return (
     <>
       <Container className="mt-4">
-      {/* Original: Register, ViewUsers, Angel Login (Updated Colors) */}
-      {/* Move Register, View Users, and Angel Login to the Top-Right, 20% Down */}
-      <Row className="justify-content-end mb-3" 
-        style={{ position: "absolute", top: "9%", right: "10px", zIndex: "1000" }}>
-        <Col xs="auto">
-        <Button 
-          onClick={() => setShowRegisterModal(true)} 
-          className="gradient-button btn-register"
-        >
-          <FontAwesomeIcon icon={faUserPlus} /> Register
-        </Button>
-
-        </Col>
-
-
-        <Col xs="auto">
-        <Button 
-          onClick={() => setShowUsers(!showUsers)} 
-          className="gradient-button btn-users"
-        >
-          <FontAwesomeIcon icon={faUsers} /> View Users
-        </Button>
-
-        </Col>
-        <Col xs="auto">
-        <Button
-          onClick={() => window.open('https://www.angelone.in/login/?redirectUrl=account', '_blank')}
-          className="gradient-button btn-login"
-        >
-          <FontAwesomeIcon icon={faSignInAlt} /> Angel Login
-        </Button>
-
-        </Col>
-      </Row>
-
-
-
-        {/* Original: Users Table */}
-        {showUsers && (
-          <Container>
-            <h3 className="text-center">Registered Users</h3>
-            <Table striped bordered hover>
-              <thead>
-                <tr>
-                  <th>Username</th>
-                  <th>Broker</th>
-                  <th>Default Quantity</th>
-                </tr>
-              </thead>
-              <tbody>
-              {users.map((user, index) => (
-                  <tr key={index}>
-                      <td>{user.username}</td>
-                      <td>{user.broker}</td>
-                      <td>{user.default_quantity}</td>
-                      <td>
-                          <Button variant="danger" size="sm" onClick={() => handleDeleteUser(user.username)}>
-                              Delete
-                          </Button>
-                      </td>
-                  </tr>
-              ))}
-          </tbody>
-
-            </Table>
-          </Container>
-        )}
-        
-        {/* Updated: AngelOne Trading Buttons (Refined Colors) */}
-      {/* Updated: AngelOne Trading Buttons (Gradient Styling) */}
-      <Row className="justify-content-center mb-3">
-        <Col xs="auto">
-          <Button
-            onClick={() => window.open('https://www.angelone.in/trade/markets/equity/overview', '_blank')}
-            className="gradient-button btn-market"
-          >
-            Market Overview
-          </Button>
-        </Col>
-
-        <Col xs="auto">
-          <Button
-            onClick={() => window.open('https://www.angelone.in/trade/indices/indian', '_blank')}
-            className="gradient-button btn-indices"
-          >
-            Indices
-          </Button>
-        </Col>
-
-        <Col xs="auto">
-          <Button
-            onClick={() => window.open('https://www.angelone.in/trade/watchlist/chart', '_blank')}
-            className="gradient-button btn-chart"
-          >
-            Chart
-          </Button>
-        </Col>
-
-        <Col xs="auto">
-          <Button
-            onClick={() => window.open('https://www.angelone.in/trade/watchlist/option-chain', '_blank')}
-            className="gradient-button btn-option"
-          >
-            Option Chain
-          </Button>
-        </Col>
-
-        <Col xs="auto">
-        <Button className="gradient-button btn-ltp">
-          Fetch LTP
-        </Button>
-
-        </Col>
-      </Row>
-
-
-        {/* Show LTP Form when button is clicked */}
-          <Container className="mt-4 p-3 border rounded shadow-sm">
-
-            <h4 className="text-primary">🔍 Live Fetch LTP</h4>
-            <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
-              <Row className="mb-3">
-                {/* Select Exchange (Dropdown) */}
-                <Col md={3}>
-                  <Form.Group controlId="exchange">
-                    <Form.Label>Select Exchange</Form.Label>
-                    <Form.Select
-                      value={exchange}
-                      onChange={(e) => setExchange(e.target.value)}
-                    >
-                      <option value="NSE">NSE</option>
-                      <option value="BSE">BSE</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-
-                {/* Input for Stock Symbol */}
-                <Col md={3}>
-                  <Form.Group controlId="ltpSymbol">
-                    <Form.Label>Enter Stock Symbol</Form.Label>
-                    <Form.Control
-                      type="text"
-                      placeholder="e.g. RELIANCE"
-                      value={ltpSymbol}
-                      onChange={(e) => setLtpSymbol(e.target.value)}
-                      required
-                    />
-                  </Form.Group>
-                </Col>
-
-                {/* Input for Symbol Token (Optional) */}
-                <Col md={3}>
-                  <Form.Group controlId="symbolToken">
-                    <Form.Label>Enter Symbol Token (Optional)</Form.Label>
-                    <Form.Control
-                      type="text"
-                      placeholder="e.g. 3045"
-                      value={symbolToken}
-                      onChange={(e) => setSymbolToken(e.target.value)}
-                    />
-                  </Form.Group>
-                </Col>
-
-                {/* Fetch LTP Button */}
-                <Col md={2}>
-                  <Button type="submit" variant="primary" className="mt-4">
-                    Fetch LTP
-                  </Button>
-                </Col>
-              </Row>
-            </Form>
-
-
-            {loadingLtp && <p>Loading...</p>}
-
-            {ltpPrice !== null && (
-              <Alert variant="success">
-                📈 Latest Price of <strong>{ltpSymbol}</strong>: ₹{ltpPrice}
-              </Alert>
-            )}
-          </Container>
-        )}
-
-        {/* Updated: Buy / Sell Buttons with Trading Candle Colors */}
-        <Row className="justify-content-center mb-3">
+        {/* Top-right action buttons */}
+        <Row className="justify-content-end mb-3" style={{ position: "absolute", top: "9%", right: "10px", zIndex: "1000" }}>
           <Col xs="auto">
-          <Button 
-              onClick={handleBuyClick} 
-              className="gradient-button btn-buy"
-            >
-              <FontAwesomeIcon icon={faShoppingCart} /> Buy
-            </Button>
-
-          </Col>
-          <Col xs="auto">
-          <Button 
-            onClick={handleSellClick} 
-            className="gradient-button btn-sell"
-          >
-            <FontAwesomeIcon icon={faExchangeAlt} /> Sell
-          </Button>
-
-          </Col>
-          <Col xs="auto">
-          <Button onClick={stopSimulation} className="gradient-button btn-stop">
-          Stop Simulation
-        </Button>
-
+            <UserActionsDropdown 
+              setShowRegisterModal={setShowRegisterModal} 
+              setShowUsers={setShowUsers} 
+              showUsers={showUsers} 
+            />
           </Col>
         </Row>
 
-        {/* The Big Form: for Buy or Sell thresholds + Stop-Loss */}
+        {/* Registered Users Table */}
+        {/* ===================== Registered Users Table ===================== */}
+        {showUsers && (
+          <Container className="users-table-container mb-5">
+            <h3 className="text-center mb-4 text-primary">
+              <FontAwesomeIcon icon={faUsers} className="me-2" /> Registered Users
+            </h3>
+            <div className="table-responsive">
+              <Table striped bordered hover className="users-table shadow-sm">
+                <thead>
+                  <tr>
+                    <th className="table-header bg-primary text-white">#</th>
+                    <th className="table-header bg-success text-white">Username</th>
+                    <th className="table-header bg-info text-white">Role</th>
+                    <th className="table-header bg-warning text-dark">Broker</th>
+                    <th className="table-header bg-danger text-white">Default Quantity</th>
+                    <th className="table-header bg-dark text-white">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.length > 0 ? (
+                    users.map((user, index) => (
+                      <tr key={index}>
+                        <td>{index + 1}</td>
+                        <td>{user.username}</td>
+                        <td>{user.role || "Trader"}</td>
+                        <td>{user.broker}</td>
+                        <td>{user.default_quantity}</td>
+                        <td>
+                          <Button variant="danger" size="sm" onClick={() => handleDeleteUser(user.username)}>
+                            ❌ Delete
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="6" className="text-muted text-center">No registered users found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </Table>
+            </div>
+          </Container>
+        )}
+
+       {/* ===================== Active Trades Table ===================== */}
+        {showTradesDashboard && (
+          <>
+            <Container className="mt-4 traders-table-container">
+              <h3 className="text-center mb-4 text-primary">
+                <FontAwesomeIcon icon={faExchangeAlt} className="me-2" /> Active Trades
+              </h3>
+              <div className="table-responsive">
+                <Table striped bordered hover className="traders-table shadow-sm">
+                  <thead>
+                    <tr>
+                      <th className="table-header bg-primary text-white">#</th>
+                      <th className="table-header bg-success text-white">Username</th>
+                      <th className="table-header bg-info text-white">Role</th>  {/* ✅ Added Role */}
+                      <th className="table-header bg-info text-white">Symbol</th>
+                      <th className="table-header bg-warning text-dark">Entry Price</th>
+                      <th className="table-header bg-danger text-white">Threshold</th>
+                      <th className="table-header bg-secondary text-white">Exit Type</th>
+                      <th className="table-header bg-dark text-white">Exit Value</th>
+                      <th className="table-header bg-primary text-white">Position</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {openTrades.length > 0 ? (
+                      openTrades.map((trade, index) => (
+                        <tr key={index}>
+                          <td>{index + 1}</td>
+                          <td>{trade.username}</td>
+                          <td>{trade.user_role}</td> {/* ✅ Shows user role */}
+                          <td>{trade.symbol}</td>
+                          <td>₹{trade.entry_price}</td>
+                          <td>{trade.position_type === "LONG" ? trade.buy_threshold : trade.sell_threshold}</td>
+                          <td>{trade.exit_condition_type}</td>
+                          <td>{trade.exit_condition_value}</td>
+                          <td className={trade.position_type === "LONG" ? "text-success" : "text-danger"}>
+                            {trade.position_type}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="9" className="text-muted">No active trades found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </Table>
+              </div>
+            </Container>
+
+            {/* Add AdvancedChart here */}
+            <Container className="mt-4">
+              <h4 className="text-center mb-3">📊 Live Chart with Open Trades</h4>
+              <AdvancedChart symbol={formData.symbol} openTrades={openTrades} />
+            </Container>
+          </>
+        )}
+
+
+        {/* Trading Action Buttons */}
+        <Row className="justify-content-center mb-3">
+          <Col xs="auto">
+            <Button onClick={() => window.open('https://www.angelone.in/trade/markets/equity/overview', '_blank')} className="gradient-button btn-market">
+              Market Overview
+            </Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={() => window.open('https://www.angelone.in/trade/indices/indian', '_blank')} className="gradient-button btn-indices">
+              Indices
+            </Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={() => window.open('https://www.angelone.in/trade/watchlist/chart', '_blank')} className="gradient-button btn-chart">
+              Chart
+            </Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={() => window.open('https://www.angelone.in/trade/watchlist/option-chain', '_blank')} className="gradient-button btn-option">
+              Option Chain
+            </Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={fetchLtp} className="gradient-button btn-ltp">Fetch LTP</Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchTrades(); }} className="gradient-button btn-trades">
+              Trades Dashboard
+            </Button>
+          </Col>
+        </Row>
+
+        {/* LTP Form */}
+        <Container className="ltp-container">
+          <h4 className="text-primary">🔍 Live Fetch LTP</h4>
+          <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
+            <Row className="mb-3">
+              <Col md={3}>
+                <Form.Group controlId="exchange">
+                  <Form.Label>Select Exchange</Form.Label>
+                  <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                    <option value="NSE">NSE</option>
+                    <option value="BSE">BSE</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="ltpSymbol">
+                  <Form.Label>Enter Stock Symbol</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="symbolToken">
+                  <Form.Label>Enter Symbol Token (Optional)</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
+                </Form.Group>
+              </Col>
+              <Col md={2}>
+                <Button type="submit" variant="primary" className="mt-4">Fetch LTP</Button>
+              </Col>
+            </Row>
+          </Form>
+          {loadingLtp && <p>Loading...</p>}
+          {ltpPrice !== null && (
+            <Alert variant="success">
+              📈 Latest Price of <strong>{ltpSymbol}</strong>: ₹{ltpPrice}
+            </Alert>
+          )}
+        </Container>
+
+        {/* Buy/Sell Buttons */}
+        <Row className="justify-content-center mb-3">
+          <Col xs="auto">
+            <Button onClick={() => { setActionType('buy'); setShowStopLossForm(true); }} className="gradient-button btn-buy">
+              <FontAwesomeIcon icon={faShoppingCart} /> Buy
+            </Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={() => { setActionType('sell'); setShowStopLossForm(true); }} className="gradient-button btn-sell">
+              <FontAwesomeIcon icon={faExchangeAlt} /> Sell
+            </Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={stopSimulation} className="gradient-button btn-stop">
+              Stop Simulation
+            </Button>
+          </Col>
+        </Row>
+
+        {/* Trade Form: Buy/Sell + Stop-Loss/Stop-Gain */}
         {showStopLossForm && (
           <Container className="mt-4 p-3 border rounded shadow-sm">
             <h4 className={actionType === 'buy' ? "text-success" : "text-danger"}>
@@ -778,158 +697,101 @@ const handleDeleteUser = async (username) => {
             </h4>
             <Form onSubmit={handleStopLossSubmission}>
               <Row className="mb-3">
-                {/* If user clicks Buy => show Buy Threshold */}
                 {actionType === 'buy' && (
                   <>
                     <Col md={3}>
                       <Form.Group controlId="buyThreshold">
-                        <Form.Label>Buy Threshold (&#8805;)</Form.Label>
-                        <Form.Control
-                          type="number"
-                          value={buyThreshold}
-                          onChange={(e) => setBuyThreshold(Number(e.target.value))}
+                        <Form.Label>Buy Threshold (≥)</Form.Label>
+                        <Form.Control 
+                          type="number" 
+                          value={buyThreshold} 
+                          onChange={(e) => setBuyThreshold(Number(e.target.value))} 
                         />
                       </Form.Group>
                     </Col>
                     <Col md={3}>
-                    <Form.Group controlId="buyConditionType">
-                      <Form.Label>Buy Strategy</Form.Label>
-                      <Form.Select
-                        value={buyConditionType}
-                        onChange={(e) => setBuyConditionType(e.target.value)}
-                      >
-                        <option value="Fixed">Fixed Value</option>
-                        <option value="Percentage">Percentage from Market</option>
-                        <option value="RSI">RSI-Based Buy</option>
-                        <option value="MovingAverage">Moving Average Buy</option>
-                        <option value="Support">Support Level Buy</option>
-                      </Form.Select>
-                    </Form.Group>
-
+                      <Form.Group controlId="buyConditionType">
+                        <Form.Label>Buy Strategy</Form.Label>
+                        <Form.Select 
+                          value={buyConditionType} 
+                          onChange={(e) => setBuyConditionType(e.target.value)}
+                        >
+                          <option value="Fixed Value">Fixed Value</option>
+                          <option value="Percentage">Percentage</option>
+                          <option value="Points">Points</option>
+                        </Form.Select>
+                      </Form.Group>
                     </Col>
                     <Col md={3}>
                       <Form.Group controlId="buyConditionValue">
                         <Form.Label>Buy Condition Value</Form.Label>
-                        <Form.Control
-                          type="number"
-                          value={buyConditionValue}
-                          onChange={(e) => setBuyConditionValue(Number(e.target.value))}
+                        <Form.Control 
+                          type="number" 
+                          value={buyConditionValue} 
+                          onChange={(e) => setBuyConditionValue(Number(e.target.value))} 
                         />
                       </Form.Group>
                     </Col>
                   </>
                 )}
-
-
-                {/* If user clicks Sell => show Sell Threshold */}
                 {actionType === 'sell' && (
-                  <Col md={3}>
-                    <Form.Group controlId="sellThreshold">
-                      <Form.Label>Sell Threshold (&#8804;)</Form.Label>
-                      <Form.Control
-                        type="number"
-                        value={sellThreshold}
-                        onChange={(e) => setSellThreshold(Number(e.target.value))}
-                      />
-                    </Form.Group>
-                  </Col>
+                  <>
+                    <Col md={3}>
+                      <Form.Group controlId="sellThreshold">
+                        <Form.Label>Sell Threshold (≤)</Form.Label>
+                        <Form.Control 
+                          type="number" 
+                          value={sellThreshold} 
+                          onChange={(e) => setSellThreshold(Number(e.target.value))} 
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={3}>
+                      <Form.Group controlId="sellConditionType">
+                        <Form.Label>Sell Strategy</Form.Label>
+                        <Form.Select 
+                          value={sellConditionType} 
+                          onChange={(e) => setSellConditionType(e.target.value)}
+                        >
+                          <option value="Fixed Value">Fixed Value</option>
+                          <option value="Percentage">Percentage</option>
+                          <option value="Points">Points</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                    <Col md={3}>
+                      <Form.Group controlId="sellConditionValue">
+                        <Form.Label>Sell Condition Value</Form.Label>
+                        <Form.Control 
+                          type="number" 
+                          value={sellConditionValue} 
+                          onChange={(e) => setSellConditionValue(Number(e.target.value))} 
+                        />
+                      </Form.Group>
+                    </Col>
+                  </>
                 )}
-
-                <Row className="mb-3">
-                  {/* NEW: Select User ID */}
-                  <Col md={3}>
-                    <Form.Group controlId="selectUserID">
-                      <Form.Label>Select User ID</Form.Label>
-                      <Form.Select
-                        multiple
-                        value={selectedUsers}
-                        onChange={(e) => {
-                          const selectedOptions = [...e.target.options]
-                            .filter(option => option.selected)
-                            .map(option => option.value);
-                          setSelectedUsers(selectedOptions);
-                        }}
-                      >
-                        {users.map((user, index) => (
-                          <option key={index} value={user.username}>
-                            {user.username}
-                          </option>
-                        ))}
-                      </Form.Select>
-                    </Form.Group>
-                  </Col>
-
-                  {/* NEW: Symbol Input Field */}
-                  <Col md={3}>
-                    <Form.Group controlId="symbol">
-                      <Form.Label>Symbol</Form.Label>
-                      <Form.Control
-                        type="text"
-                        placeholder="Enter Stock Symbol"
-                        value={formData.symbol}
-                        onChange={(e) =>
-                          setFormData({ ...formData, symbol: e.target.value })
-                        }
-                      />
-                    </Form.Group>
-                  </Col>
-                </Row>
-
-                {/* Stop-Loss Type (Existing Code) */}
-                <Col md={3}>
-                  <Form.Group controlId="stopLossType">
-                    <Form.Label>Stop-Loss Type</Form.Label>
-                    <Form.Select
-                      value={stopLossType}
-                      onChange={(e) => setStopLossType(e.target.value)}
-                    >
-                      <option value="fixed">Fixed</option>
-                      <option value="percentage">Percentage</option>
-                      <option value="points">Points</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-
-                {/* Stop-Loss Value */}
-                <Col md={3}>
-                  <Form.Group controlId="stopLossValue">
-                    <Form.Label>Stop-Loss Value</Form.Label>
-                    <Form.Control
-                      type="number"
-                      value={stopLossValue}
-                      onChange={(e) => setStopLossValue(Number(e.target.value))}
-                    />
-                  </Form.Group>
-                </Col>
-
-                {/* Points Condition (for trailing dips, e.g. -2) */}
-                <Col md={3}>
-                  <Form.Group controlId="pointsCondition">
-                    <Form.Label>Points Condition</Form.Label>
-                    <Form.Control
-                      type="number"
-                      value={pointsCondition}
-                      onChange={(e) => setPointsCondition(Number(e.target.value))}
-                    />
-                  </Form.Group>
-                </Col>
               </Row>
 
+              {/* User selection (checkboxes with limit 1–3) */}
               <Row className="mb-3">
                 <Col>
-                  <Form.Label>Select Users</Form.Label>
+                  <Form.Label>Select Users (1 to 3):</Form.Label>
                   {users.map((user, index) => (
                     <Form.Check
                       key={index}
                       type="checkbox"
                       label={user.username}
+                      checked={selectedUsers.includes(user.username)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedUsers([...selectedUsers, user.username]);
+                          if (selectedUsers.length < 3) {
+                            setSelectedUsers([...selectedUsers, user.username]);
+                          } else {
+                            alert("⚠ You can only select up to 3 users.");
+                          }
                         } else {
-                          setSelectedUsers(
-                            selectedUsers.filter(u => u !== user.username)
-                          );
+                          setSelectedUsers(selectedUsers.filter(u => u !== user.username));
                         }
                       }}
                     />
@@ -937,19 +799,65 @@ const handleDeleteUser = async (username) => {
                 </Col>
               </Row>
 
+              <Row className="mb-3">
+                <Col md={3}>
+                  <Form.Group controlId="symbol">
+                    <Form.Label>Symbol</Form.Label>
+                    <Form.Control 
+                      type="text" 
+                      placeholder="Enter Stock Symbol" 
+                      value={formData.symbol} 
+                      onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} 
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
+
+              <Row className="mb-3">
+                <Col md={3}>
+                  <Form.Group controlId="stopLossType">
+                    <Form.Label>Stop-Loss/Stop-Gain Type</Form.Label>
+                    <Form.Select 
+                      value={stopLossType} 
+                      onChange={(e) => setStopLossType(e.target.value)}
+                    >
+                      <option value="Fixed">Fixed</option>
+                      <option value="Percentage">Percentage</option>
+                      <option value="Points">Points</option>
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+                <Col md={3}>
+                  <Form.Group controlId="stopLossValue">
+                    <Form.Label>Stop-Loss/Stop-Gain Value</Form.Label>
+                    <Form.Control 
+                      type="number" 
+                      value={stopLossValue} 
+                      onChange={(e) => setStopLossValue(Number(e.target.value))} 
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={3}>
+                  <Form.Group controlId="pointsCondition">
+                    <Form.Label>Points Condition</Form.Label>
+                    <Form.Control 
+                      type="number" 
+                      value={pointsCondition} 
+                      onChange={(e) => setPointsCondition(Number(e.target.value))} 
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
+
               <Button type="submit" variant="primary">
-                {actionType === 'buy'
-                  ? 'Confirm Buy + Stop-Loss'
-                  : 'Confirm Sell + Stop-Loss'}
+                {actionType === 'buy' ? 'Confirm Buy + Stop-Loss' : 'Confirm Sell + Stop-Loss'}
               </Button>
             </Form>
           </Container>
         )}
-
-
       </Container>
 
-      {/* ORIGINAL Registration Modal */}
+      {/* Registration Modal */}
       <Modal show={showRegisterModal} onHide={() => setShowRegisterModal(false)}>
         <Modal.Header closeButton>
           <Modal.Title>Register User</Modal.Title>
@@ -959,69 +867,54 @@ const handleDeleteUser = async (username) => {
           <Form onSubmit={handleRegisterSubmit}>
             <Form.Group controlId="username">
               <Form.Label>Username</Form.Label>
-              <Form.Control
-                type="text"
-                placeholder="Enter username"
-                value={formData.username}
-                onChange={(e) => 
-                  setFormData({ ...formData, username: e.target.value })
-                }
-                required
+              <Form.Control 
+                type="text" 
+                placeholder="Enter username" 
+                value={formData.username} 
+                onChange={(e) => setFormData({ ...formData, username: e.target.value })} 
+                required 
               />
             </Form.Group>
-
             <Form.Group controlId="broker">
               <Form.Label>Broker</Form.Label>
-              <Form.Select
-                value={formData.broker}
-                onChange={(e) => 
-                  setFormData({ ...formData, broker: e.target.value })
-                }
+              <Form.Select 
+                value={formData.broker} 
+                onChange={(e) => setFormData({ ...formData, broker: e.target.value })}
               >
                 <option value="Angel">Angel</option>
                 <option value="Zerodha">Zerodha</option>
               </Form.Select>
             </Form.Group>
-
             <Form.Group controlId="api_key">
               <Form.Label>API Key</Form.Label>
-              <Form.Control
-                type="text"
-                placeholder="Enter API Key"
-                value={formData.api_key}
-                onChange={(e) => 
-                  setFormData({ ...formData, api_key: e.target.value })
-                }
-                required
+              <Form.Control 
+                type="text" 
+                placeholder="Enter API Key" 
+                value={formData.api_key} 
+                onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} 
+                required 
               />
             </Form.Group>
-
             <Form.Group controlId="totp_token">
               <Form.Label>TOTP Token</Form.Label>
-              <Form.Control
-                type="text"
-                placeholder="Enter TOTP Token"
-                value={formData.totp_token}
-                onChange={(e) => 
-                  setFormData({ ...formData, totp_token: e.target.value })
-                }
-                required
+              <Form.Control 
+                type="text" 
+                placeholder="Enter TOTP Token" 
+                value={formData.totp_token} 
+                onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} 
+                required 
               />
             </Form.Group>
-
             <Form.Group controlId="default_quantity">
               <Form.Label>Default Quantity</Form.Label>
-              <Form.Control
-                type="number"
-                placeholder="Enter Quantity"
-                value={formData.default_quantity}
-                onChange={(e) => 
-                  setFormData({ ...formData, default_quantity: e.target.value })
-                }
-                required
+              <Form.Control 
+                type="number" 
+                placeholder="Enter Quantity" 
+                value={formData.default_quantity} 
+                onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} 
+                required 
               />
             </Form.Group>
-
             <Button variant="primary" type="submit" className="mt-3">
               Register
             </Button>

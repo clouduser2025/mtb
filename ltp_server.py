@@ -5,6 +5,15 @@ import requests
 from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
 
+
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/ltp")
+def get_ltp():
+    return {"message": "LTP Server is running!"}
+
 # --- CONFIGURATION ---
 API_KEY = "y2gLEdxZ"
 CLIENT_CODE = "A62128571"
