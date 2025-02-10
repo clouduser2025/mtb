@@ -7,9 +7,18 @@ import {
   faUsers, 
   faSignInAlt, 
   faShoppingCart, 
-  faExchangeAlt 
-} from '@fortawesome/free-solid-svg-icons';
+  faExchangeAlt,
+  faUser,               // ✅ Added missing icons
+  faUserTie,
+  faChartLine,
+  faDollarSign,
+  faChartBar,
+  faHourglassHalf,
+  faBullseye,
+  faMapMarkerAlt
+} from '@fortawesome/free-solid-svg-icons'; 
 import './css/landing.css';
+
 
 const Landing = () => {
   /********************************************************
@@ -533,48 +542,71 @@ const Landing = () => {
           </Container>
         )}
 
-       {/* ===================== Active Trades Table ===================== */}
+        {/* ===================== Active Trades Table ===================== */}
         {showTradesDashboard && (
           <>
-            <Container className="mt-4 traders-table-container">
-              <h3 className="text-center mb-4 text-primary">
-                <FontAwesomeIcon icon={faExchangeAlt} className="me-2" /> Active Trades
+            <Container className="mt-5 p-4 traders-table-container shadow-lg rounded bg-white">
+              <h3 className="text-center mb-4 text-dark fw-bold">
+                <FontAwesomeIcon icon={faExchangeAlt} className="me-2 text-primary" /> Active Trades
               </h3>
               <div className="table-responsive">
                 <Table striped bordered hover className="traders-table shadow-sm">
-                  <thead>
+                <thead className="text-center">
                     <tr>
-                      <th className="table-header bg-primary text-white">#</th>
-                      <th className="table-header bg-success text-white">Username</th>
-                      <th className="table-header bg-info text-white">Role</th>  {/* ✅ Added Role */}
-                      <th className="table-header bg-info text-white">Symbol</th>
-                      <th className="table-header bg-warning text-dark">Entry Price</th>
-                      <th className="table-header bg-danger text-white">Threshold</th>
-                      <th className="table-header bg-secondary text-white">Exit Type</th>
-                      <th className="table-header bg-dark text-white">Exit Value</th>
-                      <th className="table-header bg-primary text-white">Position</th>
+                      <th>#</th>
+                      <th className="bg-primary text-white">
+                        <FontAwesomeIcon icon={faUser} /> Username
+                      </th>
+                      <th className="bg-success text-white">
+                        <FontAwesomeIcon icon={faUserTie} /> Role
+                      </th>
+                      <th className="bg-info text-white">
+                        <FontAwesomeIcon icon={faChartLine} /> Symbol
+                      </th>
+                      <th className="bg-dark text-white">
+                        <FontAwesomeIcon icon={faDollarSign} /> Entry Price
+                      </th>
+                      <th className="bg-danger text-white">
+                        <FontAwesomeIcon icon={faChartBar} /> Threshold
+                      </th>
+                      <th className="bg-secondary text-white">
+                        <FontAwesomeIcon icon={faHourglassHalf} /> Exit Type
+                      </th>
+                      <th className="bg-primary text-white">
+                        <FontAwesomeIcon icon={faBullseye} /> Exit Value
+                      </th>
+                      <th className="bg-warning text-dark">
+                        <FontAwesomeIcon icon={faMapMarkerAlt} /> Position
+                      </th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {openTrades.length > 0 ? (
                       openTrades.map((trade, index) => (
-                        <tr key={index}>
-                          <td>{index + 1}</td>
-                          <td>{trade.username}</td>
-                          <td>{trade.user_role}</td> {/* ✅ Shows user role */}
-                          <td>{trade.symbol}</td>
-                          <td>₹{trade.entry_price}</td>
-                          <td>{trade.position_type === "LONG" ? trade.buy_threshold : trade.sell_threshold}</td>
-                          <td>{trade.exit_condition_type}</td>
-                          <td>{trade.exit_condition_value}</td>
-                          <td className={trade.position_type === "LONG" ? "text-success" : "text-danger"}>
-                            {trade.position_type}
+                        <tr key={index} className="align-middle text-center">
+                          <td><strong className="text-secondary">{index + 1}</strong></td>
+                          <td className="fw-bold text-warning">{trade.username}</td>
+                          <td>
+                            <span className={`badge ${trade.user_role === "Admin" ? "bg-danger" : "bg-secondary"}`}>
+                              {trade.user_role}
+                            </span>
+                          </td>
+                          <td className="text-primary fw-bold">{trade.symbol}</td>
+                          <td className="text-success fw-bold">₹{trade.entry_price}</td>
+                          <td className="text-danger fw-bold">{trade.position_type === "LONG" ? trade.buy_threshold : trade.sell_threshold}</td>
+                          <td className="text-warning">{trade.exit_condition_type}</td>
+                          <td className="text-info">{trade.exit_condition_value}</td>
+                          <td>
+                            <span className={`badge ${trade.position_type === "LONG" ? "bg-success" : "bg-danger"}`}>
+                              {trade.position_type === "LONG" ? "🔼 Buy" : "🔽 Sell"}
+                            </span>
                           </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="9" className="text-muted">No active trades found.</td>
+                        <td colSpan="9" className="text-muted text-center">No active trades found.</td>
                       </tr>
                     )}
                   </tbody>
@@ -582,9 +614,11 @@ const Landing = () => {
               </div>
             </Container>
 
-            {/* Add AdvancedChart here */}
-            <Container className="mt-4">
-              <h4 className="text-center mb-3">📊 Live Chart with Open Trades</h4>
+            {/* Add AdvancedChart below the table with margin for spacing */}
+            <Container className="mt-5 p-4 bg-light rounded shadow-lg">
+              <h4 className="text-center mb-3 text-dark fw-bold">
+                📊 Live Chart with Open Trades
+              </h4>
               <AdvancedChart symbol={formData.symbol} openTrades={openTrades} />
             </Container>
           </>
