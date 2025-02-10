@@ -659,19 +659,17 @@ const handleDeleteUser = async (username) => {
         </Col>
 
         <Col xs="auto">
-          <Button
-            onClick={() => setShowLtpForm(!showLtpForm)}
-            className="gradient-button btn-ltp"
-          >
-            Fetch LTP
-          </Button>
+        <Button className="gradient-button btn-ltp">
+          Fetch LTP
+        </Button>
+
         </Col>
       </Row>
 
 
         {/* Show LTP Form when button is clicked */}
-        {showLtpForm && (
           <Container className="mt-4 p-3 border rounded shadow-sm">
+
             <h4 className="text-primary">🔍 Live Fetch LTP</h4>
             <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
               <Row className="mb-3">

@@ -21,6 +21,12 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+
+@app.get("/")
+def read_root():
+    return {"message": "Hello, your API is running!"}
+
+
 # Connect to SQLite Database
 conn = sqlite3.connect("trading.db", check_same_thread=False)
 cursor = conn.cursor()
@@ -228,3 +234,7 @@ def monitor_stop_loss(username, symbol):
             logger.error(f"Error in stop-loss monitoring: {e}")
 
         time.sleep(1)  # Check price every second
+        
+@app.get("/")
+def read_root():
+    return {"message": "FastAPI server is running!"}
