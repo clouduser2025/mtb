@@ -556,30 +556,33 @@ const handleDeleteUser = async (username) => {
       <Row className="justify-content-end mb-3" 
         style={{ position: "absolute", top: "9%", right: "10px", zIndex: "1000" }}>
         <Col xs="auto">
-          <Button 
-            onClick={() => setShowRegisterModal(true)} 
-            style={{ backgroundColor: "#6A0DAD", borderColor: "#6A0DAD", color: "white" }} // Deep Purple
-          >
-            <FontAwesomeIcon icon={faUserPlus} /> Register User
-          </Button>
+        <Button 
+          onClick={() => setShowRegisterModal(true)} 
+          className="gradient-button btn-register"
+        >
+          <FontAwesomeIcon icon={faUserPlus} /> Register
+        </Button>
+
         </Col>
 
 
         <Col xs="auto">
-          <Button 
-            onClick={() => setShowUsers(!showUsers)} 
-            style={{ backgroundColor: "#008080", borderColor: "#008080", color: "white" }} // Teal
-          >
-            <FontAwesomeIcon icon={faUsers} /> View Users
-          </Button>
+        <Button 
+          onClick={() => setShowUsers(!showUsers)} 
+          className="gradient-button btn-users"
+        >
+          <FontAwesomeIcon icon={faUsers} /> View Users
+        </Button>
+
         </Col>
         <Col xs="auto">
-          <Button
-            onClick={() => window.open('https://www.angelone.in/login/?redirectUrl=account', '_blank')}
-            style={{ backgroundColor: "#7B68EE", borderColor: "#7B68EE", color: "white" }} // Medium Slate Blue
-          >
-            <FontAwesomeIcon icon={faSignInAlt} /> Angel Login
-          </Button>
+        <Button
+          onClick={() => window.open('https://www.angelone.in/login/?redirectUrl=account', '_blank')}
+          className="gradient-button btn-login"
+        >
+          <FontAwesomeIcon icon={faSignInAlt} /> Angel Login
+        </Button>
+
         </Col>
       </Row>
 
@@ -617,12 +620,12 @@ const handleDeleteUser = async (username) => {
         )}
         
         {/* Updated: AngelOne Trading Buttons (Refined Colors) */}
-        {/* Updated: AngelOne Trading Buttons (Refined Colors) */}
-        <Row className="justify-content-center mb-3">
+      {/* Updated: AngelOne Trading Buttons (Gradient Styling) */}
+      <Row className="justify-content-center mb-3">
         <Col xs="auto">
           <Button
             onClick={() => window.open('https://www.angelone.in/trade/markets/equity/overview', '_blank')}
-            style={{ backgroundColor: "#008B8B", borderColor: "#008B8B", color: "white" }} // Dark Cyan
+            className="gradient-button btn-market"
           >
             Market Overview
           </Button>
@@ -631,39 +634,40 @@ const handleDeleteUser = async (username) => {
         <Col xs="auto">
           <Button
             onClick={() => window.open('https://www.angelone.in/trade/indices/indian', '_blank')}
-            style={{ backgroundColor: "#000000", borderColor: "#000000", color: "white" }} // Black
+            className="gradient-button btn-indices"
           >
             Indices
           </Button>
         </Col>
 
-          <Col xs="auto">
-            <Button
-              onClick={() => window.open('https://www.angelone.in/trade/watchlist/chart', '_blank')}
-              style={{ backgroundColor: "#00BFFF", borderColor: "#00BFFF", color: "white" }}
-            >
-              Chart
-            </Button>
-          </Col>
-          <Col xs="auto">
-            <Button
-              onClick={() => window.open('https://www.angelone.in/trade/watchlist/option-chain', '_blank')}
-              style={{ backgroundColor: "#DC143C", borderColor: "#DC143C", color: "white" }} // Crimson Red
-            >
-              Option Chain
-            </Button>
-          </Col>
+        <Col xs="auto">
+          <Button
+            onClick={() => window.open('https://www.angelone.in/trade/watchlist/chart', '_blank')}
+            className="gradient-button btn-chart"
+          >
+            Chart
+          </Button>
+        </Col>
 
-          <Col xs="auto">
-            {/* ✅ Changed the color of the fifth button */}
-            <Button
-              onClick={() => setShowLtpForm(!showLtpForm)}
-              style={{ backgroundColor: "#FF4500", borderColor: "#FF4500", color: "white" }} // Orange Red color
-            >
-              Fetch LTP
-            </Button>
-          </Col>
-        </Row>
+        <Col xs="auto">
+          <Button
+            onClick={() => window.open('https://www.angelone.in/trade/watchlist/option-chain', '_blank')}
+            className="gradient-button btn-option"
+          >
+            Option Chain
+          </Button>
+        </Col>
+
+        <Col xs="auto">
+          <Button
+            onClick={() => setShowLtpForm(!showLtpForm)}
+            className="gradient-button btn-ltp"
+          >
+            Fetch LTP
+          </Button>
+        </Col>
+      </Row>
+
 
         {/* Show LTP Form when button is clicked */}
         {showLtpForm && (
@@ -735,25 +739,28 @@ const handleDeleteUser = async (username) => {
         {/* Updated: Buy / Sell Buttons with Trading Candle Colors */}
         <Row className="justify-content-center mb-3">
           <Col xs="auto">
-            <Button 
+          <Button 
               onClick={handleBuyClick} 
-              style={{ backgroundColor: "#32CD32", borderColor: "#32CD32", color: "white" }} // Light Green (Bullish)
+              className="gradient-button btn-buy"
             >
-              Buy
+              <FontAwesomeIcon icon={faShoppingCart} /> Buy
             </Button>
+
           </Col>
           <Col xs="auto">
-            <Button 
-              onClick={handleSellClick} 
-              style={{ backgroundColor: "#DC143C", borderColor: "#DC143C", color: "white" }} // Crimson Red (Bearish)
-            >
-              Sell
-            </Button>
+          <Button 
+            onClick={handleSellClick} 
+            className="gradient-button btn-sell"
+          >
+            <FontAwesomeIcon icon={faExchangeAlt} /> Sell
+          </Button>
+
           </Col>
           <Col xs="auto">
-            <Button onClick={stopSimulation} variant="secondary">
-              Stop Simulation
-            </Button>
+          <Button onClick={stopSimulation} className="gradient-button btn-stop">
+          Stop Simulation
+        </Button>
+
           </Col>
         </Row>
 

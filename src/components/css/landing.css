@@ -147,4 +147,45 @@ width: 600px;
 
   
   
-  
+  /* Dashboard Button Styling */
+.dashboard-button {
+  width: 220px; /* Set a fixed width */
+  height: 70px; /* Increase height */
+  font-size: 18px; /* Larger text */
+  font-weight: bold;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  transition: all 0.3s ease-in-out;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); /* Add shadow for depth */
+  margin: 10px; /* Space between buttons */
+}
+
+/* Gradient Colors */
+.btn-market { background: linear-gradient(45deg, #FF8C00, #FF4500); } /* Market Overview */
+.btn-indices { background: linear-gradient(45deg, #000000, #434343); } /* Indices */
+.btn-chart { background: linear-gradient(45deg, #009fff, #ec2f4b); } /* Chart */
+.btn-option { background: linear-gradient(45deg, #DC143C, #B22222); } /* Option Chain */
+.btn-ltp { background: linear-gradient(45deg, #FF4500, #FF6347); } /* Fetch LTP */
+.btn-buy { background: linear-gradient(45deg, #32CD32, #008000); } /* Buy */
+.btn-sell { background: linear-gradient(45deg, #FF4500, #DC143C); } /* Sell */
+.btn-stop { background: linear-gradient(45deg, #2C3E50, #4CA1AF); } /* Stop Simulation */
+.btn-register { background: linear-gradient(45deg, #6a11cb, #2575fc); } /* Register */
+.btn-users { background: linear-gradient(45deg, #8e44ad, #3498db); } /* View Users */
+.btn-login { background: linear-gradient(45deg, #7B68EE, #00BFFF); } /* Angel Login */
+
+/* Hover Effect */
+.dashboard-button:hover {
+  transform: scale(1.07);
+  opacity: 0.85;
+  box-shadow: 0 6px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Ensure buttons align in rows properly */
+.d-flex.flex-wrap {
+  justify-content: center;
+} 
