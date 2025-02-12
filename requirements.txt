@@ -1,0 +1,8 @@
+smartapi-python
+pycryptodome
+fastapi
+uvicorn
+gunicorn
+websocket-client
+pyotp
+logzero

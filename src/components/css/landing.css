@@ -1,0 +1,346 @@
+
+  
+
+  @keyframes moveImages {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-100%);
+    }
+  }
+
+.download-button {
+    background-color: #000080;
+    color: #fff;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 5px;
+    font-size: 1.3rem;
+    cursor: pointer;
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+  }
+
+  .heading {
+    background-color: #000080;
+    color: white;
+    text-align: center;
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+  }
+  
+
+  .landing-container {
+    display: flex;
+    margin-top: 30px;
+    margin-bottom: 30px;
+    justify-content: center;
+    align-items: center;
+    background-color: #f8f9fa;
+    max-width: 100vw;
+    overflow-x: scroll;
+    -ms-overflow-style: none;  /* For Internet Explorer */
+    scrollbar-width: none;
+  }
+
+  
+  .top-overlay {
+    position: absolute;
+    top: 0;
+    margin-top: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(236, 217, 217, 0.9);
+    color: black;
+    padding: 5px 10px;
+    border-radius: 5px;
+    text-align: center;
+    font-size: 0.8rem;
+    width: auto;
+  }
+  .bottom-overlays {
+    position: absolute;
+    bottom: 37px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex; /* Flexbox layout for side-by-side alignment */
+    gap: 10px; /* Spacing between the overlays */
+  }
+  
+  .bottom-overlay {
+    background: rgba(236, 217, 217, 0.9);
+    color: black;
+    bottom: 37px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 80px; /* Optional: ensure consistent width for overlays */
+  }
+  
+ 
+
+  .custom-table {
+    font-size: 1rem;
+    text-align: center;
+    vertical-align: middle;
+    font-weight: 700;
+  }
+  
+  .custom-table thead {
+    background-color: #000080;
+    color: white;
+  }
+  .custom-table td{
+    color: #000080;
+  }
+  
+  .custom-table thead th {
+    background-color: #000080 !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+ 
+  }
+
+  /* 📌 Table Styling */
+.users-table {
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.table th, .table td {
+  padding: 14px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.table-header {
+  font-size: 16px; /* ✅ Increased font size */
+  font-weight: bold;
+  text-align: center;
+  padding: 12px;
+}
+
+.table-row td {
+  font-size: 15px; /* ✅ Increased row text size */
+  padding: 10px;
+}
+
+.rounded-left {
+  border-top-left-radius: 12px;
+}
+
+.rounded-right {
+  border-top-right-radius: 12px;
+}
+
+/* ✨ Hover Effect for Rows */
+.table-row:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  transition: 0.3s ease-in-out;
+}
+
+/* 🚀 Improved Delete Button */
+.btn-delete {
+  background-color: #dc3545;
+  border: none;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.btn-delete:hover {
+  background-color: #c82333;
+  transform: scale(1.05);
+}
+
+/* 🔹 Improve Table Responsiveness */
+.table-responsive {
+  overflow-x: auto;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 🔹 Table Container - Add Margin Below */
+.users-table-container {
+  margin-bottom: 30px; /* Adds space between table & next section */
+}
+
+/* 🌟 Improve Table Padding */
+.users-table th, .users-table td {
+  padding: 14px 16px; /* Increase padding for better spacing */
+  text-align: center;
+}
+
+/* ✨ Add Spacing to Buttons Below Table */
+.market-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 12px; /* Adds equal space between buttons */
+  margin-bottom: 20px; /* Adds space between buttons & next section */
+}
+
+/* 📌 Live LTP Box - Add Spacing */
+.ltp-container {
+  margin-top: 20px; /* Space between LTP section & buttons */
+  padding: 20px;
+  border-radius: 10px;
+  background: #f8f9fa;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+/* 📌 Live LTP Box - Add More Margin Below */
+.ltp-container {
+  margin-top: 20px; /* Space above */
+  margin-bottom: 40px; /* 🔥 Increased space below */
+  padding: 20px;
+  border-radius: 10px;
+  background: #f8f9fa;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* 🎨 Dropdown Button - Gradient */
+.btn-dropdown {
+  background: linear-gradient(45deg, #6a11cb, #2575fc);
+  color: rgb(210, 32, 189);
+  border: none;
+  font-weight: bold;
+  padding: 10px 15px;
+  border-radius: 8px;
+  transition: all 0.3s ease-in-out;
+}
+
+.btn-dropdown:hover {
+  opacity: 0.85;
+  transform: scale(1.05);
+  background: linear-gradient(45deg, #2575fc, #6a11cb); /* Reverse gradient on hover */
+}
+
+/* 🎨 Dropdown Menu - Background Styling */
+.dropdown-menu-custom {
+  background: rgb(210, 39, 193);
+  border-radius: 10px;
+  border: none;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  overflow-y: auto;
+  max-height: 200px; /* Enables scrolling */
+}
+
+/* 📌 Dropdown Items - Normal State */
+.dropdown-menu-custom .dropdown-item {
+  color: #000080;
+  font-weight: bold;
+  padding: 12px 15px;
+  transition: all 0.3s ease-in-out;
+  border-radius: 5px;
+}
+
+/* 🌟 Dropdown Items - Hover Effect */
+.dropdown-menu-custom .dropdown-item:hover {
+  background: linear-gradient(45deg, #ff8c00, #ff4500); /* Orange Gradient */
+  color: rgb(229, 153, 31);
+  border-radius: 5px;
+  transform: scale(1.05);
+}
+
+  /* Dashboard Button Styling */
+.dashboard-button {
+  width: 320px; /* Set a fixed width */
+  height: 90px; /* Increase height */
+  font-size: 18px; /* Larger text */
+  font-weight: bold;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  transition: all 0.3s ease-in-out;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); /* Add shadow for depth */
+  margin: 10px; /* Space between buttons */
+}
+
+/* Gradient Colors */
+.btn-market { background: linear-gradient(45deg, #2798de, #392398); } /* Market Overview */
+.btn-indices { background: linear-gradient(45deg, #000000, #434343); } /* Indices */
+.btn-chart { background: linear-gradient(45deg, #6c28a4, #0c9e21); } /* Chart */
+.btn-option { background: linear-gradient(45deg, #DC143C, #d79b19); } /* Option Chain */
+.btn-ltp { background: linear-gradient(45deg, #b12c85, #2b4eba); } /* Fetch LTP */
+.btn-buy { background: linear-gradient(45deg, #32CD32, #008000); } /* Buy */
+.btn-sell { background: linear-gradient(45deg, #FF4500, #DC143C); } /* Sell */
+.btn-stop { background: linear-gradient(45deg, #2C3E50, #4CA1AF); } /* Stop Simulation */
+.btn-register { background: linear-gradient(45deg, #6a11cb, #2575fc); } /* Register */
+.btn-users { background: linear-gradient(45deg, #8e44ad, #3498db); } /* View Users */
+.btn-login { background: linear-gradient(45deg, #7B68EE, #00BFFF); } /* Angel Login */
+.btn-trades {background: linear-gradient(45deg, #e5585f, #1b880e); /* Trades Dashboard Gradient */
+}
+
+/* Hover Effect */
+.dashboard-button:hover {
+  transform: scale(1.07);
+  opacity: 0.85;
+  box-shadow: 0 6px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Ensure buttons align in rows properly */
+.d-flex.flex-wrap {
+  justify-content: center;
+} 
+
+.trading-chart-container {
+  margin-bottom: 50px; /* Adjust as needed */
+}
+
+/* ===================== Custom Table Styles ===================== */
+.table-custom {
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f8f9fa;
+}
+
+.table-header {
+  text-align: center;
+  font-size: 16px;
+  font-weight: bold;
+  padding: 12px;
+}
+
+.table-custom tbody tr {
+  transition: all 0.3s ease-in-out;
+}
+
+.table-custom tbody tr:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* ===================== Trade Position Styles ===================== */
+.long-trade {
+  background: rgba(0, 255, 0, 0.1);
+  color: #198754;
+  font-weight: bold;
+}
+
+.short-trade {
+  background: rgba(255, 0, 0, 0.1);
+  color: #dc3545;
+  font-weight: bold;
+}
+
+/* ===================== User Icon Styling ===================== */
+.username-cell {
+  display: flex;
+  align-items: center;
+}
+
+.user-icon {
+  color: #0d6efd;
+  font-size: 16px;
+  transition: all 0.3s;
+}
+
+.user-icon:hover {
+  transform: scale(1.2);
+  color: #0a58ca;
+}
