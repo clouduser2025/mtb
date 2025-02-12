@@ -155,7 +155,7 @@ const Landing = () => {
   // ------------------------------
   const fetchUsers = async () => {
     try {
-      const response = await fetch("https://ramdoot.onrender.com12/api/get_users", {
+      const response = await fetch("https://ramdoot.onrender.com/api/get_users", {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       });
