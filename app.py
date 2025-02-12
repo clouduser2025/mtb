@@ -17,7 +17,7 @@ app = FastAPI()
 # ------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://mtb-1.onrender.com"],  # Allow only your frontend URL
+    allow_origins=["*"],  # Allow all domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,10 +65,6 @@ def get_previous_close(symbol: str, smartApi_instance: SmartConnect = None) -> f
     Replace this with actual logic to fetch the previous close.
     """
     return 100.0
-
-@app.get("/")
-def read_root():
-    return {"message": "Hello, World!"}
 
 # ------------------------------
 # Condition Check Functions (Fixed, Percentage & Points)
@@ -518,7 +514,4 @@ def monitor_short_position(username: str, symbol: str):
 # ------------------------------
 @app.get("/status")
 def status():
-    return {"message": "FastAPI server is running!"}
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    return {"message": "FastAPI server is running!"} 

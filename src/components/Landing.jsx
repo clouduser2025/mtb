@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react'; 
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -52,7 +51,7 @@ const Landing = () => {
   /********************************************************
    *         PRICE SIMULATION & TRADING SETUP           *
    ********************************************************/
-  const [currentPrice] = useState(90); // Starting simulated price
+  const [currentPrice, setCurrentPrice] = useState(90); // Starting simulated price
   const [isSimulating, setIsSimulating] = useState(false);
   const simulationRef = useRef(null);
 
@@ -106,17 +105,9 @@ const Landing = () => {
     }
   };
 
-  const stopSimulation = () => {
-    setIsSimulating(false);
-    if (simulationRef.current) {
-      clearInterval(simulationRef.current);
-      simulationRef.current = null;
-    }
-  };
-  
   const fetchTrades = async () => {
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/get_trades");
+      const response = await fetch("https://ramdoot.onrender.com/api/get_trades");
       if (!response.ok) {
         throw new Error("Failed to fetch trades");
       }
@@ -164,7 +155,7 @@ const Landing = () => {
   // ------------------------------
   const fetchUsers = async () => {
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/get_users", {
+      const response = await fetch("https://ramdoot.onrender.com/api/get_users", {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       });
@@ -185,65 +176,89 @@ const Landing = () => {
     fetchUsers();
   }, []);
 
-  
-// Memoize executeBuyTrade using useCallback
-const executeBuyTrade = useCallback(async (price) => {
-  if (selectedUsers.length === 0) {
-    console.log("No users selected for trade.");
-    return;
-  }
-  const buyData = {
-    users: selectedUsers,
-    symbol: formData.symbol,
-    buy_threshold: buyThreshold,
-    buy_condition_type: buyConditionType,
-    buy_condition_value: buyConditionValue,
-    stop_loss_type: stopLossType,
-    stop_loss_value: stopLossValue,
-    points_condition: pointsCondition
+  /********************************************************
+   *             SIMULATION & CONDITION CHECK           *
+   ********************************************************/
+  // Price simulation start/stop functions
+  const startSimulation = () => {
+    if (!isSimulating) {
+      setIsSimulating(true);
+      simulationRef.current = setInterval(() => {
+        const change = Math.floor(Math.random() * 7) - 2; // random change from -2 to +4
+        setCurrentPrice(prev => Math.max(1, prev + change));
+      }, 1000);
+    }
   };
-  try {
-    const response = await fetch('/api/buy_trade', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buyData)
-    });
-    const data = await response.json();
-    if (response.ok) {
-      console.log(`✅ BUY Trade executed at ${price}:`, data);
-      setEntryPrice(price);
-      basePriceRef.current = price;
-    } else {
-      console.error("❌ BUY Trade execution failed:", data.error);
-    }
-  } catch (error) {
-    console.error("❌ API Error executing BUY trade:", error);
-  }
-}, [selectedUsers, formData.symbol, buyThreshold, buyConditionType, buyConditionValue, stopLossType, stopLossValue, pointsCondition]);
 
-useEffect(() => {
-  if (!isSimulating) return;
-  if (actionType === 'buy' && entryPrice === null) {
-    let conditionMet = false;
-    switch (buyConditionType) {
-      case 'Fixed Value':
-        conditionMet = currentPrice >= buyConditionValue;
-        break;
-      case 'Percentage':
-        conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100));
-        break;
-      case 'Points':
-        conditionMet = currentPrice >= (buyThreshold + buyConditionValue);
-        break;
-      default:
-        conditionMet = false;
+  const stopSimulation = () => {
+    setIsSimulating(false);
+    if (simulationRef.current) {
+      clearInterval(simulationRef.current);
+      simulationRef.current = null;
     }
-    if (conditionMet) {
-      console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
-      executeBuyTrade(currentPrice); // ✅ Now it is defined before use
+  };
+
+  // When simulating price for BUY trades, check the condition and trigger trade if met
+  useEffect(() => {
+    if (!isSimulating) return;
+    if (actionType === 'buy' && entryPrice === null) {
+      let conditionMet = false;
+      switch (buyConditionType) {
+        case 'Fixed Value':
+          conditionMet = currentPrice >= buyConditionValue;
+          break;
+        case 'Percentage':
+          // Using buyThreshold as the market price reference
+          conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100));
+          break;
+        case 'Points':
+          conditionMet = currentPrice >= (buyThreshold + buyConditionValue);
+          break;
+        default:
+          conditionMet = false;
+      }
+      if (conditionMet) {
+        console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
+        executeBuyTrade(currentPrice);
+      }
     }
-  }
-}, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue, executeBuyTrade]); // ✅ executeBuyTrade stays in dependencies
+  }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue]);
+
+  // Execute trade (Buy Order) for selected users
+  // Memoize executeBuyTrade using useCallback
+  const executeBuyTrade = useCallback(async (price) => {
+    if (selectedUsers.length === 0) {
+      console.log("No users selected for trade.");
+      return;
+    }
+    const buyData = {
+      users: selectedUsers,
+      symbol: formData.symbol,
+      buy_threshold: buyThreshold,
+      buy_condition_type: buyConditionType,
+      buy_condition_value: buyConditionValue,
+      stop_loss_type: stopLossType,
+      stop_loss_value: stopLossValue,
+      points_condition: pointsCondition
+    };
+    try {
+      const response = await fetch('/api/buy_trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buyData)
+      });
+      const data = await response.json();
+      if (response.ok) {
+        console.log(`✅ BUY Trade executed at ${price}:`, data);
+        setEntryPrice(price);
+        basePriceRef.current = price;
+      } else {
+        console.error("❌ BUY Trade execution failed:", data.error);
+      }
+    } catch (error) {
+      console.error("❌ API Error executing BUY trade:", error);
+    }
+  }, [selectedUsers, formData.symbol, buyThreshold, buyConditionType, buyConditionValue, stopLossType, stopLossValue, pointsCondition]);
 
   // Handle form submission for trade (buy or sell)
   const handleStopLossSubmission = async (e) => {
@@ -311,48 +326,55 @@ useEffect(() => {
     }
   };
 
-// Registration submit handler
-const handleRegisterSubmit = async (e) => {
-  e.preventDefault();
-  console.log("Submitting user:", formData);
+  // Registration submit handler
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+    console.log("Submitting user:", formData);
 
-  // Get the backend URL from environment variables
-  const apiUrl = process.env.REACT_APP_API_URL; // This will fetch the backend URL from your .env file
+    try {
+        const response = await fetch("https://ramdoot.onrender.com/api/register_user", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                username: formData.username,
+                broker: formData.broker,
+                api_key: formData.api_key,
+                totp_token: formData.totp_token,
+                default_quantity: parseInt(formData.default_quantity, 10),
+            }),
+        });
 
-  try {
-    const response = await fetch(`${apiUrl}/api/register_user`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: formData.username,
-        broker: formData.broker,
-        api_key: formData.api_key,
-        totp_token: formData.totp_token,
-        default_quantity: parseInt(formData.default_quantity, 10),
-      }),
-    });
+        const data = await response.json();
+        console.log("API Response:", data);
 
-    const data = await response.json();
-    console.log("API Response:", data);
-
-    if (response.ok) {
-      setMessage({ text: "User registered successfully!", type: "success" });
-      fetchUsers(); // Refresh user list
-      setFormData({ username: "", broker: "Angel", api_key: "", totp_token: "", default_quantity: "", symbol: "" });
-    } else {
-      setMessage({ text: data.detail || "Registration failed", type: "danger" });
+        if (response.ok) {
+            setMessage({ text: "User registered successfully!", type: "success" });
+            fetchUsers(); // Refresh user list
+            setFormData({
+                username: "",
+                broker: "Angel",
+                api_key: "",
+                totp_token: "",
+                default_quantity: "",
+                symbol: "",
+            });
+        } else {
+            setMessage({ text: data.detail || "Registration failed", type: "danger" });
+        }
+    } catch (error) {
+        console.error("Error registering user:", error);
+        setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
-  } catch (error) {
-    console.error("Error registering user:", error);
-    setMessage({ text: "Server error. Try again later.", type: "danger" });
-  }
 };
+
 
   // Delete user handler
   const handleDeleteUser = async (username) => {
     console.log(`Deleting user: ${username}`);
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/delete_user/${username}`, {
+      const response = await fetch(`https://ramdoot.onrender.com/api/delete_user/${username}`, {
         method: "DELETE"
       });
       const data = await response.json();
@@ -463,6 +485,13 @@ const handleRegisterSubmit = async (e) => {
     document.body.appendChild(script);
   };
   
+  
+  // ------------------------------
+  // Price Simulation for testing
+  // ------------------------------
+  const startPriceSimulation = () => {
+    startSimulation();
+  };
 
   /********************************************************
    *                     RENDER (JSX)                     *
