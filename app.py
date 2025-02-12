@@ -515,3 +515,6 @@ def monitor_short_position(username: str, symbol: str):
 @app.get("/status")
 def status():
     return {"message": "FastAPI server is running!"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
