@@ -17,7 +17,7 @@ app = FastAPI()
 # ------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all domains
+    allow_origins=["https://mtb-1.onrender.com"],  # Allow only your frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
