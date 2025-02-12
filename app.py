@@ -66,6 +66,10 @@ def get_previous_close(symbol: str, smartApi_instance: SmartConnect = None) -> f
     """
     return 100.0
 
+@app.get("/")
+def read_root():
+    return {"message": "Hello, World!"}
+
 # ------------------------------
 # Condition Check Functions (Fixed, Percentage & Points)
 # ------------------------------
