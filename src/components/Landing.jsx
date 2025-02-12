@@ -51,6 +51,10 @@ const Landing = () => {
   /********************************************************
    *         PRICE SIMULATION & TRADING SETUP           *
    ********************************************************/
+  const [currentPrice, setCurrentPrice] = useState(90); // Starting simulated price
+  const [isSimulating, setIsSimulating] = useState(false);
+  const simulationRef = useRef(null);
+
   // Thresholds and entry price
   const [buyThreshold, setBuyThreshold] = useState(100);
   const [sellThreshold, setSellThreshold] = useState(120);
@@ -172,6 +176,27 @@ const Landing = () => {
     fetchUsers();
   }, []);
 
+  /********************************************************
+   *             SIMULATION & CONDITION CHECK           *
+   ********************************************************/
+  // Price simulation start/stop functions
+  const startSimulation = () => {
+    if (!isSimulating) {
+      setIsSimulating(true);
+      simulationRef.current = setInterval(() => {
+        const change = Math.floor(Math.random() * 7) - 2; // random change from -2 to +4
+        setCurrentPrice(prev => Math.max(1, prev + change));
+      }, 1000);
+    }
+  };
+
+  const stopSimulation = () => {
+    setIsSimulating(false);
+    if (simulationRef.current) {
+      clearInterval(simulationRef.current);
+      simulationRef.current = null;
+    }
+  };
 
   // When simulating price for BUY trades, check the condition and trigger trade if met
   useEffect(() => {
@@ -460,6 +485,12 @@ const Landing = () => {
   };
   
   
+  // ------------------------------
+  // Price Simulation for testing
+  // ------------------------------
+  const startPriceSimulation = () => {
+    startSimulation();
+  };
 
   /********************************************************
    *                     RENDER (JSX)                     *
@@ -679,7 +710,6 @@ const Landing = () => {
         </Container>
 
         {/* Buy/Sell Buttons */}
-        {/* Buy/Sell Buttons */}
         <Row className="justify-content-center mb-3">
           <Col xs="auto">
             <Button onClick={() => { setActionType('buy'); setShowStopLossForm(true); }} className="gradient-button btn-buy">
@@ -689,6 +719,11 @@ const Landing = () => {
           <Col xs="auto">
             <Button onClick={() => { setActionType('sell'); setShowStopLossForm(true); }} className="gradient-button btn-sell">
               <FontAwesomeIcon icon={faExchangeAlt} /> Sell
+            </Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={stopSimulation} className="gradient-button btn-stop">
+              Stop Simulation
             </Button>
           </Col>
         </Row>
