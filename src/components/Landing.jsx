@@ -51,7 +51,7 @@ const Landing = () => {
   // Thresholds and entry price
   const [buyThreshold, setBuyThreshold] = useState(100);
   const [sellThreshold, setSellThreshold] = useState(120);
-
+  const [entryPrice, setEntryPrice] = useState(null);
 
   // Stop-loss and condition settings for BUY
   const [stopLossType, setStopLossType] = useState('Fixed'); // Options: "Fixed", "Percentage", "Points"
@@ -59,8 +59,8 @@ const Landing = () => {
   const [buyConditionType, setBuyConditionType] = useState('Fixed Value'); // Options: "Fixed Value", "Percentage", "Points"
   const [buyConditionValue, setBuyConditionValue] = useState(0);
   const [pointsCondition, setPointsCondition] = useState(0);
+  const basePriceRef = useRef(null);
 
-  
   // Stop-gain and condition settings for SELL
   const [sellConditionType, setSellConditionType] = useState('Fixed Value'); // Options: "Fixed Value", "Percentage", "Points"
   const [sellConditionValue, setSellConditionValue] = useState(0);
