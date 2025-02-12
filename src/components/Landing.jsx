@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect, useRef, useCallback } from 'react'; /
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -197,8 +198,6 @@ const Landing = () => {
       simulationRef.current = null;
     }
   };
-
-  // When simulating price for BUY trades, check the condition and trigger trade if met
   useEffect(() => {
     if (!isSimulating) return;
     if (actionType === 'buy' && entryPrice === null) {
@@ -208,7 +207,6 @@ const Landing = () => {
           conditionMet = currentPrice >= buyConditionValue;
           break;
         case 'Percentage':
-          // Using buyThreshold as the market price reference
           conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100));
           break;
         case 'Points':
@@ -219,13 +217,13 @@ const Landing = () => {
       }
       if (conditionMet) {
         console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
-        executeBuyTrade(currentPrice);
+        executeBuyTrade(currentPrice); // ✅ executeBuyTrade is used here
       }
     }
-  }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue]);
-
+  }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue, executeBuyTrade]); // ✅ Added executeBuyTrade to dependencies
   // Execute trade (Buy Order) for selected users
-  const executeBuyTrade = async (price) => {
+  // Memoize executeBuyTrade using useCallback
+  const executeBuyTrade = useCallback(async (price) => {
     if (selectedUsers.length === 0) {
       console.log("No users selected for trade.");
       return;
@@ -257,7 +255,7 @@ const Landing = () => {
     } catch (error) {
       console.error("❌ API Error executing BUY trade:", error);
     }
-  };
+  }, [selectedUsers, formData.symbol, buyThreshold, buyConditionType, buyConditionValue, stopLossType, stopLossValue, pointsCondition]);
 
   // Handle form submission for trade (buy or sell)
   const handleStopLossSubmission = async (e) => {
@@ -471,13 +469,6 @@ const Landing = () => {
     document.body.appendChild(script);
   };
   
-  
-  // ------------------------------
-  // Price Simulation for testing
-  // ------------------------------
-  const startPriceSimulation = () => {
-    startSimulation();
-  };
 
   /********************************************************
    *                     RENDER (JSX)                     *
