@@ -176,86 +176,64 @@ const Landing = () => {
   useEffect(() => {
     fetchUsers();
   }, []);
-
-  /********************************************************
-   *             SIMULATION & CONDITION CHECK           *
-   ********************************************************/
-  // Price simulation start/stop functions
-  const startSimulation = () => {
-    if (!isSimulating) {
-      setIsSimulating(true);
-      simulationRef.current = setInterval(() => {
-        const change = Math.floor(Math.random() * 7) - 2; // random change from -2 to +4
-        setCurrentPrice(prev => Math.max(1, prev + change));
-      }, 1000);
-    }
+// Memoize executeBuyTrade using useCallback
+const executeBuyTrade = useCallback(async (price) => {
+  if (selectedUsers.length === 0) {
+    console.log("No users selected for trade.");
+    return;
+  }
+  const buyData = {
+    users: selectedUsers,
+    symbol: formData.symbol,
+    buy_threshold: buyThreshold,
+    buy_condition_type: buyConditionType,
+    buy_condition_value: buyConditionValue,
+    stop_loss_type: stopLossType,
+    stop_loss_value: stopLossValue,
+    points_condition: pointsCondition
   };
+  try {
+    const response = await fetch('/api/buy_trade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buyData)
+    });
+    const data = await response.json();
+    if (response.ok) {
+      console.log(`✅ BUY Trade executed at ${price}:`, data);
+      setEntryPrice(price);
+      basePriceRef.current = price;
+    } else {
+      console.error("❌ BUY Trade execution failed:", data.error);
+    }
+  } catch (error) {
+    console.error("❌ API Error executing BUY trade:", error);
+  }
+}, [selectedUsers, formData.symbol, buyThreshold, buyConditionType, buyConditionValue, stopLossType, stopLossValue, pointsCondition]);
 
-  const stopSimulation = () => {
-    setIsSimulating(false);
-    if (simulationRef.current) {
-      clearInterval(simulationRef.current);
-      simulationRef.current = null;
+useEffect(() => {
+  if (!isSimulating) return;
+  if (actionType === 'buy' && entryPrice === null) {
+    let conditionMet = false;
+    switch (buyConditionType) {
+      case 'Fixed Value':
+        conditionMet = currentPrice >= buyConditionValue;
+        break;
+      case 'Percentage':
+        conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100));
+        break;
+      case 'Points':
+        conditionMet = currentPrice >= (buyThreshold + buyConditionValue);
+        break;
+      default:
+        conditionMet = false;
     }
-  };
-  useEffect(() => {
-    if (!isSimulating) return;
-    if (actionType === 'buy' && entryPrice === null) {
-      let conditionMet = false;
-      switch (buyConditionType) {
-        case 'Fixed Value':
-          conditionMet = currentPrice >= buyConditionValue;
-          break;
-        case 'Percentage':
-          conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100));
-          break;
-        case 'Points':
-          conditionMet = currentPrice >= (buyThreshold + buyConditionValue);
-          break;
-        default:
-          conditionMet = false;
-      }
-      if (conditionMet) {
-        console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
-        executeBuyTrade(currentPrice); // ✅ executeBuyTrade is used here
-      }
+    if (conditionMet) {
+      console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
+      executeBuyTrade(currentPrice); // ✅ Now it is defined before use
     }
-  }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue, executeBuyTrade]); // ✅ Added executeBuyTrade to dependencies
-  // Execute trade (Buy Order) for selected users
-  // Memoize executeBuyTrade using useCallback
-  const executeBuyTrade = useCallback(async (price) => {
-    if (selectedUsers.length === 0) {
-      console.log("No users selected for trade.");
-      return;
-    }
-    const buyData = {
-      users: selectedUsers,
-      symbol: formData.symbol,
-      buy_threshold: buyThreshold,
-      buy_condition_type: buyConditionType,
-      buy_condition_value: buyConditionValue,
-      stop_loss_type: stopLossType,
-      stop_loss_value: stopLossValue,
-      points_condition: pointsCondition
-    };
-    try {
-      const response = await fetch('/api/buy_trade', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buyData)
-      });
-      const data = await response.json();
-      if (response.ok) {
-        console.log(`✅ BUY Trade executed at ${price}:`, data);
-        setEntryPrice(price);
-        basePriceRef.current = price;
-      } else {
-        console.error("❌ BUY Trade execution failed:", data.error);
-      }
-    } catch (error) {
-      console.error("❌ API Error executing BUY trade:", error);
-    }
-  }, [selectedUsers, formData.symbol, buyThreshold, buyConditionType, buyConditionValue, stopLossType, stopLossValue, pointsCondition]);
+  }
+}, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue, executeBuyTrade]); // ✅ executeBuyTrade stays in dependencies
 
   // Handle form submission for trade (buy or sell)
   const handleStopLossSubmission = async (e) => {
