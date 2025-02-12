@@ -52,7 +52,7 @@ const Landing = () => {
   /********************************************************
    *         PRICE SIMULATION & TRADING SETUP           *
    ********************************************************/
-  const [currentPrice, setCurrentPrice] = useState(90); // Starting simulated price
+
   const [isSimulating, setIsSimulating] = useState(false);
   const simulationRef = useRef(null);
 
