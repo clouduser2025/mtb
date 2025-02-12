@@ -311,36 +311,42 @@ useEffect(() => {
     }
   };
 
-  // Registration submit handler
-  const handleRegisterSubmit = async (e) => {
-    e.preventDefault();
-    console.log("Submitting user:", formData);
-    try {
-      const response = await fetch("http://127.0.0.1:8000/api/register_user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: formData.username,
-          broker: formData.broker,
-          api_key: formData.api_key,
-          totp_token: formData.totp_token,
-          default_quantity: parseInt(formData.default_quantity, 10),
-        }),
-      });
-      const data = await response.json();
-      console.log("API Response:", data);
-      if (response.ok) {
-        setMessage({ text: "User registered successfully!", type: "success" });
-        fetchUsers(); // Refresh user list
-        setFormData({ username: "", broker: "Angel", api_key: "", totp_token: "", default_quantity: "", symbol: "" });
-      } else {
-        setMessage({ text: data.detail || "Registration failed", type: "danger" });
-      }
-    } catch (error) {
-      console.error("Error registering user:", error);
-      setMessage({ text: "Server error. Try again later.", type: "danger" });
+// Registration submit handler
+const handleRegisterSubmit = async (e) => {
+  e.preventDefault();
+  console.log("Submitting user:", formData);
+
+  // Get the backend URL from environment variables
+  const apiUrl = process.env.REACT_APP_API_URL; // This will fetch the backend URL from your .env file
+
+  try {
+    const response = await fetch(`${apiUrl}/api/register_user`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: formData.username,
+        broker: formData.broker,
+        api_key: formData.api_key,
+        totp_token: formData.totp_token,
+        default_quantity: parseInt(formData.default_quantity, 10),
+      }),
+    });
+
+    const data = await response.json();
+    console.log("API Response:", data);
+
+    if (response.ok) {
+      setMessage({ text: "User registered successfully!", type: "success" });
+      fetchUsers(); // Refresh user list
+      setFormData({ username: "", broker: "Angel", api_key: "", totp_token: "", default_quantity: "", symbol: "" });
+    } else {
+      setMessage({ text: data.detail || "Registration failed", type: "danger" });
     }
-  };
+  } catch (error) {
+    console.error("Error registering user:", error);
+    setMessage({ text: "Server error. Try again later.", type: "danger" });
+  }
+};
 
   // Delete user handler
   const handleDeleteUser = async (username) => {
