@@ -106,6 +106,14 @@ const Landing = () => {
     }
   };
 
+  const stopSimulation = () => {
+    setIsSimulating(false);
+    if (simulationRef.current) {
+      clearInterval(simulationRef.current);
+      simulationRef.current = null;
+    }
+  };
+  
   const fetchTrades = async () => {
     try {
       const response = await fetch("http://127.0.0.1:8000/api/get_trades");
@@ -176,6 +184,8 @@ const Landing = () => {
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  
 // Memoize executeBuyTrade using useCallback
 const executeBuyTrade = useCallback(async (price) => {
   if (selectedUsers.length === 0) {
