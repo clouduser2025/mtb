@@ -26,3 +26,7 @@ C:\Users\shafe>
 ✅ Exit Type → The method used to exit the trade (Fixed, Percentage, or Points).
 ✅ Exit Value → The stop-loss or stop-gain condition.
 ✅ Position → LONG (buy) or SHORT (sell).
+
+curl -X POST "https://ramdoot.onrender.com/api/register_user" ^
+     -H "Content-Type: application/json" ^
+     -d "{\"username\":\"test_user\",\"broker\":\"Angel\",\"api_key\":\"123456\",\"totp_token\":\"ABCDEFGH\",\"default_quantity\":1}"

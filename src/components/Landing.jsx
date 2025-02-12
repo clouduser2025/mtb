@@ -89,7 +89,7 @@ const Landing = () => {
     }
     setLoadingLtp(true);
     try {
-      const response = await fetch(`http://127.0.0.1:8001/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
+      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
       const data = await response.json();
       if (response.status) {
         setLtpPrice(data.ltp);
@@ -155,7 +155,7 @@ const Landing = () => {
   // ------------------------------
   const fetchUsers = async () => {
     try {
-      const response = await fetch("https://ramdoot.onrender.com/api/get_users", {
+      const response = await fetch("https://ramdoot.onrender.com12/api/get_users", {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       });
@@ -330,45 +330,44 @@ const Landing = () => {
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     console.log("Submitting user:", formData);
-
+  
     try {
-        const response = await fetch("https://ramdoot.onrender.com/api/register_user", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                username: formData.username,
-                broker: formData.broker,
-                api_key: formData.api_key,
-                totp_token: formData.totp_token,
-                default_quantity: parseInt(formData.default_quantity, 10),
-            }),
+      const response = await fetch("https://ramdoot.onrender.com/api/register_user", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          broker: formData.broker,
+          api_key: formData.api_key,
+          totp_token: formData.totp_token,
+          default_quantity: parseInt(formData.default_quantity, 10) || 1,
+        }),
+      });
+  
+      const data = await response.json();
+      console.log("API Response:", data);
+  
+      if (response.ok) {
+        setMessage({ text: "User registered successfully!", type: "success" });
+        fetchUsers(); // Refresh user list
+        setFormData({
+          username: "",
+          broker: "Angel",
+          api_key: "",
+          totp_token: "",
+          default_quantity: "",
         });
-
-        const data = await response.json();
-        console.log("API Response:", data);
-
-        if (response.ok) {
-            setMessage({ text: "User registered successfully!", type: "success" });
-            fetchUsers(); // Refresh user list
-            setFormData({
-                username: "",
-                broker: "Angel",
-                api_key: "",
-                totp_token: "",
-                default_quantity: "",
-                symbol: "",
-            });
-        } else {
-            setMessage({ text: data.detail || "Registration failed", type: "danger" });
-        }
+      } else {
+        setMessage({ text: data.detail || "Registration failed", type: "danger" });
+      }
     } catch (error) {
-        console.error("Error registering user:", error);
-        setMessage({ text: "Server error. Try again later.", type: "danger" });
+      console.error("Error registering user:", error);
+      setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
-};
-
+  };
+  
 
   // Delete user handler
   const handleDeleteUser = async (username) => {
