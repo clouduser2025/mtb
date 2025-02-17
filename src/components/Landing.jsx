@@ -113,12 +113,11 @@ const Landing = () => {
     }
     setLoadingOhlc(true);
     try {
-      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ohlc?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
+      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ohlc?exchange=${exchange}&symbols=${ltpSymbol}`);
       const data = await response.json();
       if (data.status) {
-        setOhlcData(data.ohlc);
-        // Display Open, High, Low, Close prices
-        console.log("OHLC Data:", data.ohlc);
+        setOhlcData(data.data.fetched[0]); // Assuming only one symbol is fetched
+        console.log("OHLC Data:", data.data.fetched[0]);
       } else {
         setOhlcData(null);
         alert("Failed to fetch OHLC data. Please check the symbol.");
@@ -129,21 +128,20 @@ const Landing = () => {
     } finally {
       setLoadingOhlc(false);
     }
-  };
-  
-  const fetchFullData = async () => {
+};
+
+const fetchFullData = async () => {
     if (!ltpSymbol) {
       alert("Please enter a stock symbol.");
       return;
     }
     setLoadingFull(true);
     try {
-      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_full?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
+      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_full?exchange=${exchange}&symbols=${ltpSymbol}`);
       const data = await response.json();
       if (data.status) {
-        setFullData(data.full_data);
-        // Display the Full Mode data (LTP, Open, High, Low, Close, etc.)
-        console.log("Full Data:", data.full_data);
+        setFullData(data.data.fetched[0]); // Assuming only one symbol is fetched
+        console.log("Full Data:", data.data.fetched[0]);
       } else {
         setFullData(null);
         alert("Failed to fetch Full data. Please check the symbol.");
@@ -154,7 +152,7 @@ const Landing = () => {
     } finally {
       setLoadingFull(false);
     }
-  };
+};
   
   const fetchTrades = async () => {
     try {
