@@ -297,7 +297,7 @@
 .btn-register { background: linear-gradient(45deg, #6a11cb, #2575fc); } /* Register */
 .btn-users { background: linear-gradient(45deg, #8e44ad, #3498db); } /* View Users */
 .btn-login { background: linear-gradient(45deg, #7B68EE, #00BFFF); } /* Angel Login */
-.btn-trades {background: linear-gradient(45deg, #229db0, #dbe3db); /* Trades Dashboard Gradient */
+.btn-trades {background: linear-gradient(45deg, #229db0, #e75607); /* Trades Dashboard Gradient */
 }
 
 /* Hover Effect */

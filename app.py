@@ -211,21 +211,25 @@ def execute_buy_trade(request: BuyRequest):
             responses.append({"user": username, "status": "error", "message": "User not found"})
             continue
 
-        user_dict = dict(zip(["username","password", "broker", "api_key", "totp_token", "default_quantity"], user_data))
+        user_dict = dict(zip(["username", "password", "broker", "api_key", "totp_token", "default_quantity"], user_data))
         smartApi = SmartConnect(api_key=user_dict["api_key"])
 
         try:
             totp = pyotp.TOTP(user_dict["totp_token"]).now()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Invalid TOTP for user {username}: {e}")
             responses.append({"user": username, "status": "error", "message": "Invalid TOTP"})
             continue
 
-        login_data = smartApi.generateSession(user_dict["username"], "PASSWORD", totp)
+        login_data = smartApi.generateSession(user_dict["username"], user_dict["password"], totp)
+        logger.info(f"Login for {username} result: {login_data}")
         if not login_data["status"]:
             responses.append({"user": username, "status": "error", "message": "Login Failed"})
             continue
 
+        # Fetch LTP
         ltp_response = smartApi.ltpData(exchange="NSE", tradingsymbol=request.symbol, symboltoken=request.symbol)
+        logger.info(f"LTP fetch for {request.symbol}: {ltp_response}")
         if not ltp_response["status"]:
             responses.append({"user": username, "status": "error", "message": "LTP Fetch Failed"})
             continue
@@ -235,7 +239,7 @@ def execute_buy_trade(request: BuyRequest):
             order_params = {
                 "variety": "NORMAL",
                 "tradingsymbol": request.symbol,
-                "symboltoken": request.symbol,
+                "symboltoken": request.symbol,  # Note: This should be fetched if it's not the same as the symbol
                 "transactiontype": "BUY",
                 "exchange": "NSE",
                 "ordertype": "LIMIT",
@@ -244,30 +248,34 @@ def execute_buy_trade(request: BuyRequest):
                 "price": ltp,
                 "quantity": user_dict["default_quantity"],
             }
-            order_response = smartApi.placeOrder(order_params)
-            if order_response["status"]:
-                cursor.execute("""
-                    INSERT INTO open_positions (username, symbol, entry_price, buy_threshold, exit_condition_type,
-                                                  exit_condition_value, points_condition, position_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (username, request.symbol, ltp, request.buy_threshold, request.stop_loss_type,
-                      request.stop_loss_value, request.points_condition, "LONG"))
-                conn.commit()
-                responses.append({"user": username, "status": "success", "message": f"BUY order placed at {ltp}"})
-                new_order = {
-                    "user": username,
-                    "action": "BUY",
-                    "price": ltp,
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                }
-                threading.Thread(target=lambda: asyncio.run(manager.broadcast(new_order))).start()
-                threading.Thread(target=monitor_long_position, args=(username, request.symbol)).start()
-            else:
-                responses.append({"user": username, "status": "error", "message": "Buy Order Failed"})
+            try:
+                order_response = smartApi.placeOrder(order_params)
+                logger.info(f"Order response for {username}: {order_response}")
+                if order_response["status"]:
+                    cursor.execute("""
+                        INSERT INTO open_positions (username, symbol, entry_price, buy_threshold, exit_condition_type,
+                                                      exit_condition_value, points_condition, position_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (username, request.symbol, ltp, request.buy_threshold, request.stop_loss_type,
+                          request.stop_loss_value, request.points_condition, "LONG"))
+                    conn.commit()
+                    responses.append({"user": username, "status": "success", "message": f"BUY order placed at {ltp}"})
+                    new_order = {
+                        "user": username,
+                        "action": "BUY",
+                        "price": ltp,
+                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    }
+                    threading.Thread(target=lambda: asyncio.run(manager.broadcast(new_order))).start()
+                    threading.Thread(target=monitor_long_position, args=(username, request.symbol)).start()
+                else:
+                    responses.append({"user": username, "status": "error", "message": "Buy Order Failed"})
+            except Exception as e:
+                logger.error(f"Error placing order for {username}: {e}")
+                responses.append({"user": username, "status": "error", "message": f"Exception during order placement: {str(e)}"})
         else:
             responses.append({"user": username, "status": "skipped", "message": "Buy condition not met"})
     return responses
-
 # ------------------------------
 # SELL TRADE Endpoint (Short Position)
 # ------------------------------
