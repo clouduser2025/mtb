@@ -734,7 +734,7 @@ const Landing = () => {
               </Row>
 
               <Button type="submit" variant="primary">
-                {actionType === 'buy' ? 'Confirm Buy + Stop-Loss' : 'Confirm Sell + Stop-Loss'}
+                {actionType === 'buy' ? 'Execute Buy with Stop-Loss' : 'Execute Sell with Stop-Loss'}
               </Button>
             </Form>
           </Container>
