@@ -615,7 +615,7 @@ const Landing = () => {
           </Col>
         </Row>
 
-        {/* LTP Form */}
+        {/* LTP Section with Buttons */}
         <Container className="ltp-container">
           <h4 className="text-primary">🔍 Live Fetch LTP</h4>
           <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
@@ -642,7 +642,7 @@ const Landing = () => {
                 </Form.Group>
               </Col>
               <Col md={2}>
-                <Button type="submit" variant="primary" className="mt-4">Fetch LTP</Button>
+                <Button type="submit" variant="primary" className="custom-btn mt-4">Fetch LTP</Button>
               </Col>
             </Row>
           </Form>
@@ -652,118 +652,118 @@ const Landing = () => {
               📈 Latest Price of <strong>{ltpSymbol}</strong>: ₹{ltpPrice}
             </Alert>
           )}
+
+          {/* Buttons for OHLC and Full Mode forms */}
+          <div className="d-flex justify-content-between mt-4">
+            <Button 
+              variant="outline-primary" 
+              onClick={() => setShowOhlcForm(!showOhlcForm)} 
+              className="custom-btn"
+            >
+              {showOhlcForm ? 'Hide OHLC Form' : 'Show OHLC Form'}
+            </Button>
+
+            <Button 
+              variant="outline-success" 
+              onClick={() => setShowFullForm(!showFullForm)} 
+              className="custom-btn"
+            >
+              {showFullForm ? 'Hide Full Mode Form' : 'Show Full Mode Form'}
+            </Button>
+          </div>
+
+          {/* OHLC Form (Conditional Rendering) */}
+          {showOhlcForm && (
+            <Container className="ltp-container mt-4">
+              <h4 className="text-primary">📉 Fetch OHLC Data</h4>
+              <Form onSubmit={(e) => { e.preventDefault(); fetchOhlc(); }}>
+                <Row className="mb-3">
+                  <Col md={3}>
+                    <Form.Group controlId="ohlcExchange">
+                      <Form.Label>Select Exchange</Form.Label>
+                      <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                        <option value="NSE">NSE</option>
+                        <option value="BSE">BSE</option>
+                      </Form.Select>
+                    </Form.Group>
+                  </Col>
+                  <Col md={3}>
+                    <Form.Group controlId="ohlcSymbol">
+                      <Form.Label>Enter Stock Symbol</Form.Label>
+                      <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
+                    </Form.Group>
+                  </Col>
+                  <Col md={3}>
+                    <Form.Group controlId="ohlcSymbolToken">
+                      <Form.Label>Enter Symbol Token (Optional)</Form.Label>
+                      <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
+                    </Form.Group>
+                  </Col>
+                  <Col md={2}>
+                    <Button type="submit" variant="outline-primary" className="custom-btn mt-4">Fetch OHLC</Button>
+                  </Col>
+                </Row>
+              </Form>
+              {loadingOhlc && <p>Loading...</p>}
+              {ohlcData && (
+                <Alert variant="info">
+                  <strong>OHLC Data for {ltpSymbol}:</strong><br />
+                  Open: ₹{ohlcData.open} <br />
+                  High: ₹{ohlcData.high} <br />
+                  Low: ₹{ohlcData.low} <br />
+                  Close: ₹{ohlcData.close}
+                </Alert>
+              )}
+            </Container>
+          )}
+
+          {/* Full Mode Form (Conditional Rendering) */}
+          {showFullForm && (
+            <Container className="ltp-container mt-4">
+              <h4 className="text-primary">📊 Fetch Full Data</h4>
+              <Form onSubmit={(e) => { e.preventDefault(); fetchFullData(); }}>
+                <Row className="mb-3">
+                  <Col md={3}>
+                    <Form.Group controlId="fullModeExchange">
+                      <Form.Label>Select Exchange</Form.Label>
+                      <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                        <option value="NSE">NSE</option>
+                        <option value="BSE">BSE</option>
+                      </Form.Select>
+                    </Form.Group>
+                  </Col>
+                  <Col md={3}>
+                    <Form.Group controlId="fullModeSymbol">
+                      <Form.Label>Enter Stock Symbol</Form.Label>
+                      <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
+                    </Form.Group>
+                  </Col>
+                  <Col md={3}>
+                    <Form.Group controlId="fullModeSymbolToken">
+                      <Form.Label>Enter Symbol Token (Optional)</Form.Label>
+                      <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
+                    </Form.Group>
+                  </Col>
+                  <Col md={2}>
+                    <Button type="submit" variant="outline-success" className="custom-btn mt-4">Fetch Full Data</Button>
+                  </Col>
+                </Row>
+              </Form>
+              {loadingFull && <p>Loading...</p>}
+              {fullData && (
+                <Alert variant="warning">
+                  <strong>Full Data for {ltpSymbol}:</strong><br />
+                  LTP: ₹{fullData.ltp} <br />
+                  Open: ₹{fullData.open} <br />
+                  High: ₹{fullData.high} <br />
+                  Low: ₹{fullData.low} <br />
+                  Close: ₹{fullData.close} <br />
+                  Volume: {fullData.volume} <br />
+                </Alert>
+              )}
+            </Container>
+          )}
         </Container>
-        
-        {/* Button to Toggle OHLC Form */}
-        <Button 
-          variant="outline-primary" 
-          onClick={() => setShowOhlcForm(!showOhlcForm)} 
-          className="custom-btn mt-4"
-        >
-          {showOhlcForm ? 'Hide OHLC Form' : 'Show OHLC Form'}
-        </Button>
-
-        {/* OHLC Form (Conditional Rendering) */}
-        {showOhlcForm && (
-          <Container className="ltp-container mt-4">
-            <h4 className="text-primary">📉 Fetch OHLC Data</h4>
-            <Form onSubmit={(e) => { e.preventDefault(); fetchOhlc(); }}>
-              <Row className="mb-3">
-                <Col md={3}>
-                  <Form.Group controlId="ohlcExchange">
-                    <Form.Label>Select Exchange</Form.Label>
-                    <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
-                      <option value="NSE">NSE</option>
-                      <option value="BSE">BSE</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group controlId="ohlcSymbol">
-                    <Form.Label>Enter Stock Symbol</Form.Label>
-                    <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group controlId="ohlcSymbolToken">
-                    <Form.Label>Enter Symbol Token (Optional)</Form.Label>
-                    <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
-                  </Form.Group>
-                </Col>
-                <Col md={2}>
-                  <Button type="submit" variant="outline-primary" className="custom-btn mt-4">Fetch OHLC</Button>
-                </Col>
-              </Row>
-            </Form>
-            {loadingOhlc && <p>Loading...</p>}
-            {ohlcData && (
-              <Alert variant="info">
-                <strong>OHLC Data for {ltpSymbol}:</strong><br />
-                Open: ₹{ohlcData.open} <br />
-                High: ₹{ohlcData.high} <br />
-                Low: ₹{ohlcData.low} <br />
-                Close: ₹{ohlcData.close}
-              </Alert>
-            )}
-          </Container>
-        )}
-
-        {/* Button to Toggle Full Mode Form */}
-        <Button 
-          variant="outline-success" 
-          onClick={() => setShowFullForm(!showFullForm)} 
-          className="custom-btn mt-4"
-        >
-          {showFullForm ? 'Hide Full Mode Form' : 'Show Full Mode Form'}
-        </Button>
-
-        {/* Full Mode Form (Conditional Rendering) */}
-        {showFullForm && (
-          <Container className="ltp-container mt-4">
-            <h4 className="text-primary">📊 Fetch Full Data</h4>
-            <Form onSubmit={(e) => { e.preventDefault(); fetchFullData(); }}>
-              <Row className="mb-3">
-                <Col md={3}>
-                  <Form.Group controlId="fullModeExchange">
-                    <Form.Label>Select Exchange</Form.Label>
-                    <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
-                      <option value="NSE">NSE</option>
-                      <option value="BSE">BSE</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group controlId="fullModeSymbol">
-                    <Form.Label>Enter Stock Symbol</Form.Label>
-                    <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group controlId="fullModeSymbolToken">
-                    <Form.Label>Enter Symbol Token (Optional)</Form.Label>
-                    <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
-                  </Form.Group>
-                </Col>
-                <Col md={2}>
-                  <Button type="submit" variant="outline-success" className="custom-btn mt-4">Fetch Full Data</Button>
-                </Col>
-              </Row>
-            </Form>
-            {loadingFull && <p>Loading...</p>}
-            {fullData && (
-              <Alert variant="warning">
-                <strong>Full Data for {ltpSymbol}:</strong><br />
-                LTP: ₹{fullData.ltp} <br />
-                Open: ₹{fullData.open} <br />
-                High: ₹{fullData.high} <br />
-                Low: ₹{fullData.low} <br />
-                Close: ₹{fullData.close} <br />
-                Volume: {fullData.volume} <br />
-              </Alert>
-            )}
-          </Container>
-        )}
-
 
         {/* Buy/Sell Buttons */}
         <Row className="justify-content-center mb-3">
