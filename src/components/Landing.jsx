@@ -797,7 +797,7 @@ const Landing = () => {
                 style={{ backgroundColor: '#007BA7', borderColor: '#007BA7', color: 'white' }}
                 className="mt-3"
               >
-                {actionType === 'buy' ? 'Place Order Buy with Stop-Loss' : 'Place Order with Stop-Loss'}
+                {actionType === 'buy' ? 'Place Order Buy with Stop-Loss' : 'Place Order Sell with Stop-Loss'}
               </Button>
             </Form>
           </Container>
