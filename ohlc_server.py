@@ -63,9 +63,10 @@ def get_symbol_token(exchange: str, symbol: str):
         logger.error(f"🔴 Error fetching symbol token: {e}")
         return None
 
-# Fetch OHLC Data
-@app.get("/api/fetch_ohlc")
-async def fetch_ohlc(
+# Fetch Market Data
+@app.get("/api/fetch_market_data")
+async def fetch_market_data(
+    mode: str = Query("LTP", description="Mode (LTP/OHLC/FULL)"),
     exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
     symbol: str = Query(..., description="Stock Symbol (e.g. SBIN-EQ)"),
 ):
@@ -74,9 +75,14 @@ async def fetch_ohlc(
         if not token:
             return {"status": False, "message": "❌ Failed to fetch symbol token"}
 
-        # Use the token to fetch OHLC data
-        payload = {"exchange": exchange, "symboltoken": token}
-        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/ohlc"
+        # Define payload based on the mode
+        payload = {
+            "mode": mode.upper(),
+            "exchangeTokens": {
+                exchange: [token]
+            }
+        }
+        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
         headers = {
             "Authorization": f"Bearer {authToken}",
             "Content-Type": "application/json",
@@ -88,23 +94,59 @@ async def fetch_ohlc(
         if response.status_code == 200:
             data = response.json()
             if data.get("status") and "data" in data:
-                # Extracting OHLC data from the response
-                ohlc_data = data["data"][0]  # Assuming there is at least one item
-                return {
-                    "status": True,
-                    "data": {
-                        "symbol": symbol,
-                        "exchange": exchange,
-                        "ltp": ohlc_data["ltp"],
-                        "open": ohlc_data["open"],
-                        "high": ohlc_data["high"],
-                        "low": ohlc_data["low"],
-                        "close": ohlc_data["close"],
-                    },
-                }
+                fetched_data = data["data"]["fetched"][0]  # Assuming at least one item
+                if mode.upper() == "LTP":
+                    return {
+                        "status": True,
+                        "data": {
+                            "symbol": symbol,
+                            "exchange": exchange,
+                            "ltp": fetched_data["ltp"]
+                        },
+                    }
+                elif mode.upper() == "OHLC":
+                    return {
+                        "status": True,
+                        "data": {
+                            "symbol": symbol,
+                            "exchange": exchange,
+                            "open": fetched_data["open"],
+                            "high": fetched_data["high"],
+                            "low": fetched_data["low"],
+                            "close": fetched_data["close"]
+                        },
+                    }
+                elif mode.upper() == "FULL":
+                    return {
+                        "status": True,
+                        "data": {
+                            "symbol": symbol,
+                            "exchange": exchange,
+                            "ltp": fetched_data["ltp"],
+                            "open": fetched_data["open"],
+                            "high": fetched_data["high"],
+                            "low": fetched_data["low"],
+                            "close": fetched_data["close"],
+                            "lastTradeQty": fetched_data["lastTradeQty"],
+                            "exchFeedTime": fetched_data["exchFeedTime"],
+                            "exchTradeTime": fetched_data["exchTradeTime"],
+                            "netChange": fetched_data["netChange"],
+                            "percentChange": fetched_data["percentChange"],
+                            "avgPrice": fetched_data["avgPrice"],
+                            "tradeVolume": fetched_data["tradeVolume"],
+                            "opnInterest": fetched_data["opnInterest"],
+                            "lowerCircuit": fetched_data["lowerCircuit"],
+                            "upperCircuit": fetched_data["upperCircuit"],
+                            "totBuyQuan": fetched_data["totBuyQuan"],
+                            "totSellQuan": fetched_data["totSellQuan"],
+                            "52WeekLow": fetched_data["52WeekLow"],
+                            "52WeekHigh": fetched_data["52WeekHigh"],
+                            "depth": fetched_data["depth"]
+                        },
+                    }
 
         logger.error(f"❌ API Error: {response.status_code} - {response.text}")
-        return {"status": False, "message": "Error fetching OHLC data"}
+        return {"status": False, "message": "Error fetching market data"}
     except Exception as e:
         logger.error(f"🔴 Server Error: {e}")
         return {"status": False, "message": "Server Error"}

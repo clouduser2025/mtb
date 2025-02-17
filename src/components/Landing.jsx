@@ -8,7 +8,7 @@ import {
   faSignInAlt, 
   faShoppingCart, 
   faExchangeAlt,
-  faUser,               // ✅ Added missing icons
+  faUser,               
   faUserTie,
   faChartLine,
   faDollarSign,
@@ -71,15 +71,7 @@ const Landing = () => {
   const [symbolToken, setSymbolToken] = useState("");
   const [ltpPrice, setLtpPrice] = useState(null);
   const [loadingLtp, setLoadingLtp] = useState(false);
-  const [showOhlcForm, setShowOhlcForm] = useState(false);
-  const [showFullForm, setShowFullForm] = useState(false);
 
-  const [ohlcData, setOhlcData] = useState(null);
-  const [fullData, setFullData] = useState(null);
-  
-  const [loadingOhlc, setLoadingOhlc] = useState(false);
-  const [loadingFull, setLoadingFull] = useState(false);
-  
   /********************************************************
    *                 API FUNCTIONS                      *
    ********************************************************/
@@ -92,7 +84,7 @@ const Landing = () => {
     try {
       const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
       const data = await response.json();
-      if (response.status) {
+      if (data.status) {
         setLtpPrice(data.ltp);
       } else {
         setLtpPrice(null);
@@ -106,57 +98,6 @@ const Landing = () => {
     }
   };
 
-  const fetchOhlc = async () => {
-    if (!ltpSymbol) {
-        alert("Please enter a stock symbol.");
-        return;
-    }
-    setLoadingOhlc(true);
-
-    try {
-        const response = await fetch(`https://mtb-3.onrender.com/api/fetch_ohlc?exchange=${exchange}&symbol=${ltpSymbol}`);
-        const data = await response.json();
-
-        if (data.status) {
-            setOhlcData(data.data);
-            console.log("✅ OHLC Data:", data.data);
-        } else {
-            setOhlcData(null);
-            alert("❌ Failed to fetch OHLC data. Please check the symbol.");
-        }
-    } catch (error) {
-        console.error("🔴 Error fetching OHLC:", error);
-        alert("Server error. Try again later.");
-    } finally {
-        setLoadingOhlc(false);
-    }
-};
-
-
-const fetchFullData = async () => {
-    if (!ltpSymbol) {
-      alert("Please enter a stock symbol.");
-      return;
-    }
-    setLoadingFull(true);
-    try {
-      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_full?exchange=${exchange}&symbols=${ltpSymbol}`);
-      const data = await response.json();
-      if (data.status) {
-        setFullData(data.data.fetched[0]); // Assuming only one symbol is fetched
-        console.log("Full Data:", data.data.fetched[0]);
-      } else {
-        setFullData(null);
-        alert("Failed to fetch Full data. Please check the symbol.");
-      }
-    } catch (error) {
-      console.error("Error fetching Full data:", error);
-      alert("Server error. Try again later.");
-    } finally {
-      setLoadingFull(false);
-    }
-};
-  
   const fetchTrades = async () => {
     try {
       const response = await fetch("https://ramdoot.onrender.com/api/get_trades");
@@ -165,7 +106,7 @@ const fetchFullData = async () => {
       }
       const data = await response.json();
       
-      // ✅ Ensure user role is included
+      // Ensure user role is included
       const updatedTrades = data.trades.map(trade => ({
         ...trade,
         user_role: trade.user_role || "Trader", // Default role if missing
@@ -176,7 +117,6 @@ const fetchFullData = async () => {
       console.error("Error fetching trades:", error);
     }
   };
-  
 
   const UserActionsDropdown = ({ setShowRegisterModal, setShowUsers, showUsers }) => {
     return (
@@ -202,9 +142,7 @@ const fetchFullData = async () => {
     );
   };
 
-  // ------------------------------
   // Fetch registered users on component mount
-  // ------------------------------
   const fetchUsers = async () => {
     try {
       const response = await fetch("https://ramdoot.onrender.com/api/get_users", {
@@ -227,7 +165,6 @@ const fetchFullData = async () => {
   useEffect(() => {
     fetchUsers();
   }, []);
-
 
   // Registration submit handler
   const handleRegisterSubmit = async (e) => {
@@ -272,7 +209,6 @@ const fetchFullData = async () => {
       setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
   };
-  
 
   // Delete user handler
   const handleDeleteUser = async (username) => {
@@ -294,6 +230,7 @@ const fetchFullData = async () => {
       setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
   };
+
   const handleStopLossSubmission = async (e) => {
     e.preventDefault();
     
@@ -330,7 +267,6 @@ const fetchFullData = async () => {
   
       if (response.ok) {
         setMessage({ text: `Trade ${actionType === 'buy' ? 'buy' : 'sell'} order placed successfully!`, type: "success" });
-        // Optionally, refresh the trades list or reset form here
         setShowStopLossForm(false);
         fetchTrades();
       } else {
@@ -341,7 +277,7 @@ const fetchFullData = async () => {
       setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
   };
-  
+
   const AdvancedChart = ({ symbol, openTrades }) => {
     const chartContainerRef = useRef(null);
     const tvWidgetRef = useRef(null);
@@ -355,7 +291,7 @@ const fetchFullData = async () => {
           symbol: symbol || "NASDAQ:AAPL",
           interval: "5",
           container_id: "advanced_chart_container",
-          datafeed: window.TradingView.defaultDatafeed, // ✅ Gets data from TradingView
+          datafeed: window.TradingView.defaultDatafeed, 
           library_path: "/charting_library/",
           locale: "en",
           disabled_features: ["header_saveload"],
@@ -368,17 +304,17 @@ const fetchFullData = async () => {
     const updateMarkers = (trades) => {
       if (!tvWidgetRef.current) return;
     
-      // ✅ Ensure the widget is fully initialized
+      // Ensure the widget is fully initialized
       if (typeof tvWidgetRef.current.on !== "function") {
         console.error("TradingView widget is not initialized properly.");
         return;
       }
     
       tvWidgetRef.current.on("chart_ready", () => {
-        const chart = tvWidgetRef.current.chart(); // ✅ Correct way to access the chart
-        const currentTime = Math.floor(Date.now() / 1000); // UNIX timestamp
+        const chart = tvWidgetRef.current.chart(); 
+        const currentTime = Math.floor(Date.now() / 1000); 
     
-        let priceOffset = {}; // Track how many trades exist at a given price
+        let priceOffset = {}; 
     
         trades.forEach((trade) => {
           const basePrice = trade.entry_price;
@@ -387,25 +323,25 @@ const fetchFullData = async () => {
           if (!priceOffset[basePrice]) {
             priceOffset[basePrice] = 0;
           } else {
-            priceOffset[basePrice] += 0.5; // Offset by 0.5 points
+            priceOffset[basePrice] += 0.5; 
           }
     
-          // 🎨 Assign unique icons & colors for users
+          // Assign unique icons & colors for users
           const userIcons = {
-            "John": { icon: "👨‍💼", color: "🔵" },  // Businessman icon (Blue)
-            "Alice": { icon: "👩‍💼", color: "🟢" },  // Businesswoman icon (Green)
-            "Bob": { icon: "🧑‍💻", color: "🟠" }   // Developer icon (Orange)
+            "John": { icon: "👨‍💼", color: "🔵" },  
+            "Alice": { icon: "👩‍💼", color: "🟢" },  
+            "Bob": { icon: "🧑‍💻", color: "🟠" }   
           };
     
           // Get user icon & color (default to 🧑‍💻 and ⚪ if not found)
           const userData = userIcons[trade.username] || { icon: "🧑‍💻", color: "⚪" };
     
-          // ✅ Add marker with hover effect showing username, role, and color icon
+          // Add marker with hover effect showing username, role, and color icon
           chart.createShape(
             { time: currentTime, price: basePrice + priceOffset[basePrice] },
             {
               shape: trade.position_type === "LONG" ? "arrow_up" : "arrow_down",
-              text: `${userData.color} ${userData.icon} ${trade.username}\n(${trade.user_role})`, // ✅ Colored User Icon + Name + Role (Hover Effect)
+              text: `${userData.color} ${userData.icon} ${trade.username}\n(${trade.user_role})`, 
               color: trade.position_type === "LONG" ? "green" : "red",
               disableUndo: true
             }
@@ -414,16 +350,15 @@ const fetchFullData = async () => {
       });
     };
     
-  
     useEffect(() => {
       if (tvWidgetRef.current) {
-        updateMarkers(openTrades); // ✅ Updates chart when trades change
+        updateMarkers(openTrades); 
       }
     }, [openTrades]);
   
     return <div id="advanced_chart_container" ref={chartContainerRef} style={{ height: "500px", width: "100%" }}></div>;
   };
-  
+
   const loadTradingViewScript = (callback) => {
     if (window.TradingView) {
       callback();
@@ -433,10 +368,9 @@ const fetchFullData = async () => {
     const script = document.createElement("script");
     script.src = "https://s3.tradingview.com/tv.js";
     script.async = true;
-    script.onload = callback; // Ensure script loads before calling TradingView
+    script.onload = callback; 
     document.body.appendChild(script);
   };
-  
 
   /********************************************************
    *                     RENDER (JSX)                     *
@@ -456,7 +390,6 @@ const fetchFullData = async () => {
         </Row>
 
         {/* Registered Users Table */}
-        {/* ===================== Registered Users Table ===================== */}
         {showUsers && (
           <Container className="users-table-container mb-5">
             <h3 className="text-center mb-4 text-primary">
@@ -481,8 +414,8 @@ const fetchFullData = async () => {
                         <td>{index + 1}</td>
                         <td>{user.username}</td>
                         <td>{user.role || "Trader"}</td>
-                        <td>{user.broker}</td> {/* Correctly display the broker */}
-                        <td>{user.default_quantity}</td> {/* Display default quantity */}
+                        <td>{user.broker}</td> 
+                        <td>{user.default_quantity}</td> 
                         <td>
                           <Button variant="danger" size="sm" onClick={() => handleDeleteUser(user.username)}>
                             ❌ Delete
@@ -501,7 +434,7 @@ const fetchFullData = async () => {
           </Container>
         )}
 
-        {/* ===================== Active Trades Table ===================== */}
+        {/* Active Trades Table */}
         {showTradesDashboard && (
           <>
             <Container className="mt-5 p-4 traders-table-container shadow-lg rounded bg-white">
@@ -510,7 +443,7 @@ const fetchFullData = async () => {
               </h3>
               <div className="table-responsive">
                 <Table striped bordered hover className="traders-table shadow-sm">
-                <thead className="text-center">
+                  <thead className="text-center">
                     <tr>
                       <th>#</th>
                       <th className="bg-primary text-white">
@@ -573,8 +506,8 @@ const fetchFullData = async () => {
               </div>
             </Container>
 
-            {/* Add AdvancedChart below the table with margin for spacing */}
-            <Container className="mt-5 p-4 bg-light rounded shadow-lg">
+                        {/* Add AdvancedChart below the table with margin for spacing */}
+                        <Container className="mt-5 p-4 bg-light rounded shadow-lg">
               <h4 className="text-center mb-3 text-dark fw-bold">
                 📊 Live Chart with Open Trades
               </h4>
@@ -582,7 +515,6 @@ const fetchFullData = async () => {
             </Container>
           </>
         )}
-
 
         {/* Trading Action Buttons */}
         <Row className="justify-content-center mb-3">
@@ -616,155 +548,44 @@ const fetchFullData = async () => {
           </Col>
         </Row>
 
-      {/* LTP Section with Buttons */}
-      <Container className="ltp-container">
-        <h4 className="text-primary">🔍 Live Fetch LTP</h4>
-        <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
-          <Row className="mb-3">
-            <Col md={3}>
-              <Form.Group controlId="exchange">
-                <Form.Label>Select Exchange</Form.Label>
-                <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
-                  <option value="NSE">NSE</option>
-                  <option value="BSE">BSE</option>
-                </Form.Select>
-              </Form.Group>
-            </Col>
-            <Col md={3}>
-              <Form.Group controlId="ltpSymbol">
-                <Form.Label>Enter Stock Symbol</Form.Label>
-                <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
-              </Form.Group>
-            </Col>
-            <Col md={3}>
-              <Form.Group controlId="symbolToken">
-                <Form.Label>Enter Symbol Token (Optional)</Form.Label>
-                <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
-              </Form.Group>
-            </Col>
-            <Col md={2}>
-              <Button type="submit" variant="primary" className="custom-btn mt-4">Fetch LTP</Button>
-            </Col>
-          </Row>
-        </Form>
-        {loadingLtp && <p>Loading...</p>}
-        {ltpPrice !== null && (
-          <Alert variant="success">
-            📈 Latest Price of <strong>{ltpSymbol}</strong>: ₹{ltpPrice}
-          </Alert>
-        )}
-
-        {/* Buttons for OHLC and Full Mode forms */}
-        <div className="d-flex justify-content-between mt-4">
-          <Button 
-            variant="outline-primary" 
-            onClick={() => setShowOhlcForm(!showOhlcForm)} 
-            className="custom-btn"
-          >
-            {showOhlcForm ? 'Hide OHLC Form' : 'Show OHLC Form'}
-          </Button>
-
-          <Button 
-            variant="outline-success" 
-            onClick={() => setShowFullForm(!showFullForm)} 
-            className="custom-btn"
-          >
-            {showFullForm ? 'Hide Full Mode Form' : 'Show Full Mode Form'}
-          </Button>
-        </div>
-
-        {/* OHLC Form (Conditional Rendering) */}
-        {showOhlcForm && (
-          <Container className="ltp-container mt-4">
-            <h4 className="text-primary">📉 Fetch OHLC Data</h4>
-            <Form onSubmit={(e) => { e.preventDefault(); fetchOhlc(); }}>
-              <Row className="mb-3">
-                <Col md={3}>
-                  <Form.Group controlId="ohlcExchange">
-                    <Form.Label>Select Exchange</Form.Label>
-                    <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
-                      <option value="NSE">NSE</option>
-                      <option value="BSE">BSE</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group controlId="ohlcSymbol">
-                    <Form.Label>Enter Stock Symbol</Form.Label>
-                    <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group controlId="ohlcSymbolToken">
-                    <Form.Label>Enter Symbol Token (Optional)</Form.Label>
-                    <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
-                  </Form.Group>
-                </Col>
-                <Col md={2}>
-                  <Button type="submit" variant="outline-primary" className="custom-btn mt-4">Fetch OHLC</Button>
-                </Col>
-              </Row>
-            </Form>
-            {loadingOhlc && <p>Loading...</p>}
-            {ohlcData && (
-              <Alert variant="info">
-                <strong>OHLC Data for {ltpSymbol}:</strong><br />
-                Open: ₹{ohlcData.open} <br />
-                High: ₹{ohlcData.high} <br />
-                Low: ₹{ohlcData.low} <br />
-                Close: ₹{ohlcData.close}
-              </Alert>
-            )}
-          </Container>
-        )}
-
-        {/* Full Mode Form (Conditional Rendering) */}
-        {showFullForm && (
-          <Container className="ltp-container mt-4">
-            <h4 className="text-primary">📊 Fetch Full Data</h4>
-            <Form onSubmit={(e) => { e.preventDefault(); fetchFullData(); }}>
-              <Row className="mb-3">
-                <Col md={3}>
-                  <Form.Group controlId="fullModeExchange">
-                    <Form.Label>Select Exchange</Form.Label>
-                    <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
-                      <option value="NSE">NSE</option>
-                      <option value="BSE">BSE</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group controlId="fullModeSymbol">
-                    <Form.Label>Enter Stock Symbol</Form.Label>
-                    <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
-                  </Form.Group>
-                </Col>
-                <Col md={3}>
-                  <Form.Group controlId="fullModeSymbolToken">
-                    <Form.Label>Enter Symbol Token (Optional)</Form.Label>
-                    <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
-                  </Form.Group>
-                </Col>
-                <Col md={2}>
-                  <Button type="submit" variant="outline-success" className="custom-btn mt-4">Fetch Full Data</Button>
-                </Col>
-              </Row>
-            </Form>
-            {loadingFull && <p>Loading...</p>}
-            {fullData && (
-              <Alert variant="warning">
-                <strong>Full Data for {ltpSymbol}:</strong><br />
-                LTP: ₹{fullData.ltp} <br />
-                Open: ₹{fullData.open} <br />
-                High: ₹{fullData.high} <br />
-                Low: ₹{fullData.low} <br />
-                Close: ₹{fullData.close} <br />
-                Volume: {fullData.volume} <br />
-              </Alert>
-            )}
-          </Container>
-        )}
-      </Container>
+        {/* LTP Section */}
+        <Container className="ltp-container">
+          <h4 className="text-primary">🔍 Live Fetch LTP</h4>
+          <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
+            <Row className="mb-3">
+              <Col md={3}>
+                <Form.Group controlId="exchange">
+                  <Form.Label>Select Exchange</Form.Label>
+                  <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                    <option value="NSE">NSE</option>
+                    <option value="BSE">BSE</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="ltpSymbol">
+                  <Form.Label>Enter Stock Symbol</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="symbolToken">
+                  <Form.Label>Enter Symbol Token (Optional)</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
+                </Form.Group>
+              </Col>
+              <Col md={2}>
+                <Button type="submit" variant="primary" className="custom-btn mt-4">Fetch LTP</Button>
+              </Col>
+            </Row>
+          </Form>
+          {loadingLtp && <p>Loading...</p>}
+          {ltpPrice !== null && (
+            <Alert variant="success">
+              📈 Latest Price of <strong>{ltpSymbol}</strong>: ₹{ltpPrice}
+            </Alert>
+          )}
+        </Container>
 
         {/* Buy/Sell Buttons */}
         <Row className="justify-content-center mb-3">
