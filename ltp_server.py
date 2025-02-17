@@ -111,6 +111,7 @@ async def fetch_ltp(
         logger.error(f"LTP Fetch Error: {e}")
         return {"status": False, "message": "Server Error"}
 
+# --- API Endpoint: Fetch OHLC Mode ---
 @app.get("/api/fetch_ohlc")
 async def fetch_ohlc(
     exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
@@ -123,32 +124,21 @@ async def fetch_ohlc(
             if not token:
                 return {"status": False, "message": "Failed to fetch symbol token"}
 
-        # Fetch OHLC data from the new market data API
-        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-UserType": "USER",
-            "X-SourceID": "WEB",
-        }
-        payload = {"mode": "OHLC", "exchangeTokens": {exchange: [token]}}
-        response = requests.post(url, headers=headers, json=payload)
-
-        if response.status_code == 200:
-            data = response.json()
-            if data["status"]:
-                ohlc_data = data["data"]["fetched"][0]
-                logger.info(f"✅ {symbol} OHLC Data = {ohlc_data}")
-                return {"status": True, "ohlc": ohlc_data}
-            else:
-                return {"status": False, "message": "Failed to fetch OHLC data"}
+        # Fetch OHLC Data
+        response = smartApi.ohlcData(exchange=exchange, tradingsymbol=symbol, symboltoken=token)
+        
+        if response["status"]:
+            ohlc = response["data"]
+            logger.info(f"✅ {symbol} OHLC Data = {ohlc}")
+            return {"status": True, "ohlc": ohlc}
         else:
-            return {"status": False, "message": "API request failed"}
+            logger.error(f"Error fetching OHLC: {response.get('message', 'Unknown Error')}")
+            return {"status": False, "message": "OHLC fetch failed"}
     except Exception as e:
         logger.error(f"OHLC Fetch Error: {e}")
         return {"status": False, "message": "Server Error"}
 
+# --- API Endpoint: Fetch Full Mode ---
 @app.get("/api/fetch_full")
 async def fetch_full(
     exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
@@ -161,30 +151,18 @@ async def fetch_full(
             if not token:
                 return {"status": False, "message": "Failed to fetch symbol token"}
 
-        # Fetch Full data from the new market data API
-        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-UserType": "USER",
-            "X-SourceID": "WEB",
-        }
-        payload = {"mode": "FULL", "exchangeTokens": {exchange: [token]}}
-        response = requests.post(url, headers=headers, json=payload)
-
-        if response.status_code == 200:
-            data = response.json()
-            if data["status"]:
-                full_data = data["data"]["fetched"][0]
-                logger.info(f"✅ {symbol} Full Data = {full_data}")
-                return {"status": True, "full_data": full_data}
-            else:
-                return {"status": False, "message": "Failed to fetch Full data"}
+        # Fetch Full Data
+        response = smartApi.fullData(exchange=exchange, tradingsymbol=symbol, symboltoken=token)
+        
+        if response["status"]:
+            full_data = response["data"]
+            logger.info(f"✅ {symbol} Full Data = {full_data}")
+            return {"status": True, "full_data": full_data}
         else:
-            return {"status": False, "message": "API request failed"}
+            logger.error(f"Error fetching Full Data: {response.get('message', 'Unknown Error')}")
+            return {"status": False, "message": "Full Data fetch failed"}
     except Exception as e:
-        logger.error(f"Full Mode Fetch Error: {e}")
+        logger.error(f"Full Data Fetch Error: {e}")
         return {"status": False, "message": "Server Error"}
 
 # --- Shutdown Hook ---
