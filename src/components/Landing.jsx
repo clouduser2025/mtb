@@ -170,9 +170,6 @@ const Landing = () => {
   }, []);
 
 
-
-  
-
   // Registration submit handler
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
@@ -238,6 +235,54 @@ const Landing = () => {
       setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
   };
+  const handleStopLossSubmission = async (e) => {
+    e.preventDefault();
+    
+    if (selectedUsers.length === 0 || selectedUsers.length > 3) {
+      setMessage({ text: "Please select 1 to 3 users for this trade.", type: "danger" });
+      return;
+    }
+  
+    const tradeData = {
+      users: selectedUsers,
+      symbol: formData.symbol,
+      actionType: actionType,
+      stopLossType: stopLossType,
+      stopLossValue: stopLossValue,
+      buyThreshold: actionType === 'buy' ? buyThreshold : null,
+      sellThreshold: actionType === 'sell' ? sellThreshold : null,
+      buyConditionType: actionType === 'buy' ? buyConditionType : null,
+      buyConditionValue: actionType === 'buy' ? buyConditionValue : null,
+      sellConditionType: actionType === 'sell' ? sellConditionType : null,
+      sellConditionValue: actionType === 'sell' ? sellConditionValue : null,
+      pointsCondition: pointsCondition
+    };
+  
+    try {
+      const response = await fetch(actionType === 'buy' ? 'https://ramdoot.onrender.com/api/buy_trade' : 'https://ramdoot.onrender.com/api/sell_trade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(tradeData),
+      });
+  
+      const data = await response.json();
+  
+      if (response.ok) {
+        setMessage({ text: `Trade ${actionType === 'buy' ? 'buy' : 'sell'} order placed successfully!`, type: "success" });
+        // Optionally, refresh the trades list or reset form here
+        setShowStopLossForm(false);
+        fetchTrades();
+      } else {
+        setMessage({ text: data.detail || "Failed to place trade order", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error placing trade order:", error);
+      setMessage({ text: "Server error. Try again later.", type: "danger" });
+    }
+  };
+  
   const AdvancedChart = ({ symbol, openTrades }) => {
     const chartContainerRef = useRef(null);
     const tvWidgetRef = useRef(null);
