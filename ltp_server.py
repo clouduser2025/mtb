@@ -59,7 +59,7 @@ def get_symbol_token(exchange: str, symbol: str):
     try:
         url = "https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/searchScrip"
         headers = {
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {authToken}",  # Use authToken instead of API_KEY
             "Content-Type": "application/json",
             "Accept": "application/json",
             "X-UserType": "USER",
@@ -83,7 +83,7 @@ def get_symbol_token(exchange: str, symbol: str):
     except requests.exceptions.RequestException as e:
         logger.error(f"🔴 Error fetching symbol token: {e}")
         return None
-
+    
 # --- API Endpoint: Fetch LTP ---
 @app.get("/api/fetch_ltp")
 async def fetch_ltp(
@@ -116,20 +116,30 @@ async def fetch_ltp(
 @app.get("/api/fetch_ohlc")
 async def fetch_ohlc(
     exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
-    symbols: str = Query(..., description="Comma-separated stock symbols (e.g. SBIN-EQ)"),
+    symbols: str = Query(None, description="Comma-separated stock symbols (e.g. RELIANCE, TCS)"),
+    symbol: str = Query(None, description="Single stock symbol (e.g. SBIN-EQ)"),  # Temporary addition
 ):
     try:
-        symbol_list = symbols.split(",")
-        symbol_tokens = [get_symbol_token(exchange, symbol) for symbol in symbol_list if get_symbol_token(exchange, symbol)]
+        # Use symbols if provided, otherwise fall back to symbol
+        symbol_input = symbols if symbols else symbol
+        if not symbol_input:
+            return {"status": False, "message": "No symbol or symbols provided"}
 
-        if not symbol_tokens:
-            return {"status": False, "message": "Failed to fetch tokens for any symbol"}
+        symbol_list = symbol_input.split(",")
+        symbol_tokens = []
+        
+        for sym in symbol_list:
+            token = get_symbol_token(exchange, sym)
+            if token:
+                symbol_tokens.append(token)
+            else:
+                return {"status": False, "message": f"Failed to fetch token for {sym}"}
 
         payload = {
             "mode": "OHLC",
             "exchangeTokens": {exchange: symbol_tokens}
         }
-
+        
         url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
         headers = {
             "Authorization": f"Bearer {authToken}",
@@ -138,30 +148,24 @@ async def fetch_ohlc(
             "X-UserType": "USER",
             "X-SourceID": "WEB",
         }
-
+        
         response = requests.post(url, headers=headers, json=payload)
 
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("status"):
-                return {
-                    "status": True,
-                    "message": "SUCCESS",
-                    "errorcode": "",
-                    "data": {
-                        "fetched": data.get("data", []),
-                        "unfetched": []
-                    }
-                }
-            else:
-                return {"status": False, "message": "Failed to fetch OHLC data"}
+        if response.status_code != 200:
+            logger.error(f"API Error: {response.status_code} - {response.text}")
+            return {"status": False, "message": "Error fetching OHLC data"}
+
+        data = response.json()
+        
+        if data.get("status") and "data" in data:
+            return {"status": True, "data": data["data"]}
         else:
-            return {"status": False, "message": f"API Error: {response.status_code} - {response.text}"}
-
+            logger.error(f"Error fetching OHLC data: {data.get('message', 'Unknown error')}")
+            return {"status": False, "message": "Failed to fetch OHLC data"}
+    
     except Exception as e:
-        logger.error(f"Error fetching OHLC: {e}")
+        logger.error(f"Error: {e}")
         return {"status": False, "message": "Server Error"}
-
 
 # --- API Endpoint: Fetch Full Mode ---
 @app.get("/api/fetch_full")

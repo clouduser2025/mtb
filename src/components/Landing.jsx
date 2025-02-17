@@ -116,8 +116,8 @@ const Landing = () => {
       const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ohlc?exchange=${exchange}&symbols=${ltpSymbol}`);
       const data = await response.json();
       if (data.status) {
-        setOhlcData(data.data.fetched[0]); // Assuming only one symbol is fetched
-        console.log("OHLC Data:", data.data.fetched[0]);
+        setOhlcData(data.data);
+        console.log("OHLC Data:", data.data);
       } else {
         setOhlcData(null);
         alert("Failed to fetch OHLC data. Please check the symbol.");
