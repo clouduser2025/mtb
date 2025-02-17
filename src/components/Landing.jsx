@@ -599,13 +599,27 @@ const Landing = () => {
         {/* Buy/Sell Buttons */}
         <Row className="justify-content-center mb-3">
           <Col xs="auto">
-            <Button onClick={() => { setActionType('buy'); setShowStopLossForm(true); }} className="gradient-button btn-buy">
-              <FontAwesomeIcon icon={faShoppingCart} /> Buy
+            <Button 
+              onClick={() => { 
+                setActionType('buy'); 
+                setShowStopLossForm(true); 
+              }} 
+              className="gradient-button btn-buy"
+              style={{ backgroundColor: '#007BA7', borderColor: '#007BA7', color: 'white' }}
+            >
+              <FontAwesomeIcon icon={faShoppingCart} /> Execute Buy with Stop-Loss
             </Button>
           </Col>
           <Col xs="auto">
-            <Button onClick={() => { setActionType('sell'); setShowStopLossForm(true); }} className="gradient-button btn-sell">
-              <FontAwesomeIcon icon={faExchangeAlt} /> Sell
+            <Button 
+              onClick={() => { 
+                setActionType('sell'); 
+                setShowStopLossForm(true); 
+              }} 
+              className="gradient-button btn-sell"
+              style={{ backgroundColor: '#B22222', borderColor: '#B22222', color: 'white' }}
+            >
+              <FontAwesomeIcon icon={faExchangeAlt} /> Execute Sell with Stop-Loss
             </Button>
           </Col>
         </Row>
@@ -778,7 +792,11 @@ const Landing = () => {
                 </Col>
               </Row>
 
-              <Button type="submit" variant="primary">
+              <Button 
+                type="submit" 
+                style={{ backgroundColor: '#007BA7', borderColor: '#007BA7', color: 'white' }}
+                className="mt-3"
+              >
                 {actionType === 'buy' ? 'Execute Buy with Stop-Loss' : 'Execute Sell with Stop-Loss'}
               </Button>
             </Form>
