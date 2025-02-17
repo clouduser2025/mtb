@@ -4,6 +4,8 @@ import pyotp
 import requests
 from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Query
+import requests
 
 
 from fastapi import APIRouter
@@ -108,6 +110,64 @@ async def fetch_ltp(
     except Exception as e:
         logger.error(f"LTP Fetch Error: {e}")
         return {"status": False, "message": "Server Error"}
+
+# --- API Endpoint: Fetch OHLC Mode ---
+@app.get("/api/fetch_ohlc")
+async def fetch_ohlc(
+    exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
+    symbol: str = Query(..., description="Stock Symbol (e.g. RELIANCE)"),
+    token: str = Query(None, description="Symbol Token (Optional)")
+):
+    try:
+        if not token:
+            token = get_symbol_token(exchange, symbol)
+            if not token:
+                return {"status": False, "message": "Failed to fetch symbol token"}
+
+        # Fetch OHLC Data
+        payload = {
+            "mode": "OHLC",
+            "exchangeTokens": {exchange: [token]}
+        }
+        url = "https://api.yourdata.com/ohlc"  # Replace with your actual URL for OHLC data
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            data = response.json()
+            return {"status": True, "ohlc": data}
+        else:
+            return {"status": False, "message": "Failed to fetch OHLC data"}
+    except Exception as e:
+        return {"status": False, "message": f"Error: {e}"}
+
+# --- API Endpoint: Fetch Full Mode ---
+@app.get("/api/fetch_full")
+async def fetch_full(
+    exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
+    symbol: str = Query(..., description="Stock Symbol (e.g. RELIANCE)"),
+    token: str = Query(None, description="Symbol Token (Optional)")
+):
+    try:
+        if not token:
+            token = get_symbol_token(exchange, symbol)
+            if not token:
+                return {"status": False, "message": "Failed to fetch symbol token"}
+
+        # Fetch Full Data
+        payload = {
+            "mode": "FULL",
+            "exchangeTokens": {exchange: [token]}
+        }
+        url = "https://api.yourdata.com/full"  # Replace with your actual URL for Full data
+        response = requests.post(url, json=payload)
+
+        if response.status_code == 200:
+            data = response.json()
+            return {"status": True, "full_data": data}
+        else:
+            return {"status": False, "message": "Failed to fetch Full data"}
+    except Exception as e:
+        return {"status": False, "message": f"Error: {e}"}
 
 # --- Shutdown Hook ---
 @app.on_event("shutdown")

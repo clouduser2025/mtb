@@ -71,7 +71,11 @@ const Landing = () => {
   const [symbolToken, setSymbolToken] = useState("");
   const [ltpPrice, setLtpPrice] = useState(null);
   const [loadingLtp, setLoadingLtp] = useState(false);
-
+  const [ohlcData, setOhlcData] = useState(null);
+  const [fullData, setFullData] = useState(null);
+  const [loadingOhlc, setLoadingOhlc] = useState(false);
+  const [loadingFull, setLoadingFull] = useState(false);
+  
   /********************************************************
    *                 API FUNCTIONS                      *
    ********************************************************/
@@ -98,6 +102,56 @@ const Landing = () => {
     }
   };
 
+  const fetchOhlc = async () => {
+    if (!ltpSymbol) {
+      alert("Please enter a stock symbol.");
+      return;
+    }
+    setLoadingOhlc(true);
+    try {
+      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ohlc?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
+      const data = await response.json();
+      if (data.status) {
+        setOhlcData(data.ohlc);
+        // Display Open, High, Low, Close prices
+        console.log("OHLC Data:", data.ohlc);
+      } else {
+        setOhlcData(null);
+        alert("Failed to fetch OHLC data. Please check the symbol.");
+      }
+    } catch (error) {
+      console.error("Error fetching OHLC:", error);
+      alert("Server error. Try again later.");
+    } finally {
+      setLoadingOhlc(false);
+    }
+  };
+  
+  const fetchFullData = async () => {
+    if (!ltpSymbol) {
+      alert("Please enter a stock symbol.");
+      return;
+    }
+    setLoadingFull(true);
+    try {
+      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_full?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
+      const data = await response.json();
+      if (data.status) {
+        setFullData(data.full_data);
+        // Display the Full Mode data (LTP, Open, High, Low, Close, etc.)
+        console.log("Full Data:", data.full_data);
+      } else {
+        setFullData(null);
+        alert("Failed to fetch Full data. Please check the symbol.");
+      }
+    } catch (error) {
+      console.error("Error fetching Full data:", error);
+      alert("Server error. Try again later.");
+    } finally {
+      setLoadingFull(false);
+    }
+  };
+  
   const fetchTrades = async () => {
     try {
       const response = await fetch("https://ramdoot.onrender.com/api/get_trades");
@@ -595,6 +649,98 @@ const Landing = () => {
             </Alert>
           )}
         </Container>
+
+
+
+        {/* OHLC Form */}
+        <Container className="ohlc-container mt-4">
+          <h4 className="text-primary">📉 Fetch OHLC Data</h4>
+          <Form onSubmit={(e) => { e.preventDefault(); fetchOhlc(); }}>
+            <Row className="mb-3">
+              <Col md={3}>
+                <Form.Group controlId="ohlcExchange">
+                  <Form.Label>Select Exchange</Form.Label>
+                  <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                    <option value="NSE">NSE</option>
+                    <option value="BSE">BSE</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="ohlcSymbol">
+                  <Form.Label>Enter Stock Symbol</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="ohlcSymbolToken">
+                  <Form.Label>Enter Symbol Token (Optional)</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
+                </Form.Group>
+              </Col>
+              <Col md={2}>
+                <Button type="submit" variant="secondary" className="mt-4">Fetch OHLC</Button>
+              </Col>
+            </Row>
+          </Form>
+          {loadingOhlc && <p>Loading...</p>}
+          {ohlcData && (
+            <Alert variant="info">
+              <strong>OHLC Data for {ltpSymbol}:</strong><br />
+              Open: ₹{ohlcData.open} <br />
+              High: ₹{ohlcData.high} <br />
+              Low: ₹{ohlcData.low} <br />
+              Close: ₹{ohlcData.close}
+            </Alert>
+          )}
+        </Container>
+
+        {/* Full Mode Form */}
+        <Container className="full-mode-container mt-4">
+          <h4 className="text-primary">📊 Fetch Full Data</h4>
+          <Form onSubmit={(e) => { e.preventDefault(); fetchFullData(); }}>
+            <Row className="mb-3">
+              <Col md={3}>
+                <Form.Group controlId="fullModeExchange">
+                  <Form.Label>Select Exchange</Form.Label>
+                  <Form.Select value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                    <option value="NSE">NSE</option>
+                    <option value="BSE">BSE</option>
+                  </Form.Select>
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="fullModeSymbol">
+                  <Form.Label>Enter Stock Symbol</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="fullModeSymbolToken">
+                  <Form.Label>Enter Symbol Token (Optional)</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
+                </Form.Group>
+              </Col>
+              <Col md={2}>
+                <Button type="submit" variant="success" className="mt-4">Fetch Full Data</Button>
+              </Col>
+            </Row>
+          </Form>
+          {loadingFull && <p>Loading...</p>}
+          {fullData && (
+            <Alert variant="warning">
+              <strong>Full Data for {ltpSymbol}:</strong><br />
+              LTP: ₹{fullData.ltp} <br />
+              Open: ₹{fullData.open} <br />
+              High: ₹{fullData.high} <br />
+              Low: ₹{fullData.low} <br />
+              Close: ₹{fullData.close} <br />
+              Volume: {fullData.volume} <br />
+              {/* Add any other data you need */}
+            </Alert>
+          )}
+        </Container>
+
 
         {/* Buy/Sell Buttons */}
         <Row className="justify-content-center mb-3">
