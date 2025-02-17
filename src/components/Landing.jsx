@@ -859,6 +859,16 @@ const Landing = () => {
                 required 
               />
             </Form.Group>
+            <Form.Group controlId="password">
+              <Form.Label>Password</Form.Label>
+              <Form.Control 
+                type="password" 
+                placeholder="Enter password" 
+                value={formData.password} 
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
+                required 
+              />
+            </Form.Group>
             <Form.Group controlId="broker">
               <Form.Label>Broker</Form.Label>
               <Form.Select 
