@@ -286,6 +286,7 @@ const Landing = () => {
         },
         body: JSON.stringify({
           username: formData.username,
+          password: formData.password,  // Added password field
           broker: formData.broker,
           api_key: formData.api_key,
           totp_token: formData.totp_token,
@@ -301,6 +302,7 @@ const Landing = () => {
         fetchUsers(); // Refresh user list
         setFormData({
           username: "",
+          password: "",  // Added password reset
           broker: "Angel",
           api_key: "",
           totp_token: "",
