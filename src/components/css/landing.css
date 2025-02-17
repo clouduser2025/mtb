@@ -287,7 +287,7 @@
 
 /* Gradient Colors */
 .btn-market { background: linear-gradient(45deg, #2798de, #392398); } /* Market Overview */
-.btn-indices { background: linear-gradient(45deg, #000000, #434343); } /* Indices */
+.btn-indices { background: linear-gradient(45deg, #000000, #f4f3f3); } /* Indices */
 .btn-chart { background: linear-gradient(45deg, #6c28a4, #0c9e21); } /* Chart */
 .btn-option { background: linear-gradient(45deg, #DC143C, #d79b19); } /* Option Chain */
 .btn-ltp { background: linear-gradient(45deg, #b12c85, #2b4eba); } /* Fetch LTP */
@@ -297,7 +297,7 @@
 .btn-register { background: linear-gradient(45deg, #6a11cb, #2575fc); } /* Register */
 .btn-users { background: linear-gradient(45deg, #8e44ad, #3498db); } /* View Users */
 .btn-login { background: linear-gradient(45deg, #7B68EE, #00BFFF); } /* Angel Login */
-.btn-trades {background: linear-gradient(45deg, #141313, #dbe3db); /* Trades Dashboard Gradient */
+.btn-trades {background: linear-gradient(45deg, #229db0, #dbe3db); /* Trades Dashboard Gradient */
 }
 
 /* Hover Effect */
