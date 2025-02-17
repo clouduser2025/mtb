@@ -422,8 +422,8 @@ const Landing = () => {
                         <td>{index + 1}</td>
                         <td>{user.username}</td>
                         <td>{user.role || "Trader"}</td>
-                        <td>{user.broker}</td>
-                        <td>{user.default_quantity}</td>
+                        <td>{user.broker}</td> {/* Correctly display the broker */}
+                        <td>{user.default_quantity}</td> {/* Display default quantity */}
                         <td>
                           <Button variant="danger" size="sm" onClick={() => handleDeleteUser(user.username)}>
                             ❌ Delete

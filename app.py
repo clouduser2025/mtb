@@ -178,7 +178,7 @@ def register_user(user: User):
 def get_users():
     cursor.execute("SELECT * FROM users")
     users = cursor.fetchall()
-    return {"users": [dict(zip(["username", "broker", "api_key", "totp_token", "default_quantity"], row))
+    return {"users": [dict(zip(["username","password", "broker", "api_key", "totp_token", "default_quantity"], row))
                        for row in users]}
 
 @app.delete("/api/delete_user/{username}")
