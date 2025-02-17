@@ -108,27 +108,30 @@ const Landing = () => {
 
   const fetchOhlc = async () => {
     if (!ltpSymbol) {
-      alert("Please enter a stock symbol.");
-      return;
+        alert("Please enter a stock symbol.");
+        return;
     }
     setLoadingOhlc(true);
+
     try {
-      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ohlc?exchange=${exchange}&symbols=${ltpSymbol}`);
-      const data = await response.json();
-      if (data.status) {
-        setOhlcData(data.data);
-        console.log("OHLC Data:", data.data);
-      } else {
-        setOhlcData(null);
-        alert("Failed to fetch OHLC data. Please check the symbol.");
-      }
+        const response = await fetch(`https://mtb-3.onrender.com/api/fetch_ohlc?exchange=${exchange}&symbol=${ltpSymbol}`);
+        const data = await response.json();
+
+        if (data.status) {
+            setOhlcData(data.data);
+            console.log("✅ OHLC Data:", data.data);
+        } else {
+            setOhlcData(null);
+            alert("❌ Failed to fetch OHLC data. Please check the symbol.");
+        }
     } catch (error) {
-      console.error("Error fetching OHLC:", error);
-      alert("Server error. Try again later.");
+        console.error("🔴 Error fetching OHLC:", error);
+        alert("Server error. Try again later.");
     } finally {
-      setLoadingOhlc(false);
+        setLoadingOhlc(false);
     }
 };
+
 
 const fetchFullData = async () => {
     if (!ltpSymbol) {
