@@ -73,6 +73,9 @@ const Landing = () => {
   const [loadingLtp, setLoadingLtp] = useState(false);
   const [showOhlcForm, setShowOhlcForm] = useState(false);
   const [showFullForm, setShowFullForm] = useState(false);
+
+  const [ohlcData, setOhlcData] = useState(null);
+  const [fullData, setFullData] = useState(null);
   
   const [loadingOhlc, setLoadingOhlc] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
