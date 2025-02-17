@@ -211,7 +211,7 @@ def execute_buy_trade(request: BuyRequest):
             responses.append({"user": username, "status": "error", "message": "User not found"})
             continue
 
-        user_dict = dict(zip(["username", "broker", "api_key", "totp_token", "default_quantity"], user_data))
+        user_dict = dict(zip(["username","password", "broker", "api_key", "totp_token", "default_quantity"], user_data))
         smartApi = SmartConnect(api_key=user_dict["api_key"])
 
         try:
