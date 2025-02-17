@@ -9,7 +9,30 @@
       transform: translateX(-100%);
     }
   }
-
+  .custom-btn {
+    padding: 12px 20px;   /* Padding for larger buttons */
+    font-size: 16px;       /* Larger font size */
+    margin: 8px 0;         /* Spacing between buttons */
+    border-radius: 6px;    /* Rounded corners */
+    width: 100%;           /* Full width for the button */
+    text-align: center;    /* Center text */
+  }
+  
+  .custom-btn:hover {
+    background-color: #e7f1f7; /* Light background change on hover */
+    border-color: #007bff;     /* Border color change */
+  }
+  
+  .container {
+    padding: 20px;       /* Padding around the form */
+    margin-top: 20px;    /* Space above the container */
+  }
+  
+  h4 {
+    font-size: 20px;      /* Larger title */
+    margin-bottom: 16px;  /* Space between title and form */
+  }
+  
 .download-button {
     background-color: #000080;
     color: #fff;
