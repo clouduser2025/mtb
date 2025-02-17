@@ -26,18 +26,20 @@ app.add_middleware(
 # ------------------------------
 # Database Connection and Table Setup
 # ------------------------------
-conn = sqlite3.connect("trading.db", check_same_thread=False)
+conn = sqlite3.connect("trading_multi.db", check_same_thread=False)
 cursor = conn.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY,
+    password TEXT,  -- New field for storing the password
     broker TEXT,
     api_key TEXT,
     totp_token TEXT,
     default_quantity INTEGER
 )
 """)
+
 
 # Updated open_positions table with new buy_threshold and sell_threshold columns.
 cursor.execute("""
@@ -98,10 +100,12 @@ def check_sell_conditions(condition_type: str, condition_value: float, symbol: s
 # ------------------------------
 class User(BaseModel):
     username: str
+    password: str  # New field
     broker: str
     api_key: str
     totp_token: str
     default_quantity: int
+
 
 class BuyRequest(BaseModel):
     users: List[str]
@@ -162,12 +166,13 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.post("/api/register_user")
 def register_user(user: User):
     try:
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)",
-                       (user.username, user.broker, user.api_key, user.totp_token, user.default_quantity))
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)",
+                       (user.username, user.password, user.broker, user.api_key, user.totp_token, user.default_quantity))
         conn.commit()
         return {"message": "User registered successfully"}
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="User already exists")
+
 
 @app.get("/api/get_users")
 def get_users():
