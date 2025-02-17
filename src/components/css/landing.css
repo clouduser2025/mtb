@@ -9,29 +9,25 @@
       transform: translateX(-100%);
     }
   }
-  .custom-btn {
-    padding: 12px 20px;   /* Padding for larger buttons */
-    font-size: 16px;       /* Larger font size */
-    margin: 8px 0;         /* Spacing between buttons */
-    border-radius: 6px;    /* Rounded corners */
-    width: 100%;           /* Full width for the button */
-    text-align: center;    /* Center text */
-  }
-  
-  .custom-btn:hover {
-    background-color: #e7f1f7; /* Light background change on hover */
-    border-color: #007bff;     /* Border color change */
-  }
-  
-  .container {
-    padding: 20px;       /* Padding around the form */
-    margin-top: 20px;    /* Space above the container */
-  }
-  
-  h4 {
-    font-size: 20px;      /* Larger title */
-    margin-bottom: 16px;  /* Space between title and form */
-  }
+/* Custom Gradient Button Styles */
+.gradient-btn {
+  background: linear-gradient(to right, #6a11cb, #2575fc); /* Gradient from purple to blue */
+  color: white;
+  border: 1px solid transparent;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  font-weight: bold;
+}
+
+.gradient-btn:hover {
+  background: linear-gradient(to right, #2575fc, #6a11cb);
+  color: white;
+}
+
+.custom-btn {
+  font-size: 14px;
+  font-weight: bold;
+}
+
   
 .download-button {
     background-color: #000080;
