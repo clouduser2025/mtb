@@ -1,128 +1,100 @@
-from fastapi import FastAPI, Query
-from SmartApi import SmartConnect
-import pyotp
 import requests
-from logzero import logger
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Query
+import json
 
-# --- CONFIGURATION ---
-API_KEY = "y2gLEdxZ"
-CLIENT_CODE = "A62128571"
-PASSWORD = "0852"
-TOTP_SECRET = "654AU7VYVAOGKZGB347HKVIAB4"
-
-# --- SmartAPI Object ---
-smartApi = SmartConnect(api_key=API_KEY)
-
-# --- Login Process ---
-logger.info("Logging into SmartAPI...")
-try:
-    totp = pyotp.TOTP(TOTP_SECRET).now()
-    login_data = smartApi.generateSession(CLIENT_CODE, PASSWORD, totp)
-
-    if not login_data["status"]:
-        logger.error(f"Login Failed: {login_data}")
-        exit()
-    else:
-        authToken = login_data["data"]["jwtToken"]
-        feedToken = smartApi.getfeedToken()
-        logger.info("Login Successful!")
-except Exception as e:
-    logger.error(f"Login Error: {e}")
-
-# --- FastAPI App ---
 app = FastAPI()
 
-# ✅ Add CORS Middleware (Allow Frontend to Access API)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow requests from any frontend
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# API URL for fetching market data
+API_URL = 'https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/'
 
-# --- Helper Function: Fetch Symbol Token ---
-def get_symbol_token(exchange: str, symbol: str):
-    try:
-        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/searchScrip"
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-UserType": "USER",
-            "X-SourceID": "WEB",
-        }
-        payload = {"exchange": exchange, "searchscrip": symbol}
-        response = requests.post(url, headers=headers, json=payload)
+# API Headers
+HEADERS = {
+    'X-PrivateKey': 'API_KEY',
+    'Accept': 'application/json',
+    'X-SourceID': 'WEB',
+    'X-ClientLocalIP': 'CLIENT_LOCAL_IP',
+    'X-ClientPublicIP': 'CLIENT_PUBLIC_IP',
+    'X-MACAddress': 'MAC_ADDRESS',
+    'X-UserType': 'USER',
+    'Authorization': 'Bearer AUTHORIZATION_TOKEN',
+    'Content-Type': 'application/json'
+}
 
-        if response.status_code != 200:
-            logger.error(f"API Error: {response.status_code} - {response.text}")
-            return None
-
-        data = response.json()
-        if data.get("status") and "data" in data and len(data["data"]) > 0:
-            symbol_token = data["data"][0]["symboltoken"]
-            logger.info(f"✅ Token for {symbol} is {symbol_token}")
-            return symbol_token
-        else:
-            logger.error(f"❌ No valid symbol token found for {symbol}. Response: {data}")
-            return None
-    except requests.exceptions.RequestException as e:
-        logger.error(f"🔴 Error fetching symbol token: {e}")
-        return None
-
-# --- API Endpoint: Fetch Market Data (LTP, OHLC, FULL) ---
-@app.get("/api/fetch_market_data")
-async def fetch_market_data(
+# --- Fetch OHLC Data ---
+@app.get("/api/fetch_ohlc")
+async def fetch_ohlc(
     exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
-    symbol: str = Query(..., description="Stock Symbol (e.g. RELIANCE)"),
-    mode: str = Query("LTP", description="Data Mode: LTP, OHLC, FULL"),
+    symbol: str = Query(..., description="Stock Symbol (e.g. SBIN-EQ)"),
     token: str = Query(None, description="Symbol Token (Optional)")
 ):
     try:
-        # Fetch token if not provided
+        # If no token provided, use the default symbol token (hardcoded for now)
         if not token:
-            logger.info(f"Fetching token for {symbol}...")
-            token = get_symbol_token(exchange, symbol)
-            if not token:
-                return {"status": False, "message": "Failed to fetch symbol token"}
+            token = "3045"  # Example token for SBIN-EQ (Replace this with dynamic fetching logic)
 
-        # Fetch Market Data
+        # Prepare request payload for OHLC Mode
         payload = {
-            "mode": mode.upper(),
-            "exchangeTokens": {exchange: [token]},
+            "mode": "OHLC",
+            "exchangeTokens": {
+                exchange: [token]  # Send token inside the exchange key
+            }
         }
-        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
-        headers = {
-            "Authorization": f"Bearer {authToken}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        response = requests.post(url, headers=headers, json=payload)
 
+        # Make the request
+        response = requests.post(API_URL, headers=HEADERS, data=json.dumps(payload))
+
+        # Check response status
         if response.status_code == 200:
             data = response.json()
+
+            # Handle response and extract relevant data
             if data["status"]:
-                logger.info(f"✅ {mode} Data for {symbol}: {data['data']['fetched']}")
-                return {"status": True, "data": data["data"]["fetched"]}
+                ohlc_data = data["data"]["fetched"]
+                return {"status": True, "ohlc_data": ohlc_data}
             else:
-                logger.error(f"Error fetching {mode} data: {data.get('message', 'Unknown Error')}")
-                return {"status": False, "message": "Data fetch failed"}
+                return {"status": False, "message": data["message"]}
         else:
-            logger.error(f"API Error: {response.status_code} - {response.text}")
-            return {"status": False, "message": "API request failed"}
-
+            return {"status": False, "message": "API request failed", "error": response.text}
+    
     except Exception as e:
-        logger.error(f"Market Data Fetch Error: {e}")
-        return {"status": False, "message": "Server Error"}
+        return {"status": False, "message": str(e)}
 
-# --- Shutdown Hook ---
-@app.on_event("shutdown")
-def shutdown_event():
-    print("Server is shutting down. Logging out...")
+
+# --- Fetch Full Data ---
+@app.get("/api/fetch_full")
+async def fetch_full(
+    exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
+    symbol: str = Query(..., description="Stock Symbol (e.g. SBIN-EQ)"),
+    token: str = Query(None, description="Symbol Token (Optional)")
+):
     try:
-        logout_response = smartApi.terminateSession(CLIENT_CODE)
-        logger.info("Logout Successful!")
+        # If no token provided, use the default symbol token (hardcoded for now)
+        if not token:
+            token = "3045"  # Example token for SBIN-EQ (Replace this with dynamic fetching logic)
+
+        # Prepare request payload for Full Mode
+        payload = {
+            "mode": "FULL",
+            "exchangeTokens": {
+                exchange: [token]  # Send token inside the exchange key
+            }
+        }
+
+        # Make the request
+        response = requests.post(API_URL, headers=HEADERS, data=json.dumps(payload))
+
+        # Check response status
+        if response.status_code == 200:
+            data = response.json()
+
+            # Handle response and extract relevant data
+            if data["status"]:
+                full_data = data["data"]["fetched"]
+                return {"status": True, "full_data": full_data}
+            else:
+                return {"status": False, "message": data["message"]}
+        else:
+            return {"status": False, "message": "API request failed", "error": response.text}
+    
     except Exception as e:
-        logger.error(f"Logout Failed: {e}")
+        return {"status": False, "message": str(e)}

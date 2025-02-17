@@ -44,6 +44,7 @@ except Exception as e:
 # --- FastAPI App ---
 app = FastAPI()
 
+
 # ✅ Add CORS Middleware (Allow Frontend to Access API)
 app.add_middleware(
     CORSMiddleware,
@@ -115,55 +116,109 @@ async def fetch_ltp(
 @app.get("/api/fetch_ohlc")
 async def fetch_ohlc(
     exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
-    symbol: str = Query(..., description="Stock Symbol (e.g. RELIANCE)"),
-    token: str = Query(None, description="Symbol Token (Optional)")
+    symbols: str = Query(..., description="Comma-separated stock symbols (e.g. RELIANCE, TCS)"),
 ):
     try:
-        if not token:
-            token = get_symbol_token(exchange, symbol)
-            if not token:
-                return {"status": False, "message": "Failed to fetch symbol token"}
-
-        # Fetch OHLC Data
-        response = smartApi.ohlcData(exchange=exchange, tradingsymbol=symbol, symboltoken=token)
+        # Split the symbols and get the corresponding tokens
+        symbol_list = symbols.split(",")
+        symbol_tokens = []
         
-        if response["status"]:
-            ohlc = response["data"]
-            logger.info(f"✅ {symbol} OHLC Data = {ohlc}")
-            return {"status": True, "ohlc": ohlc}
+        # Fetch tokens for all symbols
+        for symbol in symbol_list:
+            token = get_symbol_token(exchange, symbol)
+            if token:
+                symbol_tokens.append(token)
+            else:
+                return {"status": False, "message": f"Failed to fetch token for {symbol}"}
+        
+        # Prepare the payload with the tokens
+        payload = {
+            "mode": "OHLC",
+            "exchangeTokens": {exchange: symbol_tokens}
+        }
+        
+        # Send the request to fetch OHLC data
+        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
+        headers = {
+            "Authorization": f"Bearer {authToken}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-UserType": "USER",
+            "X-SourceID": "WEB",
+        }
+        
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code != 200:
+            logger.error(f"API Error: {response.status_code} - {response.text}")
+            return {"status": False, "message": "Error fetching OHLC data"}
+
+        data = response.json()
+        
+        if data.get("status") and "data" in data:
+            return {"status": True, "data": data["data"]}
         else:
-            logger.error(f"Error fetching OHLC: {response.get('message', 'Unknown Error')}")
-            return {"status": False, "message": "OHLC fetch failed"}
+            logger.error(f"Error fetching OHLC data: {data.get('message', 'Unknown error')}")
+            return {"status": False, "message": "Failed to fetch OHLC data"}
+    
     except Exception as e:
-        logger.error(f"OHLC Fetch Error: {e}")
+        logger.error(f"Error: {e}")
         return {"status": False, "message": "Server Error"}
+
 
 # --- API Endpoint: Fetch Full Mode ---
 @app.get("/api/fetch_full")
 async def fetch_full(
     exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
-    symbol: str = Query(..., description="Stock Symbol (e.g. RELIANCE)"),
-    token: str = Query(None, description="Symbol Token (Optional)")
+    symbols: str = Query(..., description="Comma-separated stock symbols (e.g. RELIANCE, TCS)"),
 ):
     try:
-        if not token:
-            token = get_symbol_token(exchange, symbol)
-            if not token:
-                return {"status": False, "message": "Failed to fetch symbol token"}
-
-        # Fetch Full Data
-        response = smartApi.fullData(exchange=exchange, tradingsymbol=symbol, symboltoken=token)
+        # Split the symbols and get the corresponding tokens
+        symbol_list = symbols.split(",")
+        symbol_tokens = []
         
-        if response["status"]:
-            full_data = response["data"]
-            logger.info(f"✅ {symbol} Full Data = {full_data}")
-            return {"status": True, "full_data": full_data}
+        # Fetch tokens for all symbols
+        for symbol in symbol_list:
+            token = get_symbol_token(exchange, symbol)
+            if token:
+                symbol_tokens.append(token)
+            else:
+                return {"status": False, "message": f"Failed to fetch token for {symbol}"}
+        
+        # Prepare the payload with the tokens
+        payload = {
+            "mode": "FULL",
+            "exchangeTokens": {exchange: symbol_tokens}
+        }
+
+        # Send the request to fetch full data
+        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote/"
+        headers = {
+            "Authorization": f"Bearer {authToken}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-UserType": "USER",
+            "X-SourceID": "WEB",
+        }
+
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code != 200:
+            logger.error(f"API Error: {response.status_code} - {response.text}")
+            return {"status": False, "message": "Error fetching full data"}
+
+        data = response.json()
+
+        if data.get("status") and "data" in data:
+            return {"status": True, "data": data["data"]}
         else:
-            logger.error(f"Error fetching Full Data: {response.get('message', 'Unknown Error')}")
-            return {"status": False, "message": "Full Data fetch failed"}
+            logger.error(f"Error fetching full data: {data.get('message', 'Unknown error')}")
+            return {"status": False, "message": "Failed to fetch full data"}
+
     except Exception as e:
-        logger.error(f"Full Data Fetch Error: {e}")
+        logger.error(f"Error: {e}")
         return {"status": False, "message": "Server Error"}
+
 
 # --- Shutdown Hook ---
 @app.on_event("shutdown")
