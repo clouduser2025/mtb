@@ -37,11 +37,12 @@ const Landing = () => {
 
   const [formData, setFormData] = useState({
     username: "",
+    password: "",  // Added password field
     broker: "Angel",
     api_key: "",
     totp_token: "",
-    symbol: "",  // used for trade symbol
-    default_quantity: "",
+    default_quantity: "",  // Keep as string in state but convert to int for submission
+    symbol: "",  // This should only be used for trading, not registration
   });
   
   // Action type: 'buy' or 'sell'
@@ -239,44 +240,60 @@ const Landing = () => {
       return;
     }
   
+    // Prepare request data
     const tradeData = {
       users: selectedUsers,
       symbol: formData.symbol,
-      actionType: actionType,
-      stopLossType: stopLossType,
-      stopLossValue: stopLossValue,
-      buyThreshold: actionType === 'buy' ? buyThreshold : null,
-      sellThreshold: actionType === 'sell' ? sellThreshold : null,
-      buyConditionType: actionType === 'buy' ? buyConditionType : null,
-      buyConditionValue: actionType === 'buy' ? buyConditionValue : null,
-      sellConditionType: actionType === 'sell' ? sellConditionType : null,
-      sellConditionValue: actionType === 'sell' ? sellConditionValue : null,
-      pointsCondition: pointsCondition
+      buy_threshold: buyThreshold,
+      buy_condition_type: buyConditionType,
+      buy_condition_value: buyConditionValue,
+      stop_loss_type: stopLossType,
+      stop_loss_value: stopLossValue,
+      points_condition: pointsCondition
     };
   
     try {
-      const response = await fetch(actionType === 'buy' ? 'https://ramdoot.onrender.com/api/buy_trade' : 'https://ramdoot.onrender.com/api/sell_trade', {
+      const response = await fetch('https://ramdoot.onrender.com/api/buy_trade', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(tradeData),
       });
-  
-      const data = await response.json();
-  
+
       if (response.ok) {
-        setMessage({ text: `Trade ${actionType === 'buy' ? 'buy' : 'sell'} order placed successfully!`, type: "success" });
+        const data = await response.json();
+        let successMessages = [];
+        let errorMessages = [];
+
+        data.forEach(item => {
+          if (item.status === "success") {
+            successMessages.push(item.message);
+          } else if (item.status === "error" || item.status === "skipped") {
+            errorMessages.push(`${item.user}: ${item.message}`);
+          }
+        });
+
+        if (successMessages.length > 0) {
+          setMessage({ text: `Trade buy order placed successfully: ${successMessages.join(', ')}`, type: "success" });
+        }
+        if (errorMessages.length > 0) {
+          setMessage(prev => ({
+            text: `${prev.text || ''} Errors: ${errorMessages.join(', ')}`,
+            type: prev.type === "success" ? "warning" : "danger"
+          }));
+        }
+
         setShowStopLossForm(false);
         fetchTrades();
       } else {
-        setMessage({ text: data.detail || "Failed to place trade order", type: "danger" });
+        setMessage({ text: "Failed to place trade order", type: "danger" });
       }
     } catch (error) {
       console.error("Error placing trade order:", error);
       setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
-  };
+};
 
   const AdvancedChart = ({ symbol, openTrades }) => {
     const chartContainerRef = useRef(null);
