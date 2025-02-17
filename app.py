@@ -107,25 +107,28 @@ class User(BaseModel):
     default_quantity: int
 
 
+from pydantic import BaseModel, Field
+from typing import List
+
 class BuyRequest(BaseModel):
     users: List[str]
     symbol: str
-    buy_threshold: float
-    buy_condition_type: str
-    buy_condition_value: float
-    stop_loss_type: str
-    stop_loss_value: float
-    points_condition: float
+    buy_threshold: float = Field(..., description="The price at which to initiate a buy")
+    buy_condition_type: str = Field(..., description="Type of buy condition: 'Fixed Value', 'Percentage', or 'Points'")
+    buy_condition_value: float = Field(..., description="Value associated with the buy condition")
+    stop_loss_type: str = Field(..., description="Type of stop-loss: 'Fixed', 'Percentage', or 'Points'")
+    stop_loss_value: float = Field(..., description="Value associated with the stop-loss")
+    points_condition: float = Field(..., description="Points adjustment for trailing stops")
 
 class SellRequest(BaseModel):
     users: List[str]
     symbol: str
-    sell_threshold: float
-    sell_condition_type: str
-    sell_condition_value: float
-    stop_gain_type: str
-    stop_gain_value: float
-    points_condition: float
+    sell_threshold: float = Field(..., description="The price at which to initiate a sell")
+    sell_condition_type: str = Field(..., description="Type of sell condition: 'Fixed Value', 'Percentage', or 'Points'")
+    sell_condition_value: float = Field(..., description="Value associated with the sell condition")
+    stop_gain_type: str = Field(..., description="Type of stop-gain: 'Fixed', 'Percentage', or 'Points'")
+    stop_gain_value: float = Field(..., description="Value associated with the stop-gain")
+    points_condition: float = Field(..., description="Points adjustment for trailing stops")
 
 # ------------------------------
 # WebSocket Connection Manager
@@ -198,6 +201,30 @@ def get_trades():
                                   "exit_condition_type", "exit_condition_value", "points_condition", "position_type"], row))
                        for row in trades]}
 
+
+def check_buy_conditions(condition_type: str, condition_value: float, symbol: str, ltp: float, buy_threshold: float,
+                         smartApi_instance: SmartConnect = None) -> bool:
+    if condition_type == "Fixed Value":
+        return ltp >= buy_threshold
+    elif condition_type == "Percentage":
+        previous_close = get_previous_close(symbol, smartApi_instance)
+        return ltp >= previous_close * (1 + condition_value / 100.0)
+    elif condition_type == "Points":
+        return ltp >= buy_threshold + condition_value
+    else:
+        return False
+
+def check_sell_conditions(condition_type: str, condition_value: float, symbol: str, ltp: float, sell_threshold: float,
+                          smartApi_instance: SmartConnect = None) -> bool:
+    if condition_type == "Fixed Value":
+        return ltp <= sell_threshold
+    elif condition_type == "Percentage":
+        previous_close = get_previous_close(symbol, smartApi_instance)
+        return ltp <= previous_close * (1 - condition_value / 100.0)
+    elif condition_type == "Points":
+        return ltp <= sell_threshold - condition_value
+    else:
+        return False
 # ------------------------------
 # BUY TRADE Endpoint (Long Position)
 # ------------------------------
@@ -239,7 +266,7 @@ def execute_buy_trade(request: BuyRequest):
             order_params = {
                 "variety": "NORMAL",
                 "tradingsymbol": request.symbol,
-                "symboltoken": request.symbol,  # Note: This should be fetched if it's not the same as the symbol
+                "symboltoken": request.symbol,
                 "transactiontype": "BUY",
                 "exchange": "NSE",
                 "ordertype": "LIMIT",
@@ -276,9 +303,8 @@ def execute_buy_trade(request: BuyRequest):
         else:
             responses.append({"user": username, "status": "skipped", "message": "Buy condition not met"})
     return responses
-# ------------------------------
-# SELL TRADE Endpoint (Short Position)
-# ------------------------------
+
+
 @app.post("/api/sell_trade")
 def execute_sell_trade(request: SellRequest):
     responses = []
@@ -289,21 +315,24 @@ def execute_sell_trade(request: SellRequest):
             responses.append({"user": username, "status": "error", "message": "User not found"})
             continue
 
-        user_dict = dict(zip(["username", "broker", "api_key", "totp_token", "default_quantity"], user_data))
+        user_dict = dict(zip(["username", "password", "broker", "api_key", "totp_token", "default_quantity"], user_data))
         smartApi = SmartConnect(api_key=user_dict["api_key"])
 
         try:
             totp = pyotp.TOTP(user_dict["totp_token"]).now()
-        except Exception:
+        except Exception as e:
+            logger.error(f"Invalid TOTP for user {username}: {e}")
             responses.append({"user": username, "status": "error", "message": "Invalid TOTP"})
             continue
 
-        login_data = smartApi.generateSession(user_dict["username"], "PASSWORD", totp)
+        login_data = smartApi.generateSession(user_dict["username"], user_dict["password"], totp)
+        logger.info(f"Login for {username} result: {login_data}")
         if not login_data["status"]:
             responses.append({"user": username, "status": "error", "message": "Login Failed"})
             continue
 
         ltp_response = smartApi.ltpData(exchange="NSE", tradingsymbol=request.symbol, symboltoken=request.symbol)
+        logger.info(f"LTP fetch for {request.symbol}: {ltp_response}")
         if not ltp_response["status"]:
             responses.append({"user": username, "status": "error", "message": "LTP Fetch Failed"})
             continue
@@ -322,26 +351,31 @@ def execute_sell_trade(request: SellRequest):
                 "price": ltp,
                 "quantity": user_dict["default_quantity"],
             }
-            order_response = smartApi.placeOrder(order_params)
-            if order_response["status"]:
-                cursor.execute("""
-                    INSERT INTO open_positions (username, symbol, entry_price, sell_threshold, exit_condition_type,
-                                                  exit_condition_value, points_condition, position_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (username, request.symbol, ltp, request.sell_threshold, request.stop_gain_type,
-                      request.stop_gain_value, request.points_condition, "SHORT"))
-                conn.commit()
-                responses.append({"user": username, "status": "success", "message": f"SELL order placed at {ltp}"})
-                new_order = {
-                    "user": username,
-                    "action": "SELL",
-                    "price": ltp,
-                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                }
-                threading.Thread(target=lambda: asyncio.run(manager.broadcast(new_order))).start()
-                threading.Thread(target=monitor_short_position, args=(username, request.symbol)).start()
-            else:
-                responses.append({"user": username, "status": "error", "message": "Sell Order Failed"})
+            try:
+                order_response = smartApi.placeOrder(order_params)
+                logger.info(f"Order response for {username}: {order_response}")
+                if order_response["status"]:
+                    cursor.execute("""
+                        INSERT INTO open_positions (username, symbol, entry_price, sell_threshold, exit_condition_type,
+                                                      exit_condition_value, points_condition, position_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (username, request.symbol, ltp, request.sell_threshold, request.stop_gain_type,
+                          request.stop_gain_value, request.points_condition, "SHORT"))
+                    conn.commit()
+                    responses.append({"user": username, "status": "success", "message": f"SELL order placed at {ltp}"})
+                    new_order = {
+                        "user": username,
+                        "action": "SELL",
+                        "price": ltp,
+                        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    }
+                    threading.Thread(target=lambda: asyncio.run(manager.broadcast(new_order))).start()
+                    threading.Thread(target=monitor_short_position, args=(username, request.symbol)).start()
+                else:
+                    responses.append({"user": username, "status": "error", "message": "Sell Order Failed"})
+            except Exception as e:
+                logger.error(f"Error placing order for {username}: {e}")
+                responses.append({"user": username, "status": "error", "message": f"Exception during order placement: {str(e)}"})
         else:
             responses.append({"user": username, "status": "skipped", "message": "Sell condition not met"})
     return responses
@@ -403,9 +437,6 @@ def monitor_long_position(username: str, symbol: str):
                 trailing_stop = high_price - stop_value
                 if ltp <= trailing_stop:
                     trigger_exit = True
-            else:
-                if ltp <= stop_value:
-                    trigger_exit = True
 
             if trigger_exit:
                 order_params = {
@@ -433,6 +464,9 @@ def monitor_long_position(username: str, symbol: str):
         except Exception as e:
             logger.error(f"Error monitoring long position for {username}: {e}")
         time.sleep(1)
+
+
+       
 
 # ------------------------------
 # Monitoring for Short Positions (Sell Trades)
@@ -477,22 +511,24 @@ def monitor_short_position(username: str, symbol: str):
                 if ltp >= stop_value:
                     trigger_exit = True
             elif stop_type == "Percentage":
+                # Adjust base if price moves up by points_cond
                 if points_cond > 0 and ltp > base + points_cond:
                     base = ltp
                     low_price = ltp
+                # Update low_price if price drops
                 if ltp < low_price:
                     low_price = ltp
+                # Calculate the trailing stop
                 trailing_stop = base - (base - low_price) * (stop_value / 100.0)
                 if ltp >= trailing_stop:
                     trigger_exit = True
             elif stop_type == "Points":
+                # Update low_price if price drops
                 if ltp < low_price:
                     low_price = ltp
+                # Calculate the trailing stop
                 trailing_stop = low_price + stop_value
                 if ltp >= trailing_stop:
-                    trigger_exit = True
-            else:
-                if ltp >= stop_value:
                     trigger_exit = True
 
             if trigger_exit:
