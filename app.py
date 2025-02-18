@@ -511,24 +511,22 @@ def monitor_short_position(username: str, symbol: str):
                 if ltp >= stop_value:
                     trigger_exit = True
             elif stop_type == "Percentage":
-                # Adjust base if price moves up by points_cond
                 if points_cond > 0 and ltp > base + points_cond:
                     base = ltp
                     low_price = ltp
-                # Update low_price if price drops
                 if ltp < low_price:
                     low_price = ltp
-                # Calculate the trailing stop
                 trailing_stop = base - (base - low_price) * (stop_value / 100.0)
                 if ltp >= trailing_stop:
                     trigger_exit = True
             elif stop_type == "Points":
-                # Update low_price if price drops
                 if ltp < low_price:
                     low_price = ltp
-                # Calculate the trailing stop
                 trailing_stop = low_price + stop_value
                 if ltp >= trailing_stop:
+                    trigger_exit = True
+            else:
+                if ltp >= stop_value:
                     trigger_exit = True
 
             if trigger_exit:

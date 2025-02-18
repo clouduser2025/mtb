@@ -83,26 +83,13 @@ const Landing = () => {
     }
     setLoadingLtp(true);
     try {
-      // Construct the symbol in the backend format
-      const symbol = `${ltpSymbol}${formData.expiry_date}${formData.strike_price}${formData.option_type}`;
-      const response = await fetch('https://ramdoot.onrender.com/api/fetch_ltp', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          index_stock: ltpSymbol, // This should match your backend's LTPRequest model
-          expiry_date: formData.expiry_date,
-          strike_price: parseInt(formData.strike_price, 10),
-          option_type: formData.option_type
-        }),
-      });
+      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
       const data = await response.json();
-      if (data.ltp) {
+      if (data.status) {
         setLtpPrice(data.ltp);
       } else {
         setLtpPrice(null);
-        alert("Failed to fetch LTP. Please check the details.");
+        alert("Failed to fetch LTP. Please check the symbol.");
       }
     } catch (error) {
       console.error("Error fetching LTP:", error);
@@ -579,7 +566,6 @@ const Landing = () => {
         </Row>
 
         {/* LTP Section */}
-        // Within your JSX, update the form to include necessary fields for LTP fetch
         <Container className="ltp-container">
           <h4 className="text-primary">🔍 Live Fetch LTP</h4>
           <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
@@ -596,32 +582,19 @@ const Landing = () => {
               <Col md={3}>
                 <Form.Group controlId="ltpSymbol">
                   <Form.Label>Enter Stock Symbol</Form.Label>
-                  <Form.Control type="text" placeholder="e.g., NIFTY, BANKNIFTY" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
+                  <Form.Control type="text" placeholder="e.g. RELIANCE" value={ltpSymbol} onChange={(e) => setLtpSymbol(e.target.value)} required />
+                </Form.Group>
+              </Col>
+              <Col md={3}>
+                <Form.Group controlId="symbolToken">
+                  <Form.Label>Enter Symbol Token (Optional)</Form.Label>
+                  <Form.Control type="text" placeholder="e.g. 3045" value={symbolToken} onChange={(e) => setSymbolToken(e.target.value)} />
                 </Form.Group>
               </Col>
               <Col md={2}>
-                <Form.Group controlId="expiryDate">
-                  <Form.Label>Expiry Date</Form.Label>
-                  <Form.Control type="text" placeholder="e.g., 20-FEB-25" value={formData.expiry_date} onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })} required />
-                </Form.Group>
-              </Col>
-              <Col md={2}>
-                <Form.Group controlId="strikePrice">
-                  <Form.Label>Strike Price</Form.Label>
-                  <Form.Control type="number" placeholder="e.g., 21650" value={formData.strike_price} onChange={(e) => setFormData({ ...formData, strike_price: e.target.value })} required />
-                </Form.Group>
-              </Col>
-              <Col md={2}>
-                <Form.Group controlId="optionType">
-                  <Form.Label>Option Type</Form.Label>
-                  <Form.Select value={formData.option_type} onChange={(e) => setFormData({ ...formData, option_type: e.target.value })} required>
-                    <option value="CE">Call (CE)</option>
-                    <option value="PE">Put (PE)</option>
-                  </Form.Select>
-                </Form.Group>
+                <Button type="submit" variant="primary" className="custom-btn mt-4">Fetch LTP</Button>
               </Col>
             </Row>
-            <Button type="submit" variant="primary" className="custom-btn mt-4">Fetch LTP</Button>
           </Form>
           {loadingLtp && <p>Loading...</p>}
           {ltpPrice !== null && (
