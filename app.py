@@ -9,7 +9,7 @@ import sqlite3
 from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
-
+import pandas as pd
 app = FastAPI()
 
 # ------------------------------
@@ -226,7 +226,7 @@ def check_sell_conditions(condition_type: str, condition_value: float, symbol: s
     else:
         return False
     
-import pandas as pd
+
 
 # Load Excel at app startup
 @app.on_event("startup")

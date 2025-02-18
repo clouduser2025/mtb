@@ -404,25 +404,34 @@ const Landing = () => {
     document.body.appendChild(script);
   };
 
-  // New function to fetch Excel data
-  const fetchExcelData = async () => {
-    try {
-      const response = await fetch("https://ramdoot.onrender.com/api/get_excel_data");
-      if (!response.ok) {
-        throw new Error('Network response was not ok');
-      }
-      const data = await response.json();
-      setExcelData(data.data);
-    } catch (error) {
-      console.error("Failed to fetch excel data:", error);
-      setMessage({ text: "Failed to fetch Excel data", type: "danger" });
-    }
-  };
 
-  useEffect(() => {
-    // Fetch Excel data when component mounts
-    fetchExcelData();
-  }, []);
+    // Function to fetch Excel data
+    const fetchExcelData = async () => {
+      try {
+        const response = await fetch("https://ramdoot.onrender.com/api/get_excel_data");
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+        const data = await response.json();
+        // We only need the first four columns from the data
+        const filteredData = data.data.map(item => ({
+          symbol: item.symbol,
+          token: item.token,
+          name: item.name,
+          expiry: item.expiry
+        }));
+        setExcelData(filteredData);
+      } catch (error) {
+        console.error("Failed to fetch excel data:", error);
+        setMessage({ text: "Failed to fetch Excel data", type: "danger" });
+      }
+    };
+  
+    useEffect(() => {
+      // Fetch Excel data when component mounts
+      fetchExcelData();
+    }, []);
+
 
   /********************************************************
    *                     RENDER (JSX)                     *
@@ -851,40 +860,51 @@ const Landing = () => {
               </Container>
             )}
     
-            {/* Excel Data Table */}
-            {showExcelData && (
-              <Container className="mt-5 p-4 excel-table-container shadow-lg rounded bg-white">
-                <h3 className="text-center mb-4 text-dark fw-bold">
-                  <FontAwesomeIcon icon={faFileExcel} className="me-2 text-success" /> Excel Data
-                </h3>
-                <div className="table-responsive">
-                  <Table striped bordered hover className="excel-table shadow-sm">
-                    <thead className="text-center">
-                      <tr>
-                        <th className="bg-primary text-white">Symbol</th>
-                        <th className="bg-success text-white">Token</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {excelData.length > 0 ? (
-                        excelData.map((item, index) => (
-                          <tr key={index}>
-                            <td>{item.symbol}</td>
-                            <td>{item.token}</td>
+  
+          <Row className="justify-content-center mb-3">
+            <Col xs="auto">
+              <Button onClick={() => setShowExcelData(!showExcelData)} className="gradient-button btn-excel">
+                <FontAwesomeIcon icon={faFileExcel} /> Excel Data
+              </Button>
+     
+  
+                {/* Excel Data Table */}
+                {showExcelData && (
+                  <Container className="mt-5 p-4 excel-table-container shadow-lg rounded bg-white">
+                    <h3 className="text-center mb-4 text-dark fw-bold">
+                      <FontAwesomeIcon icon={faFileExcel} className="me-2 text-success" /> Excel Data
+                    </h3>
+                    <div className="table-responsive">
+                      <Table striped bordered hover className="excel-table shadow-sm">
+                        <thead className="text-center">
+                          <tr>
+                            <th className="bg-primary text-white">Symbol</th>
+                            <th className="bg-success text-white">Token</th>
+                            <th className="bg-info text-white">Name</th>
+                            <th className="bg-warning text-dark">Expiry</th>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan="2" className="text-muted text-center">No data available.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </Table>
-                </div>
-              </Container>
-            )}
-    
-          </Container>
+                        </thead>
+                        <tbody>
+                          {excelData.length > 0 ? (
+                            excelData.map((item, index) => (
+                              <tr key={index}>
+                                <td>{item.symbol}</td>
+                                <td>{item.token}</td>
+                                <td>{item.name}</td>
+                                <td>{item.expiry}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan="4" className="text-muted text-center">No data available.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </Table>
+                    </div>
+                  </Container>
+                )}
+        
           {/* Symbol Token Lookup */}
           <Container className="mt-3 mb-3 token-lookup-container">
             <h4 className="text-primary">🔍 Symbol Token Lookup</h4>

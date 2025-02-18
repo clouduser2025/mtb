@@ -6,3 +6,4 @@ gunicorn
 websocket-client
 pyotp
 logzero
+pandas>=1.0.0
