@@ -76,7 +76,8 @@ const Landing = () => {
   // New state for Excel data
   const [excelData, setExcelData] = useState([]);
   const [showExcelData, setShowExcelData] = useState(false);
-
+  const [symbolForToken, setSymbolForToken] = useState('');
+  const [tokenFetchResult, setTokenFetchResult] = useState(null);
   /********************************************************
    *                 API FUNCTIONS                      *
    ********************************************************/
@@ -160,6 +161,28 @@ const Landing = () => {
       setUsers(data.users);
     } catch (error) {
       console.error("Error fetching users:", error);
+    }
+  };
+
+  const fetchSymbolToken = async () => {
+    if (!symbolForToken) {
+      alert("Please enter a symbol.");
+      return;
+    }
+    
+    try {
+      const response = await fetch(`https://ramdoot.onrender.com/api/get_token/${symbolForToken}`);
+      const data = await response.json();
+      if (response.ok) {
+        setTokenFetchResult(data);
+      } else {
+        alert(data.detail || "Failed to fetch token.");
+        setTokenFetchResult(null);
+      }
+    } catch (error) {
+      console.error("Error fetching token:", error);
+      alert("Server error. Try again later.");
+      setTokenFetchResult(null);
     }
   };
 
@@ -861,6 +884,33 @@ const Landing = () => {
               </Container>
             )}
     
+          </Container>
+          {/* Symbol Token Lookup */}
+          <Container className="mt-3 mb-3 token-lookup-container">
+            <h4 className="text-primary">🔍 Symbol Token Lookup</h4>
+            <Form onSubmit={(e) => { e.preventDefault(); fetchSymbolToken(); }}>
+              <Row>
+                <Col md={6}>
+                  <Form.Group controlId="symbolTokenLookup">
+                    <Form.Label>Enter Symbol</Form.Label>
+                    <Form.Control 
+                      type="text" 
+                      placeholder="Enter Stock Symbol" 
+                      value={symbolForToken} 
+                      onChange={(e) => setSymbolForToken(e.target.value)} 
+                    />
+                  </Form.Group>
+                </Col>
+                <Col md={4}>
+                  <Button type="submit" variant="primary" className="mt-3 custom-btn">Fetch Token</Button>
+                </Col>
+              </Row>
+            </Form>
+            {tokenFetchResult && (
+              <Alert variant="info" className="mt-3">
+                Token for <strong>{symbolForToken}</strong>: {tokenFetchResult.token}
+              </Alert>
+            )}
           </Container>
     
           {/* Registration Modal */}
