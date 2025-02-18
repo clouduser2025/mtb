@@ -1,41 +1,41 @@
-# --- CONFIGURATION ---
-API_KEY = "y2gLEdxZ"
-CLIENT_CODE = "A62128571"
-PASSWORD = "0852"
-TOTP_SECRET = "654AU7VYVAOGKZGB347HKVIAB4"
+import requests
 
-# Import necessary libraries
-from SmartApi import SmartConnect
-import pyotp
-import logging
+# URL for fetching instrument data
+url = 'https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json'
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Function to get the token for a given symbol
+def get_token(symbol_input):
+    try:
+        # Fetch data from the URL
+        response = requests.get(url)
+        
+        # Check if the request was successful
+        if response.status_code == 200:
+            # Parse the JSON response
+            data = response.json()
+            
+            # Loop through the data to find the matching symbol
+            for instrument in data:
+                # Check if the symbol matches
+                if instrument['symbol'] == symbol_input:
+                    # Return the corresponding token
+                    return instrument['token']
+            
+            # If symbol not found
+            return "Symbol not found."
+        else:
+            return "Error fetching data."
+    
+    except Exception as e:
+        return f"An error occurred: {str(e)}"
 
-# --- SmartAPI Object ---
-smartApi = SmartConnect(api_key=API_KEY)
-
-# --- Login Process ---
-try:
-    # Generate TOTP (Time-based One-Time Password)
-    totp = pyotp.TOTP(TOTP_SECRET).now()
-
-    # Attempt to login
-    login_data = smartApi.generateSession(CLIENT_CODE, PASSWORD, totp)
-
-    if not login_data["status"]:
-        raise Exception(f"Login failed with message: {login_data}")
-
-    # Retrieve the JWT token for subsequent API calls
-    authToken = login_data["data"]["jwtToken"]
-    feedToken = smartApi.getfeedToken()
-
-    logger.info("Login Successful!")
-    logger.info(f"Auth Token: {authToken[:10]}...")  # Only log first 10 chars for security
-
-except Exception as e:
-    logger.error(f"Login Error: {e}")
-
-# Now you can use 'authToken' or 'feedToken' for making API calls, 
-# like fetching LTP, OHLC data, or placing orders, depending on the API's methods.
+# Main part of the program
+if __name__ == "__main__":
+    # Take user input for the symbol
+    symbol_input = input("Enter the symbol: ")
+    
+    # Get the token for the symbol
+    token = get_token(symbol_input)
+    
+    # Display the result
+    print(f"Token for {symbol_input}: {token}")
