@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from SmartApi import SmartConnect
 import pyotp
 import threading
@@ -48,14 +48,14 @@ CREATE TABLE IF NOT EXISTS open_positions (
     username TEXT,
     symbol TEXT,
     entry_price REAL,
-    buy_threshold REAL,
-    stop_loss_type TEXT,  -- "Fixed", "Percentage", "Points", or "Combined"
-    stop_loss_value REAL, -- Value for stop-loss (e.g., 95 for fixed, 50 for percentage)
-    points_condition REAL, -- For trailing adjustments (e.g., 0, -0.2)
-    trailing_base REAL,   -- Base price for trailing stop-loss
-    sell_threshold REAL,  -- Fixed sell threshold (if any)
+    buy_threshold REAL,    -- New field for buy trigger (for LONG positions)
+    sell_threshold REAL,   -- New field for sell trigger (for SHORT positions)
+    exit_condition_type TEXT,  -- "Fixed", "Percentage" or "Points"
+    exit_condition_value REAL, -- For stop-loss (long) or stop-gain (short)
+    points_condition REAL,     -- For trailing adjustments (if needed)
+    position_type TEXT,        -- "LONG" for buy trades, "SHORT" for sell trades
     position_active BOOLEAN DEFAULT 1,
-    PRIMARY KEY (username, symbol)
+    PRIMARY KEY (username, symbol, position_type)
 )
 """)
 conn.commit()
@@ -63,7 +63,15 @@ conn.commit()
 # ------------------------------
 # Pydantic Models for API Requests
 # ------------------------------
-class BuyRequest(BaseModel):
+class User(BaseModel):
+    username: str
+    password: str
+    broker: str
+    api_key: str
+    totp_token: str
+    default_quantity: int
+
+class TradeRequest(BaseModel):
     username: str
     tradingsymbol: str
     symboltoken: str
@@ -72,10 +80,11 @@ class BuyRequest(BaseModel):
     producttype: str = "INTRADAY"
     buy_threshold_offset: Optional[float] = None  # For Fixed Price Buy
     buy_percentage: Optional[float] = None  # For Percentage-Based Buy
-    stop_loss_type: Optional[str] = None  # "Fixed", "Percentage", "Points", or "Combined"
-    stop_loss_value: Optional[float] = None  # Value for stop-loss
-    points_condition: Optional[float] = None  # For trailing (e.g., 0, -0.2)
     sell_threshold_offset: Optional[float] = None  # For Fixed Price Sell
+    sell_percentage: Optional[float] = None  # For Percentage-Based Sell
+    stop_loss_type: Optional[str] = None  # "Fixed", "Percentage", or "Points"
+    stop_loss_value: Optional[float] = None  # Value for stop-loss
+    points_condition: Optional[float] = None  # For trailing adjustments
 
 # Global SmartAPI instances and WebSocket connections
 smart_api_instances = {}
@@ -108,7 +117,7 @@ def authenticate_user(username: str, password: str, api_key: str, totp_token: st
 
 def get_ltp(smartApi, exchange, tradingsymbol, symboltoken):
     """
-    Fetch the Last Traded Price (LTP) using SmartAPI's historical data (temporary until WebSocket is fully set up).
+    Fetch the Last Traded Price (LTP) using SmartAPI's historical data.
     """
     try:
         historicParam = {
@@ -128,44 +137,50 @@ def get_ltp(smartApi, exchange, tradingsymbol, symboltoken):
         logger.error(f"Error fetching LTP: {e}")
         raise HTTPException(status_code=400, detail=f"LTP fetch error: {str(e)}")
 
-def place_order(smartApi, orderparams):
+def place_order(smartApi, orderparams, position_type: str):
     """
-    Place an order using SmartAPI for a specific user.
+    Place a buy or sell order using SmartAPI for a specific user.
     """
     try:
+        orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
         response = smartApi.placeOrderFullResponse(orderparams)
         if response['status'] == 'success':
-            logger.info(f"Order placed successfully. Order ID: {response['data']['orderid']}")
-            return {"order_id": response['data']['orderid'], "status": "success"}
+            logger.info(f"{position_type} order placed successfully. Order ID: {response['data']['orderid']}")
+            return {"order_id": response['data']['orderid'], "status": "success", "position_type": position_type}
         else:
-            logger.error(f"Order placement failed: {response['message']}")
-            raise HTTPException(status_code=400, detail=f"Order placement failed: {response['message']}")
+            logger.error(f"{position_type} order placement failed: {response['message']}")
+            raise HTTPException(status_code=400, detail=f"{position_type} order placement failed: {response['message']}")
     except Exception as e:
-        logger.error(f"Order placement error: {e}")
-        raise HTTPException(status_code=400, detail=f"Order placement error: {str(e)}")
+        logger.error(f"{position_type} order placement error: {e}")
+        raise HTTPException(status_code=400, detail=f"{position_type} order placement error: {str(e)}")
 
-def update_open_positions(username: str, symbol: str, entry_price: float, conditions: Dict):
+def update_open_positions(username: str, symbol: str, entry_price: float, conditions: Dict, position_type: str):
     """
     Update or insert open position in the database with all thresholds.
     """
     cursor.execute("""
-        INSERT OR REPLACE INTO open_positions (username, symbol, entry_price, buy_threshold, stop_loss_type, 
-                                              stop_loss_value, points_condition, trailing_base, sell_threshold, position_active)
+        INSERT OR REPLACE INTO open_positions (username, symbol, entry_price, buy_threshold, sell_threshold, 
+                                              exit_condition_type, exit_condition_value, points_condition, position_type, position_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    """, (username, symbol, entry_price, conditions['buy_threshold'], conditions['stop_loss_type'],
-          conditions['stop_loss_value'], conditions['points_condition'], entry_price, conditions['sell_threshold']))
+    """, (username, symbol, entry_price, 
+          conditions.get('buy_threshold', None) if position_type == "LONG" else None,
+          conditions.get('sell_threshold', None) if position_type == "SHORT" else None,
+          conditions.get('exit_condition_type', None),
+          conditions.get('exit_condition_value', None),
+          conditions.get('points_condition', None),
+          position_type))
     conn.commit()
 
-def get_open_position(username: str, symbol: str):
+def get_open_position(username: str, symbol: str, position_type: str):
     """
     Retrieve open position details from the database.
     """
-    cursor.execute("SELECT * FROM open_positions WHERE username = ? AND symbol = ? AND position_active = 1", 
-                   (username, symbol))
+    cursor.execute("SELECT * FROM open_positions WHERE username = ? AND symbol = ? AND position_type = ? AND position_active = 1", 
+                   (username, symbol, position_type))
     result = cursor.fetchone()
     if result:
-        return dict(zip(["username", "symbol", "entry_price", "buy_threshold", "stop_loss_type", "stop_loss_value", 
-                         "points_condition", "trailing_base", "sell_threshold", "position_active"], result))
+        return dict(zip(["username", "symbol", "entry_price", "buy_threshold", "sell_threshold", "exit_condition_type", 
+                         "exit_condition_value", "points_condition", "position_type", "position_active"], result))
     return None
 
 # WebSocket handler for real-time data
@@ -180,9 +195,8 @@ def on_message(ws, message):
         cursor.execute("SELECT * FROM open_positions WHERE symbol = ? AND position_active = 1", (symbol,))
         positions = cursor.fetchall()
         for position in positions:
-            position_data = dict(zip(["username", "symbol", "entry_price", "buy_threshold", "stop_loss_type", 
-                                    "stop_loss_value", "points_condition", "trailing_base", "sell_threshold", 
-                                    "position_active"], position))
+            position_data = dict(zip(["username", "symbol", "entry_price", "buy_threshold", "sell_threshold", "exit_condition_type", 
+                                    "exit_condition_value", "points_condition", "position_type", "position_active"], position))
             username = position_data['username']
             if username in smart_api_instances:
                 smartApi = smart_api_instances[username]
@@ -199,74 +213,102 @@ def on_open(ws):
 
 def check_conditions(smartApi, position_data, ltp):
     """
-    Check sell and stop-loss conditions in real-time and execute sell if met, then stop trading.
+    Check exit conditions in real-time and execute sell if met for LONG, buy if met for SHORT, then stop trading.
     """
     username = position_data['username']
     symbol = position_data['symbol']
     entry_price = position_data['entry_price']
-    stop_loss_type = position_data['stop_loss_type']
-    stop_loss_value = position_data['stop_loss_value']
+    position_type = position_data['position_type']
+    exit_condition_type = position_data['exit_condition_type']
+    exit_condition_value = position_data['exit_condition_value']
     points_condition = position_data['points_condition']
-    trailing_base = position_data['trailing_base']
-    sell_threshold = position_data['sell_threshold']
+    trailing_base = entry_price  # Simplified for this example; in practice, track high
 
-    should_sell = False
+    should_exit = False
 
-    # Check Fixed Price Sell (if set)
-    if sell_threshold is not None and ltp <= sell_threshold:
-        logger.info(f"Fixed Price Sell triggered for user {username}, symbol {symbol}: LTP ({ltp}) <= Sell Threshold ({sell_threshold})")
-        should_sell = True
-
-    # Check Stop-Loss (various types)
-    if not should_sell:
-        if stop_loss_type == "Fixed":
-            stop_loss = entry_price - stop_loss_value
-            if ltp <= stop_loss:
-                logger.info(f"Fixed Stop-Loss triggered for user {username}, symbol {symbol}: LTP ({ltp}) <= Stop-Loss ({stop_loss})")
-                should_sell = True
-        elif stop_loss_type == "Percentage":
-            current_high = max(ltp, trailing_base)  # Track highest price since entry
-            trailing_stop = trailing_base + (current_high - trailing_base) * (1 - stop_loss_value / 100)
-            if points_condition and ltp < trailing_base + points_condition:
-                trailing_base = ltp  # Adjust base on negative points
-            if ltp <= trailing_stop:
-                logger.info(f"Percentage Trailing Stop-Loss triggered for user {username}, symbol {symbol}: LTP ({ltp}) <= Trailing Stop ({trailing_stop})")
-                should_sell = True
-        elif stop_loss_type == "Points":
-            trailing_stop = max(ltp, trailing_base) - stop_loss_value
-            if ltp <= trailing_stop:
-                logger.info(f"Points Trailing Stop-Loss triggered for user {username}, symbol {symbol}: LTP ({ltp}) <= Trailing Stop ({trailing_stop})")
-                should_sell = True
-        elif stop_loss_type == "Combined":
+    if position_type == "LONG":
+        # For LONG positions (buy), check for sell conditions
+        if exit_condition_type == "Fixed":
+            exit_threshold = entry_price - exit_condition_value
+            if ltp <= exit_threshold:
+                logger.info(f"Fixed Stop-Loss triggered for LONG position of user {username}, symbol {symbol}: LTP ({ltp}) <= Exit Threshold ({exit_threshold})")
+                should_exit = True
+        elif exit_condition_type == "Percentage":
             current_high = max(ltp, trailing_base)
-            trailing_stop = trailing_base + (current_high - trailing_base) * (1 - stop_loss_value / 100)
+            trailing_stop = trailing_base + (current_high - trailing_base) * (1 - exit_condition_value / 100)
             if points_condition and ltp < trailing_base + points_condition:
                 trailing_base = ltp
             if ltp <= trailing_stop:
-                logger.info(f"Combined Trailing Stop-Loss triggered for user {username}, symbol {symbol}: LTP ({ltp}) <= Trailing Stop ({trailing_stop})")
-                should_sell = True
+                logger.info(f"Percentage Trailing Stop-Loss triggered for LONG position of user {username}, symbol {symbol}: LTP ({ltp}) <= Trailing Stop ({trailing_stop})")
+                should_exit = True
+        elif exit_condition_type == "Points":
+            trailing_stop = max(ltp, trailing_base) - exit_condition_value
+            if ltp <= trailing_stop:
+                logger.info(f"Points Trailing Stop-Loss triggered for LONG position of user {username}, symbol {symbol}: LTP ({ltp}) <= Trailing Stop ({trailing_stop})")
+                should_exit = True
 
-    if should_sell:
-        orderparams = {
-            "variety": "NORMAL",
-            "tradingsymbol": symbol,
-            "symboltoken": position_data['symbol'],  # Adjust if symboltoken differs
-            "transactiontype": "SELL",
-            "exchange": "NSE",
-            "ordertype": "MARKET",
-            "producttype": "INTRADAY",
-            "duration": "DAY",
-            "price": "0",
-            "quantity": str(entry_price),  # Use entry price as quantity for simplicity
-            "squareoff": "0",
-            "stoploss": "0"
-        }
-        place_order(smartApi, orderparams)
-        # Mark position as inactive and stop trading
-        cursor.execute("UPDATE open_positions SET position_active = 0 WHERE username = ? AND symbol = ?", 
-                       (username, symbol))
-        conn.commit()
-        logger.info(f"Trade for user {username} and symbol {symbol} completed and stopped after sell.")
+        if should_exit:
+            orderparams = {
+                "variety": "NORMAL",
+                "tradingsymbol": symbol,
+                "symboltoken": symbol,  # Adjust if symboltoken differs
+                "transactiontype": "SELL",
+                "exchange": "NSE",
+                "ordertype": "MARKET",
+                "producttype": "INTRADAY",
+                "duration": "DAY",
+                "price": "0",
+                "quantity": str(entry_price),
+                "squareoff": "0",
+                "stoploss": "0"
+            }
+            place_order(smartApi, orderparams, "LONG")
+            cursor.execute("UPDATE open_positions SET position_active = 0 WHERE username = ? AND symbol = ? AND position_type = ?", 
+                           (username, symbol, "LONG"))
+            conn.commit()
+            logger.info(f"LONG position for user {username} and symbol {symbol} sold and stopped.")
+
+    elif position_type == "SHORT":
+        # For SHORT positions (sell), check for buy-back conditions (stop-gain or stop-loss)
+        if exit_condition_type == "Fixed":
+            exit_threshold = entry_price + exit_condition_value  # For short, exit when price rises
+            if ltp >= exit_threshold:
+                logger.info(f"Fixed Stop-Gain triggered for SHORT position of user {username}, symbol {symbol}: LTP ({ltp}) >= Exit Threshold ({exit_threshold})")
+                should_exit = True
+        elif exit_condition_type == "Percentage":
+            current_low = min(ltp, trailing_base)
+            trailing_stop = trailing_base - (trailing_base - current_low) * (1 - exit_condition_value / 100)
+            if points_condition and ltp > trailing_base - points_condition:
+                trailing_base = ltp
+            if ltp >= trailing_stop:
+                logger.info(f"Percentage Trailing Stop-Gain triggered for SHORT position of user {username}, symbol {symbol}: LTP ({ltp}) >= Trailing Stop ({trailing_stop})")
+                should_exit = True
+        elif exit_condition_type == "Points":
+            trailing_stop = min(ltp, trailing_base) + exit_condition_value
+            if ltp >= trailing_stop:
+                logger.info(f"Points Trailing Stop-Gain triggered for SHORT position of user {username}, symbol {symbol}: LTP ({ltp}) >= Trailing Stop ({trailing_stop})")
+                should_exit = True
+
+        if should_exit:
+            orderparams = {
+                "variety": "NORMAL",
+                "tradingsymbol": symbol,
+                "symboltoken": symbol,  # Adjust if symboltoken differs
+                "transactiontype": "BUY",  # Buy back to close short
+                "exchange": "NSE",
+                "ordertype": "MARKET",
+                "producttype": "INTRADAY",
+                "duration": "DAY",
+                "price": "0",
+                "quantity": str(entry_price),
+                "squareoff": "0",
+                "stoploss": "0"
+            }
+            place_order(smartApi, orderparams, "SHORT")
+            cursor.execute("UPDATE open_positions SET position_active = 0 WHERE username = ? AND symbol = ? AND position_type = ?", 
+                           (username, symbol, "SHORT"))
+            conn.commit()
+            logger.info(f"SHORT position for user {username} and symbol {symbol} bought back and stopped.")
 
 # WebSocket setup for each user
 def start_websocket(username, api_key, feed_token):
@@ -291,6 +333,40 @@ async def startup_event():
         # Start WebSocket for this user (simplified; in practice, use feed token)
         threading.Thread(target=start_websocket, args=(user_data['username'], user_data['api_key'], "feed_token"), daemon=True).start()
 
+@app.post("/api/register_user")
+def register_user(user: User):
+    try:
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)",
+                       (user.username, user.password, user.broker, user.api_key, user.totp_token, user.default_quantity))
+        conn.commit()
+        return {"message": "User registered successfully"}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="User already exists")
+
+@app.get("/api/get_users")
+def get_users():
+    cursor.execute("SELECT * FROM users")
+    users = cursor.fetchall()
+    return {"users": [dict(zip(["username", "password", "broker", "api_key", "totp_token", "default_quantity"], row))
+                      for row in users]}
+
+@app.delete("/api/delete_user/{username}")
+def delete_user(username: str):
+    cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+    cursor.execute("DELETE FROM open_positions WHERE username = ?", (username,))
+    conn.commit()
+    if username in smart_api_instances:
+        del smart_api_instances[username]
+    return {"message": f"User {username} and their positions deleted successfully"}
+
+@app.get("/api/get_trades")
+def get_trades():
+    cursor.execute("SELECT * FROM open_positions")
+    trades = cursor.fetchall()
+    return {"trades": [dict(zip(["username", "symbol", "entry_price", "buy_threshold", "sell_threshold",
+                                 "exit_condition_type", "exit_condition_value", "points_condition", "position_type"], row))
+                       for row in trades]}
+
 @app.get("/api/fetch_ltp")
 async def fetch_ltp(exchange: str, symbol: str, token: str):
     """
@@ -314,10 +390,10 @@ async def fetch_ltp(exchange: str, symbol: str, token: str):
         logger.error(f"Error fetching LTP for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch LTP: {str(e)}")
 
-@app.post("/api/initiate_buy")
-async def initiate_buy(request: BuyRequest):
+@app.post("/api/initiate_trade")
+async def initiate_trade(request: TradeRequest):
     """
-    Endpoint to initiate a buy trade with sell and stop-loss conditions, stopping after sell.
+    Endpoint to initiate either a buy (LONG) or sell (SHORT) trade with exit conditions, stopping after exit.
     """
     try:
         username = request.username
@@ -327,82 +403,107 @@ async def initiate_buy(request: BuyRequest):
         smartApi = smart_api_instances[username]
         params = request.dict()
 
-        # Calculate buy threshold
+        # Determine position type based on action (simplified to buy for now, can extend to sell)
+        position_type = "LONG"  # Default to buy; add logic for "SHORT" if needed
+
+        # Calculate entry threshold (buy or sell)
         strike_price = params['strike_price']
-        buy_threshold_offset = params['buy_threshold_offset']
-        buy_percentage = params['buy_percentage']
+        if position_type == "LONG":
+            buy_threshold_offset = params['buy_threshold_offset']
+            buy_percentage = params['buy_percentage']
+            entry_threshold = None
+            if buy_threshold_offset is not None:
+                entry_threshold = strike_price + buy_threshold_offset
+            elif buy_percentage is not None:
+                entry_threshold = strike_place * (1 + buy_percentage/100)
 
-        buy_threshold = None
-        if buy_threshold_offset is not None:
-            buy_threshold = strike_price + buy_threshold_offset
-        elif buy_percentage is not None:
-            buy_threshold = strike_price * (1 + buy_percentage/100)
+            if entry_threshold is None:
+                raise HTTPException(status_code=400, detail="No buy condition provided")
 
-        if buy_threshold is None:
-            raise HTTPException(status_code=400, detail="No buy condition provided")
+            # Get current LTP
+            ltp = get_ltp(smartApi, params['exchange'], params['tradingsymbol'], params['symboltoken'])
+            if ltp < entry_threshold:
+                raise HTTPException(status_code=400, detail="Current LTP does not meet buy condition")
 
-        # Get current LTP (for initial check)
-        ltp = get_ltp(smartApi, params['exchange'], params['tradingsymbol'], params['symboltoken'])
-        if ltp < buy_threshold:
-            raise HTTPException(status_code=400, detail="Current LTP does not meet buy condition")
+            # Place buy order
+            quantity = str(params.get('default_quantity', 1))
+            orderparams = {
+                "variety": "NORMAL",
+                "tradingsymbol": params['tradingsymbol'],
+                "symboltoken": params['symboltoken'],
+                "transactiontype": "BUY",
+                "exchange": params['exchange'],
+                "ordertype": "MARKET",
+                "producttype": params['producttype'],
+                "duration": "DAY",
+                "price": "0",
+                "quantity": quantity,
+                "squareoff": "0",
+                "stoploss": "0"
+            }
 
-        # Place buy order
-        quantity = str(params.get('default_quantity', 1))  # Use user's default quantity
-        orderparams = {
-            "variety": "NORMAL",
-            "tradingsymbol": params['tradingsymbol'],
-            "symboltoken": params['symboltoken'],
-            "transactiontype": "BUY",
-            "exchange": params['exchange'],
-            "ordertype": "MARKET",
-            "producttype": params['producttype'],
-            "duration": "DAY",
-            "price": "0",
-            "quantity": quantity,
-            "squareoff": "0",
-            "stoploss": "0"
-        }
+        else:  # SHORT position
+            sell_threshold_offset = params['sell_threshold_offset']
+            sell_percentage = params['sell_percentage']
+            entry_threshold = None
+            if sell_threshold_offset is not None:
+                entry_threshold = strike_price + sell_threshold_offset
+            elif sell_percentage is not None:
+                entry_threshold = strike_price * (1 - sell_percentage/100)
 
-        result = place_order(smartApi, orderparams)
+            if entry_threshold is None:
+                raise HTTPException(status_code=400, detail="No sell condition provided")
 
-        # Calculate sell and stop-loss thresholds
-        sell_threshold = params['sell_threshold_offset'] if params['sell_threshold_offset'] else None
-        stop_loss_type = params['stop_loss_type'] if params['stop_loss_type'] else "Fixed"
-        stop_loss_value = params['stop_loss_value'] if params['stop_loss_value'] else 5.0  # Default to 5 if not provided
+            ltp = get_ltp(smartApi, params['exchange'], params['tradingsymbol'], params['symboltoken'])
+            if ltp > entry_threshold:
+                raise HTTPException(status_code=400, detail="Current LTP does not meet sell condition")
+
+            # Place sell order
+            quantity = str(params.get('default_quantity', 1))
+            orderparams = {
+                "variety": "NORMAL",
+                "tradingsymbol": params['tradingsymbol'],
+                "symboltoken": params['symboltoken'],
+                "transactiontype": "SELL",
+                "exchange": params['exchange'],
+                "ordertype": "MARKET",
+                "producttype": params['producttype'],
+                "duration": "DAY",
+                "price": "0",
+                "quantity": quantity,
+                "squareoff": "0",
+                "stoploss": "0"
+            }
+
+        result = place_order(smartApi, orderparams, position_type)
+
+        # Calculate exit conditions
+        exit_condition_type = params['stop_loss_type'] if params['stop_loss_type'] else "Fixed"
+        exit_condition_value = params['stop_loss_value'] if params['stop_loss_value'] else 5.0
         points_condition = params['points_condition'] if params['points_condition'] is not None else 0
 
-        # Store conditions in open positions
         conditions = {
-            'buy_threshold': buy_threshold,
-            'stop_loss_type': stop_loss_type,
-            'stop_loss_value': stop_loss_value,
-            'points_condition': points_condition,
-            'sell_threshold': sell_threshold,
-            'trailing_base': ltp  # Initial trailing base is the entry price
+            'buy_threshold': entry_threshold if position_type == "LONG" else None,
+            'sell_threshold': entry_threshold if position_type == "SHORT" else None,
+            'exit_condition_type': exit_condition_type,
+            'exit_condition_value': exit_condition_value,
+            'points_condition': points_condition
         }
 
         # Update open positions
-        update_open_positions(username, params['tradingsymbol'], ltp, conditions)
+        update_open_positions(username, params['tradingsymbol'], ltp, conditions, position_type)
 
-        return {"message": f"Buy order initiated for user {username} with sell and stop-loss conditions", "data": result}
+        return {"message": f"{position_type} trade initiated for user {username}", "data": result}
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Buy initiation error for user {username}: {e}")
+        logger.error(f"Trade initiation error for user {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error for user {username}: {str(e)}")
 
-@app.get("/api/get_open_positions")
-def get_open_positions():
-    """
-    Endpoint to get all open positions.
-    """
-    cursor.execute("SELECT * FROM open_positions WHERE position_active = 1")
-    positions = cursor.fetchall()
-    return {"positions": [dict(zip(["username", "symbol", "entry_price", "buy_threshold", "stop_loss_type", 
-                                   "stop_loss_value", "points_condition", "trailing_base", "sell_threshold", 
-                                   "position_active"], row))
-                         for row in positions]}
+@app.get("/status")
+def status():
+    return {"message": "FastAPI server is running!"}
 
 # WebSocket setup for each user
 def start_websocket(username, api_key, feed_token):

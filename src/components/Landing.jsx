@@ -31,8 +31,8 @@ const Landing = () => {
   const [openTrades, setOpenTrades] = useState([]);  
   const [showTradesDashboard, setShowTradesDashboard] = useState(false);
 
-  const [formStep, setFormStep] = useState(1); // 1: Select Users, 2: Trade Conditions, 3: Confirm Buy
-  const [actionType, setActionType] = useState('buy'); // Only buy for now, as per backend
+  const [formStep, setFormStep] = useState(1); // 1: Select Users, 2: Trade Conditions, 3: Confirm Trade
+  const [actionType, setActionType] = useState(null); // 'buy' or 'sell'
 
   const [formData, setFormData] = useState({
     username: "",
@@ -48,17 +48,11 @@ const Landing = () => {
     buy_threshold_offset: 0,
     buy_percentage: 0,
     sell_threshold_offset: 0,
+    sell_percentage: 0,
     stop_loss_type: "Fixed",
     stop_loss_value: 0,
     points_condition: 0,
   });
-  
-  /********************************************************
-   *         PRICE SIMULATION & TRADING SETUP           *
-   ********************************************************/
-  const [currentPrice, setCurrentPrice] = useState(90); 
-  const [isSimulating, setIsSimulating] = useState(false);
-  const simulationRef = useRef(null);
 
   const [ltpPrice, setLtpPrice] = useState(null);
   const [loadingLtp, setLoadingLtp] = useState(false);
@@ -66,6 +60,37 @@ const Landing = () => {
   /********************************************************
    *                 API FUNCTIONS                      *
    ********************************************************/
+
+  const fetchUsers = async () => {
+    try {
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_users", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      const data = await response.json();
+      setUsers(data.users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      setMessage({ text: "Failed to fetch users", type: "danger" });
+    }
+  };
+
+  const fetchOpenPositions = async () => {
+    try {
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_trades", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      const data = await response.json();
+      setOpenTrades(data.trades);
+    } catch (error) {
+      console.error("Error fetching open positions:", error);
+      setMessage({ text: "Failed to fetch open positions", type: "danger" });
+    }
+  };
+
   const fetchLtp = async () => {
     if (!formData.tradingsymbol || !formData.symboltoken) {
       setMessage({ text: "Please enter a trading symbol and symbol token.", type: "warning" });
@@ -87,36 +112,6 @@ const Landing = () => {
       setMessage({ text: "Server error fetching LTP. Try again later.", type: "danger" });
     } finally {
       setLoadingLtp(false);
-    }
-  };
-
-  const fetchUsers = async () => {
-    try {
-      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_users", {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-      const data = await response.json();
-      setUsers(data.users);
-    } catch (error) {
-      console.error("Error fetching users:", error);
-      setMessage({ text: "Failed to fetch users", type: "danger" });
-    }
-  };
-
-  const fetchOpenPositions = async () => {
-    try {
-      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_open_positions", {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-      const data = await response.json();
-      setOpenTrades(data.positions);
-    } catch (error) {
-      console.error("Error fetching open positions:", error);
-      setMessage({ text: "Failed to fetch open positions", type: "danger" });
     }
   };
 
@@ -153,6 +148,7 @@ const Landing = () => {
           buy_threshold_offset: 0,
           buy_percentage: 0,
           sell_threshold_offset: 0,
+          sell_percentage: 0,
           stop_loss_type: "Fixed",
           stop_loss_value: 0,
           points_condition: 0,
@@ -185,7 +181,7 @@ const Landing = () => {
     }
   };
 
-  const handleInitiateBuy = async () => {
+  const handleInitiateTrade = async () => {
     if (!selectedUsers.length) {
       setMessage({ text: "Please select at least one user.", type: "warning" });
       return;
@@ -193,7 +189,7 @@ const Landing = () => {
 
     try {
       for (const username of selectedUsers) {
-        const response = await fetch("https://mtb-8ra9.onrender.com/api/initiate_buy", {
+        const response = await fetch("https://mtb-8ra9.onrender.com/api/initiate_trade", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -203,29 +199,31 @@ const Landing = () => {
             exchange: formData.exchange,
             strike_price: formData.strike_price,
             producttype: formData.producttype,
-            buy_threshold_offset: formData.buy_threshold_offset || null,
-            buy_percentage: formData.buy_percentage || null,
+            buy_threshold_offset: actionType === 'buy' ? formData.buy_threshold_offset : null,
+            buy_percentage: actionType === 'buy' ? formData.buy_percentage : null,
+            sell_threshold_offset: actionType === 'sell' ? formData.sell_threshold_offset : null,
+            sell_percentage: actionType === 'sell' ? formData.sell_percentage : null,
             stop_loss_type: formData.stop_loss_type,
             stop_loss_value: formData.stop_loss_value,
             points_condition: formData.points_condition,
-            sell_threshold_offset: formData.sell_threshold_offset || null,
           }),
         });
 
         const data = await response.json();
         if (response.ok) {
-          setMessage({ text: `Buy initiated successfully for ${username}!`, type: "success" });
+          setMessage({ text: `${actionType === 'buy' ? 'Buy' : 'Sell'} initiated successfully for ${username}!`, type: "success" });
           fetchOpenPositions();
         } else {
-          setMessage({ text: `Failed to initiate buy for ${username}: ${data.detail}`, type: "danger" });
+          setMessage({ text: `Failed to initiate ${actionType} for ${username}: ${data.detail}`, type: "danger" });
         }
       }
     } catch (error) {
-      console.error("Error initiating buy:", error);
-      setMessage({ text: "Server error initiating buy. Try again later.", type: "danger" });
+      console.error("Error initiating trade:", error);
+      setMessage({ text: "Server error initiating trade. Try again later.", type: "danger" });
     }
     setFormStep(1);
     setSelectedUsers([]);
+    setActionType(null);
     setFormData({
       username: "",
       password: "",
@@ -240,6 +238,7 @@ const Landing = () => {
       buy_threshold_offset: 0,
       buy_percentage: 0,
       sell_threshold_offset: 0,
+      sell_percentage: 0,
       stop_loss_type: "Fixed",
       stop_loss_value: 0,
       points_condition: 0,
@@ -319,9 +318,9 @@ const Landing = () => {
         tvWidgetRef.current.chart().createShape(
           { time, price: trade.entry_price },
           {
-            shape: "arrow_up",
-            text: `Buy by ${trade.username} at ${trade.entry_price}`,
-            color: "green",
+            shape: trade.position_type === "LONG" ? "arrow_up" : "arrow_down",
+            text: `${trade.position_type === "LONG" ? "Buy" : "Sell"} by ${trade.username} at ${trade.entry_price}`,
+            color: trade.position_type === "LONG" ? "green" : "red",
             disableUndo: true
           }
         );
@@ -422,10 +421,10 @@ const Landing = () => {
                           <td><span className={`badge ${trade.user_role === "Admin" ? "bg-danger" : "bg-secondary"}`}>{trade.user_role}</span></td>
                           <td className="text-primary fw-bold">{trade.symbol}</td>
                           <td className="text-success fw-bold">₹{trade.entry_price}</td>
-                          <td className="text-danger fw-bold">{trade.buy_threshold}</td>
-                          <td className="text-warning">{trade.stop_loss_type}</td>
-                          <td className="text-info">{trade.stop_loss_value}</td>
-                          <td><span className="badge bg-success">Buy</span></td>
+                          <td className="text-danger fw-bold">{trade.position_type === "LONG" ? trade.buy_threshold : trade.sell_threshold}</td>
+                          <td className="text-warning">{trade.exit_condition_type}</td>
+                          <td className="text-info">{trade.exit_condition_value}</td>
+                          <td><span className={`badge ${trade.position_type === "LONG" ? "bg-success" : "bg-danger"}`}>{trade.position_type === "LONG" ? "Buy" : "Sell"}</span></td>
                         </tr>
                       ))
                     ) : (
@@ -606,44 +605,61 @@ const Landing = () => {
                   </Col>
                 </Row>
                 <Row className="mb-3">
-                  <Col md={4}>
-                    <Form.Group controlId="buy_threshold_offset">
-                      <Form.Label>Buy Threshold Offset</Form.Label>
-                      <Form.Control 
-                        type="number" 
-                        placeholder="e.g., 10 for +10" 
-                        value={formData.buy_threshold_offset} 
-                        onChange={(e) => setFormData({ ...formData, buy_threshold_offset: parseFloat(e.target.value) || 0 })}
-                      />
-                    </Form.Group>
-                  </Col>
-                  <Col md={4}>
-                    <Form.Group controlId="buy_percentage">
-                      <Form.Label>Buy Percentage Increase (%)</Form.Label>
-                      <Form.Control 
-                        type="number" 
-                        placeholder="e.g., 5 for 5%" 
-                        value={formData.buy_percentage} 
-                        onChange={(e) => setFormData({ ...formData, buy_percentage: parseFloat(e.target.value) || 0 })}
-                      />
-                    </Form.Group>
-                  </Col>
-                  <Col md={4}>
-                    <Form.Group controlId="sell_threshold_offset">
-                      <Form.Label>Sell Threshold Offset</Form.Label>
-                      <Form.Control 
-                        type="number" 
-                        placeholder="e.g., -5 for -5" 
-                        value={formData.sell_threshold_offset} 
-                        onChange={(e) => setFormData({ ...formData, sell_threshold_offset: parseFloat(e.target.value) || 0 })}
-                      />
-                    </Form.Group>
-                  </Col>
-                </Row>
-                <Row className="mb-3">
+                  {actionType === 'buy' && (
+                    <>
+                      <Col md={4}>
+                        <Form.Group controlId="buy_threshold_offset">
+                          <Form.Label>Buy Threshold Offset</Form.Label>
+                          <Form.Control 
+                            type="number" 
+                            placeholder="e.g., 10 for +10" 
+                            value={formData.buy_threshold_offset} 
+                            onChange={(e) => setFormData({ ...formData, buy_threshold_offset: parseFloat(e.target.value) || 0 })}
+                          />
+                        </Form.Group>
+                      </Col>
+                      <Col md={4}>
+                        <Form.Group controlId="buy_percentage">
+                          <Form.Label>Buy Percentage Increase (%)</Form.Label>
+                          <Form.Control 
+                            type="number" 
+                            placeholder="e.g., 5 for 5%" 
+                            value={formData.buy_percentage} 
+                            onChange={(e) => setFormData({ ...formData, buy_percentage: parseFloat(e.target.value) || 0 })}
+                          />
+                        </Form.Group>
+                      </Col>
+                    </>
+                  )}
+                  {actionType === 'sell' && (
+                    <>
+                      <Col md={4}>
+                        <Form.Group controlId="sell_threshold_offset">
+                          <Form.Label>Sell Threshold Offset</Form.Label>
+                          <Form.Control 
+                            type="number" 
+                            placeholder="e.g., -10 for -10" 
+                            value={formData.sell_threshold_offset} 
+                            onChange={(e) => setFormData({ ...formData, sell_threshold_offset: parseFloat(e.target.value) || 0 })}
+                          />
+                        </Form.Group>
+                      </Col>
+                      <Col md={4}>
+                        <Form.Group controlId="sell_percentage">
+                          <Form.Label>Sell Percentage Decrease (%)</Form.Label>
+                          <Form.Control 
+                            type="number" 
+                            placeholder="e.g., 5 for 5%" 
+                            value={formData.sell_percentage} 
+                            onChange={(e) => setFormData({ ...formData, sell_percentage: parseFloat(e.target.value) || 0 })}
+                          />
+                        </Form.Group>
+                      </Col>
+                    </>
+                  )}
                   <Col md={4}>
                     <Form.Group controlId="stop_loss_type">
-                      <Form.Label>Stop-Loss Type</Form.Label>
+                      <Form.Label>Exit Condition Type</Form.Label>
                       <Form.Select 
                         value={formData.stop_loss_type} 
                         onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}
@@ -651,13 +667,14 @@ const Landing = () => {
                         <option value="Fixed">Fixed</option>
                         <option value="Percentage">Percentage</option>
                         <option value="Points">Points</option>
-                        <option value="Combined">Combined</option>
                       </Form.Select>
                     </Form.Group>
                   </Col>
+                </Row>
+                <Row className="mb-3">
                   <Col md={4}>
                     <Form.Group controlId="stop_loss_value">
-                      <Form.Label>Stop-Loss Value</Form.Label>
+                      <Form.Label>Exit Condition Value</Form.Label>
                       <Form.Control 
                         type="number" 
                         placeholder="e.g., 5 or 50%" 
@@ -699,8 +716,8 @@ const Landing = () => {
 
           {formStep === 3 && (
             <>
-              <h4 className="text-success">
-                <FontAwesomeIcon icon={faShoppingCart} /> Confirm Buy
+              <h4 className={actionType === 'buy' ? "text-success" : "text-danger"}>
+                <FontAwesomeIcon icon={actionType === 'buy' ? faShoppingCart : faExchangeAlt} /> Confirm {actionType === 'buy' ? 'Buy' : 'Sell'}
               </h4>
               <Form>
                 <Row className="mb-3">
@@ -708,19 +725,22 @@ const Landing = () => {
                     <p><strong>Selected Users:</strong> {selectedUsers.join(", ") || "None"}</p>
                     <p><strong>Symbol:</strong> {formData.tradingsymbol}</p>
                     <p><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
-                    <p><strong>Buy Threshold:</strong> {formData.buy_threshold_offset ? `≥ ${formData.strike_price + formData.buy_threshold_offset}` : formData.buy_percentage ? `≥ ${formData.strike_price * (1 + formData.buy_percentage/100)}` : "None"}</p>
-                    <p><strong>Sell Threshold:</strong> {formData.sell_threshold_offset ? `≤ ${formData.strike_price + formData.sell_threshold_offset}` : "None"}</p>
-                    <p><strong>Stop-Loss:</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
+                    <p><strong>{actionType === 'buy' ? 'Buy' : 'Sell'} Threshold:</strong> {actionType === 'buy' ? 
+                      (formData.buy_threshold_offset ? `≥ ${formData.strike_price + formData.buy_threshold_offset}` : 
+                       formData.buy_percentage ? `≥ ${formData.strike_price * (1 + formData.buy_percentage/100)}` : "None") : 
+                      (formData.sell_threshold_offset ? `≤ ${formData.strike_price + formData.sell_threshold_offset}` : 
+                       formData.sell_percentage ? `≤ ${formData.strike_price * (1 - formData.sell_percentage/100)}` : "None")}</p>
+                    <p><strong>Exit Condition:</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
                     {ltpPrice && <p><strong>Current LTP:</strong> ₹{ltpPrice}</p>}
                   </Col>
                 </Row>
                 <Button 
-                  variant="primary" 
-                  onClick={handleInitiateBuy}
+                  variant={actionType === 'buy' ? "success" : "danger"} 
+                  onClick={handleInitiateTrade}
                   className="mt-3"
                   disabled={loadingLtp || !ltpPrice}
                 >
-                  Initiate Buy
+                  Confirm {actionType === 'buy' ? 'Buy' : 'Sell'}
                 </Button>
                 <Button 
                   variant="secondary" 
@@ -738,6 +758,11 @@ const Landing = () => {
           <Col xs="auto">
             <Button onClick={() => { setActionType('buy'); setFormStep(1); }} className="gradient-button btn-buy">
               <FontAwesomeIcon icon={faShoppingCart} /> Buy
+            </Button>
+          </Col>
+          <Col xs="auto">
+            <Button onClick={() => { setActionType('sell'); setFormStep(1); }} className="gradient-button btn-sell">
+              <FontAwesomeIcon icon={faExchangeAlt} /> Sell
             </Button>
           </Col>
         </Row>
