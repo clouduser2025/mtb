@@ -284,7 +284,11 @@
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); /* Add shadow for depth */
   margin: 10px; /* Space between buttons */
 }
-
+.top-message {
+  position: relative;
+  top: 10%;
+  margin-bottom: 20px;
+}
 /* Gradient Colors */
 .btn-market { background: linear-gradient(45deg, #2798de, #392398); } /* Market Overview */
 .btn-indices { background: linear-gradient(45deg, #000000, #f4f3f3); } /* Indices */
