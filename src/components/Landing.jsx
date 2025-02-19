@@ -78,7 +78,7 @@ const Landing = () => {
   const [showExcelData, setShowExcelData] = useState(false);
   const [symbolForToken, setSymbolForToken] = useState('');
   const [tokenFetchResult, setTokenFetchResult] = useState(null);
-
+  const [errorMessage, setErrorMessage] = useState('');
   /********************************************************
    *                 API FUNCTIONS                      *
    ********************************************************/
@@ -93,7 +93,6 @@ const Landing = () => {
       const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken || ''}`);
       const data = await response.json();
       if (data.status) {
-        // Here you could expand to show more details if needed
         setLtpPrice(data.data.ltp);
       } else {
         setLtpPrice(null);
@@ -658,7 +657,6 @@ const Landing = () => {
             </Alert>
           )}
         </Container>
-
 
 
         {/* Buy/Sell Buttons */}
