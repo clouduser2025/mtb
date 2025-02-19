@@ -252,7 +252,7 @@ async def get_token(symbol: str):
 @app.get("/api/get_excel_data")
 def get_excel_data():
     try:
-        df = pd.read_excel('path/to/OpenAPIScripMaster.xlsx')
+        df = pd.read_excel('OpenAPIScripMaster.xlsx')
         data = df.to_dict('records')
         print(f"Data from Excel: {data}")  # Log the data
         return {"data": data}
