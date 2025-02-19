@@ -18,6 +18,7 @@ import {
   faMapMarkerAlt
 } from '@fortawesome/free-solid-svg-icons'; 
 import './css/landing.css';
+import axios from 'axios'; // Added for the new LTP fetch function
 
 const Landing = () => {
   /********************************************************
@@ -54,8 +55,10 @@ const Landing = () => {
     points_condition: 0,
   });
 
-  const [ltpPrice, setLtpPrice] = useState(null);
-  const [loadingLtp, setLoadingLtp] = useState(false);
+  const [ltpPrice, setLtpPrice] = useState(null); // For original endpoint
+  const [ltp, setLtp] = useState(null); // For new endpoint
+  const [loadingLtp, setLoadingLtp] = useState(false); // For original endpoint
+  const [loading, setLoading] = useState(false); // For new endpoint
 
   /********************************************************
    *                 API FUNCTIONS                      *
@@ -91,6 +94,7 @@ const Landing = () => {
     }
   };
 
+  // Preserve the original fetchLtp function (using https://mtb-2-xk0d.onrender.com/api/fetch_ltp)
   const fetchLtp = async () => {
     if (!formData.tradingsymbol || !formData.symboltoken) {
       setMessage({ text: "Please enter a trading symbol and symbol token.", type: "warning" });
@@ -98,7 +102,7 @@ const Landing = () => {
     }
     setLoadingLtp(true);
     try {
-      const response = await fetch(`https://mtb-8ra9.onrender.com/api/fetch_ltp?exchange=${formData.exchange}&symbol=${formData.tradingsymbol}&token=${formData.symboltoken}`);
+      const response = await fetch(`https://mtb-2-xk0d.onrender.com/api/fetch_ltp?exchange=${formData.exchange}&symbol=${formData.tradingsymbol}&token=${formData.symboltoken}`);
       const data = await response.json();
       if (data.status) {
         setLtpPrice(data.ltp);
@@ -112,6 +116,31 @@ const Landing = () => {
       setMessage({ text: "Server error fetching LTP. Try again later.", type: "danger" });
     } finally {
       setLoadingLtp(false);
+    }
+  };
+
+  // New function for fetching LTP from /api/fetch_ltp_for_trade
+  const fetchLtpFromApp = async () => {
+    if (!formData.tradingsymbol || !formData.symboltoken) {
+      setMessage({ text: "Please enter a trading symbol and symbol token.", type: "warning" });
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await axios.get('http://localhost:8000/api/fetch_ltp_for_trade', {
+        params: {
+          exchange: formData.exchange,
+          symbol: formData.tradingsymbol,
+          token: formData.symboltoken,
+        },
+      });
+      setLtp(response.data.ltp);
+      setMessage({ text: `LTP fetched successfully from app: ₹${response.data.ltp} for ${formData.tradingsymbol}`, type: "success" });
+    } catch (err) {
+      console.error("Error fetching LTP from app:", err);
+      setMessage({ text: "Failed to fetch LTP from app. Check symbol and token.", type: "danger" });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -330,8 +359,6 @@ const Landing = () => {
     return <div id="advanced_chart_container" ref={chartContainerRef} style={{ height: "500px", width: "100%" }}></div>;
   };
 
- 
-
   /********************************************************
    *                     RENDER (JSX)                     *
    ********************************************************/
@@ -339,6 +366,12 @@ const Landing = () => {
     fetchUsers();
     fetchOpenPositions();
   }, []);
+
+  // Automatically fetch LTP from both endpoints on trade data change
+  useEffect(() => {
+    fetchLtp();
+    fetchLtpFromApp();
+  }, [formData.tradingsymbol, formData.symboltoken, formData.exchange]);
 
   return (
     <>
@@ -477,11 +510,7 @@ const Landing = () => {
               Option Chain
             </Button>
           </Col>
-          <Col xs="auto">
-            <Button onClick={fetchLtp} className="gradient-button btn-ltp" disabled={loadingLtp}>
-              {loadingLtp ? "Fetching..." : "Fetch LTP"}
-            </Button>
-          </Col>
+          {/* Removed the Fetch LTP button */}
           <Col xs="auto">
             <Button onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }} className="gradient-button btn-trades">
               Trades Dashboard
@@ -491,7 +520,7 @@ const Landing = () => {
 
         <Container className="ltp-container">
           <h4 className="text-primary">🔍 Live Fetch LTP</h4>
-          <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
+          <Form onSubmit={(e) => { e.preventDefault(); }}>
             <Row className="mb-3">
               <Col md={3}>
                 <Form.Group controlId="exchange">
@@ -514,14 +543,12 @@ const Landing = () => {
                   <Form.Control type="text" placeholder="e.g., 3045" value={formData.symboltoken} onChange={(e) => setFormData({ ...formData, symboltoken: e.target.value })} required />
                 </Form.Group>
               </Col>
-              <Col md={2}>
-                <Button type="submit" variant="primary" className="mt-4">Fetch LTP</Button>
-              </Col>
+              {/* Removed the Fetch LTP button from the form */}
             </Row>
           </Form>
-          {loadingLtp && <p>Loading...</p>}
-          {ltpPrice !== null && (
-            <Alert variant="success">📈 Latest Price of <strong>{formData.tradingsymbol}</strong>: ₹{ltpPrice}</Alert>
+          {(loadingLtp || loading) && <p>Loading...</p>}
+          {(ltpPrice !== null || ltp !== null) && (
+            <Alert variant="success">📈 Latest Price of <strong>{formData.tradingsymbol}</strong>: ₹{ltp || ltpPrice}</Alert>
           )}
         </Container>
 
@@ -744,14 +771,14 @@ const Landing = () => {
                       (formData.sell_threshold_offset ? `≤ ${formData.strike_price + formData.sell_threshold_offset}` : 
                        formData.sell_percentage ? `≤ ${formData.strike_price * (1 - formData.sell_percentage/100)}` : "None")}</p>
                     <p><strong>Exit Condition:</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
-                    {ltpPrice && <p><strong>Current LTP:</strong> ₹{ltpPrice}</p>}
+                    {(ltpPrice !== null || ltp !== null) && <p><strong>Current LTP:</strong> ₹{ltp || ltpPrice}</p>}
                   </Col>
                 </Row>
                 <Button 
                   variant={actionType === 'buy' ? "success" : "danger"} 
                   onClick={handleInitiateTrade}
                   className="mt-3"
-                  disabled={loadingLtp || !ltpPrice}
+                  disabled={(loadingLtp || loading) || (!ltpPrice && !ltp)}
                 >
                   Confirm {actionType === 'buy' ? 'Buy' : 'Sell'}
                 </Button>
