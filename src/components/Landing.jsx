@@ -107,7 +107,7 @@ const Landing = () => {
 
   const fetchTrades = async () => {
     try {
-      const response = await fetch("https://mtb-1-0wgo.onrender.com/api/get_trades");
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_trades");
       if (!response.ok) {
         throw new Error("Failed to fetch trades");
       }
@@ -155,7 +155,7 @@ const Landing = () => {
   // ------------------------------
   const fetchUsers = async () => {
     try {
-      const response = await fetch("https://mtb-1-0wgo.onrender.com/api/get_users", {
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_users", {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       });
@@ -183,7 +183,7 @@ const Landing = () => {
     console.log("Submitting user:", formData);
 
     try {
-        const response = await fetch("https://mtb-1-0wgo.onrender.com/api/register_user", {
+        const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -225,7 +225,7 @@ const Landing = () => {
   const handleDeleteUser = async (username) => {
     console.log(`Deleting user: ${username}`);
     try {
-      const response = await fetch(`https://mtb-1-0wgo.onrender.com/api/delete_user/${username}`, {
+      const response = await fetch(`https://mtb-8ra9.onrender.com/api/delete_user/${username}`, {
         method: "DELETE"
       });
       const data = await response.json();
