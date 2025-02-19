@@ -645,7 +645,6 @@ const Landing = () => {
                 <Button 
                   variant="primary" 
                   onClick={() => {
-                    // Here you would typically send the trade data to your backend
                     console.log("Trade submitted:", {
                       actionType,
                       selectedUsers,
