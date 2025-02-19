@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'; 
+import React, { useState, useEffect, useRef } from 'react'; 
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -8,7 +8,7 @@ import {
   faSignInAlt, 
   faShoppingCart, 
   faExchangeAlt,
-  faUser,               // ✅ Added missing icons
+  faUser,               
   faUserTie,
   faChartLine,
   faDollarSign,
@@ -36,6 +36,7 @@ const Landing = () => {
 
   const [formData, setFormData] = useState({
     username: "",
+    password: "",  // Added password field
     broker: "Angel",
     api_key: "",
     totp_token: "",
@@ -175,7 +176,7 @@ const Landing = () => {
     fetchUsers();
   }, []);
 
-  // Registration submit handler
+  // Registration submit handler (updated to include password)
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     console.log("Submitting user:", formData);
@@ -188,6 +189,7 @@ const Landing = () => {
             },
             body: JSON.stringify({
                 username: formData.username,
+                password: formData.password,  // Added password
                 broker: formData.broker,
                 api_key: formData.api_key,
                 totp_token: formData.totp_token,
@@ -203,6 +205,7 @@ const Landing = () => {
             fetchUsers(); // Refresh user list
             setFormData({
                 username: "",
+                password: "",  // Reset password
                 broker: "Angel",
                 api_key: "",
                 totp_token: "",
@@ -752,6 +755,16 @@ const Landing = () => {
                 placeholder="Enter username" 
                 value={formData.username} 
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })} 
+                required 
+              />
+            </Form.Group>
+            <Form.Group controlId="password">
+              <Form.Label>Password</Form.Label>
+              <Form.Control 
+                type="password" 
+                placeholder="Enter password" 
+                value={formData.password} 
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
                 required 
               />
             </Form.Group>
