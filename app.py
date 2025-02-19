@@ -254,8 +254,8 @@ async def get_token(symbol: str):
 def get_excel_data():
     try:
         df = pd.read_excel('OpenAPIScripMaster.xlsx')
-        # Replace numpy.nan with None for JSON serialization
-        data = df.replace({np.nan: None}).to_dict('records')
+        # Select only the first 4 columns and replace numpy.nan with None for JSON serialization
+        data = df[['token', 'symbol', 'name', 'expiry']].replace({np.nan: None}).to_dict('records')
         print(f"Data from Excel: {data}")  # Log the data
         return {"data": data}
     except Exception as e:
