@@ -88,23 +88,25 @@ const Landing = () => {
       return;
     }
     setLoadingLtp(true);
+    setErrorMessage('');
     try {
-      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken}`);
+      const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken || ''}`);
       const data = await response.json();
       if (data.status) {
-        setLtpPrice(data.ltp);
+        // Here you could expand to show more details if needed
+        setLtpPrice(data.data.ltp);
       } else {
         setLtpPrice(null);
-        alert("Failed to fetch LTP. Please check the symbol.");
+        setErrorMessage(data.message || "Failed to fetch LTP. Please check the symbol.");
       }
     } catch (error) {
       console.error("Error fetching LTP:", error);
-      alert("Server error. Try again later.");
+      setErrorMessage("Server error. Try again later.");
     } finally {
       setLoadingLtp(false);
     }
   };
-
+  
   const fetchTrades = async () => {
     try {
       const response = await fetch("https://ramdoot.onrender.com/api/get_trades");
@@ -431,6 +433,7 @@ const Landing = () => {
     // Fetch Excel data when component mounts
     fetchExcelData();
   }, []);
+
   /********************************************************
    *                     RENDER (JSX)                     *
    ********************************************************/
@@ -649,7 +652,14 @@ const Landing = () => {
               📈 Latest Price of <strong>{ltpSymbol}</strong>: ₹{ltpPrice}
             </Alert>
           )}
+          {errorMessage && (
+            <Alert variant="danger" onClose={() => setErrorMessage('')} dismissible>
+              {errorMessage}
+            </Alert>
+          )}
         </Container>
+
+
 
         {/* Buy/Sell Buttons */}
         <Row className="justify-content-center mb-3">

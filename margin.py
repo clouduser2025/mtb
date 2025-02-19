@@ -1,8 +1,20 @@
-# --- IMPORTS ---
+from fastapi import FastAPI, Query
 from SmartApi import SmartConnect
 import pyotp
 import requests
-import json
+from logzero import logger
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Query
+import requests
+
+
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/ltp")
+def get_ltp():
+    return {"message": "LTP Server is running!"}
 
 # --- CONFIGURATION ---
 API_KEY = "y2gLEdxZ"
@@ -13,74 +25,100 @@ TOTP_SECRET = "654AU7VYVAOGKZGB347HKVIAB4"
 # --- SmartAPI Object ---
 smartApi = SmartConnect(api_key=API_KEY)
 
-# Login to get the session token
-data = smartApi.generateSession(CLIENT_CODE, PASSWORD, pyotp.TOTP(TOTP_SECRET).now())
-if data['status']:
-    refreshToken = data['data']['refreshToken']
-    # Use this refresh token to get the feed token
-    feedToken = smartApi.getfeedToken()
-    print(f"Login Successful. Feed Token: {feedToken}")
-else:
-    print("Login failed:", data['message'])
-    exit()
+# --- Login Process ---
+logger.info("Logging into SmartAPI...")
+try:
+    totp = pyotp.TOTP(TOTP_SECRET).now()
+    login_data = smartApi.generateSession(CLIENT_CODE, PASSWORD, totp)
 
-def fetch_ltp(smartApi, exchange, tokens):
-    url = "https://apiconnect.angelone.in/rest/secure/angelbroking/market/v1/quote"
-    headers = {
-        "Authorization": f"Bearer {smartApi.get_token()}",
-        "X-UserToken": smartApi.get_client_code(),
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "mode": "LTP",
-        "exchangeTokens": {
-            exchange: tokens
-        }
-    }
-    
-    response = requests.post(url, headers=headers, data=json.dumps(payload))
-    if response.status_code == 200:
-        data = response.json()
-        if data['status']:
-            return data['data']['fetched']
-        else:
-            print(f"API response status is not success: {data['message']}")
-            return None
+    if not login_data["status"]:
+        logger.error(f"Login Failed: {login_data}")
+        exit()
     else:
-        print(f"Failed to fetch LTP: {response.text}")
+        authToken = login_data["data"]["jwtToken"]
+        feedToken = smartApi.getfeedToken()
+        logger.info("Login Successful!")
+except Exception as e:
+    logger.error(f"Login Error: {e}")
+
+# --- FastAPI App ---
+app = FastAPI()
+
+# ✅ Add CORS Middleware (Allow Frontend to Access API)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow requests from any frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Helper Function: Fetch Symbol Token ---
+def get_symbol_token(exchange: str, symbol: str):
+    try:
+        url = "https://apiconnect.angelone.in/rest/secure/angelbroking/order/v1/searchScrip"
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-UserType": "USER",
+            "X-SourceID": "WEB",
+        }
+        payload = {"exchange": exchange, "searchscrip": symbol}
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code != 200:
+            logger.error(f"API Error: {response.status_code} - {response.text}")
+            return None
+
+        data = response.json()
+        if data.get("status") and "data" in data and len(data["data"]) > 0:
+            symbol_token = data["data"][0]["symboltoken"]
+            logger.info(f"✅ Token for {symbol} is {symbol_token}")
+            return symbol_token
+        else:
+            logger.error(f"❌ No valid symbol token found for {symbol}. Response: {data}")
+            return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"🔴 Error fetching symbol token: {e}")
         return None
 
-def get_ltp_data(smartApi, stock_symbol, expiry_date, strike_price):
-    # Example tokens, replace with actual method or value to fetch tokens from Angel One API
-    stock_token = "26000"  # Example token for NIFTY, replace with actual token
-    call_option_symbol = f"{stock_symbol[:5]}{expiry_date}{strike_price}CE"
-    put_option_symbol = f"{stock_symbol[:5]}{expiry_date}{strike_price}PE"
-    
-    # For real implementation, you would need to use the correct method or API call
-    # to get these tokens, like smartApi.getInstrumentForFNO or similar if available
-    call_option_token = "12345"  # Example token, replace with actual token
-    put_option_token = "67890"  # Example token, replace with actual token
-    
-    # Fetch LTP for stock, call, and put options
-    ltp_data = fetch_ltp(smartApi, "NSE", [stock_token])
-    ltp_data.extend(fetch_ltp(smartApi, "NFO", [call_option_token, put_option_token]))
-    
-    return ltp_data
+# --- API Endpoint: Fetch LTP ---
+@app.get("/api/fetch_ltp")
+async def fetch_ltp(
+    exchange: str = Query("NSE", description="Stock Exchange (NSE/BSE)"),
+    symbol: str = Query(..., description="Stock Symbol (e.g. RELIANCE)"),
+    token: str = Query(None, description="Symbol Token (Optional)")
+):
+    try:
+        # Fetch token if not provided
+        if not token:
+            logger.info(f"Fetching token for {symbol}...")
+            token = get_symbol_token(exchange, symbol)
+            if not token:
+                return {"status": False, "message": "Failed to fetch symbol token"}
 
-# Now that smartApi is initialized and logged in, you can use it to fetch LTP data
-stock_symbol = "NIFTY"
-expiry_date = "20FEB25"
-strike_price = "23250"
+        # Fetch LTP
+        response = smartApi.ltpData(exchange=exchange, tradingsymbol=symbol, symboltoken=token)
+        if response["status"]:
+            ltp = response["data"]["ltp"]
+            logger.info(f"✅ {symbol} LTP = {ltp}")
+            return {"status": True, "ltp": ltp}
+        else:
+            logger.error(f"Error fetching LTP: {response.get('message', 'Unknown Error')}")
+            return {"status": False, "message": "LTP fetch failed"}
+    except Exception as e:
+        logger.error(f"LTP Fetch Error: {e}")
+        return {"status": False, "message": "Server Error"}
 
-ltp_results = get_ltp_data(smartApi, stock_symbol, expiry_date, strike_price)
 
-if ltp_results:
-    for result in ltp_results:
-        if result['exchange'] == "NSE":
-            print(f"Stock LTP for {stock_symbol}: {result['ltp']}")
-        elif 'CE' in result['tradingSymbol']:
-            print(f"Call Option LTP for {result['tradingSymbol']}: {result['ltp']}")
-        elif 'PE' in result['tradingSymbol']:
-            print(f"Put Option LTP for {result['tradingSymbol']}: {result['ltp']}")
-else:
-    print("Failed to fetch LTP data")
+
+# --- Shutdown Hook ---
+@app.on_event("shutdown")
+def shutdown_event():
+    print("Server is shutting down. Logging out...")
+    try:
+        logout_response = smartApi.terminateSession(CLIENT_CODE)
+        logger.info("Logout Successful!")
+    except Exception as e:
+        logger.error(f"Logout Failed: {e}")
