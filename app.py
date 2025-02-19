@@ -228,39 +228,6 @@ def check_sell_conditions(condition_type: str, condition_value: float, symbol: s
         return False
     
 
-
-# Load Excel at app startup
-@app.on_event("startup")
-async def load_excel_data():
-    global symbol_data
-    try:
-        symbol_data = pd.read_excel('OpenAPIScripMaster.xlsx').set_index('symbol')['symboltoken'].to_dict()
-    except FileNotFoundError:
-        logger.error("Excel file 'OpenAPIScripMaster.xlsx' not found.")
-        symbol_data = {}
-    except Exception as e:
-        logger.error(f"Failed to load Excel data: {e}")
-        symbol_data = {}
-
-# Example of using the loaded data in an endpoint
-@app.get("/api/get_token/{symbol}")
-async def get_token(symbol: str):
-    if symbol in symbol_data:
-        return {"symbol": symbol, "token": symbol_data[symbol]}
-    else:
-        raise HTTPException(status_code=404, detail="Symbol not found")
-    
-@app.get("/api/get_excel_data")
-def get_excel_data():
-    try:
-        df = pd.read_excel('OpenAPIScripMaster.xlsx')
-        # Select only the first 4 columns and replace numpy.nan with None for JSON serialization
-        data = df[['token', 'symbol', 'name', 'expiry']].replace({np.nan: None}).to_dict('records')
-        print(f"Data from Excel: {data}")  # Log the data
-        return {"data": data}
-    except Exception as e:
-        print(f"Error reading Excel file: {e}")
-        return {"data": []}
 # ------------------------------
 # BUY TRADE Endpoint (Long Position)
 # ------------------------------
