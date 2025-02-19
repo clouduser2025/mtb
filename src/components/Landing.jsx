@@ -751,7 +751,7 @@ const Landing = () => {
                           value={sellConditionType} 
                           onChange={(e) => setSellConditionType(e.target.value)}
                         >
-                          <option                        <option value="Fixed Value">Fixed Value</option>
+                          <option value="Fixed Value">Fixed Value</option>
                         <option value="Percentage">Percentage</option>
                         <option value="Points">Points</option>
                       </Form.Select>
