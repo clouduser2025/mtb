@@ -176,155 +176,6 @@ const Landing = () => {
     fetchUsers();
   }, []);
 
-  /********************************************************
-   *             SIMULATION & CONDITION CHECK           *
-   ********************************************************/
-  // Price simulation start/stop functions
-  const startSimulation = () => {
-    if (!isSimulating) {
-      setIsSimulating(true);
-      simulationRef.current = setInterval(() => {
-        const change = Math.floor(Math.random() * 7) - 2; // random change from -2 to +4
-        setCurrentPrice(prev => Math.max(1, prev + change));
-      }, 1000);
-    }
-  };
-
-  const stopSimulation = () => {
-    setIsSimulating(false);
-    if (simulationRef.current) {
-      clearInterval(simulationRef.current);
-      simulationRef.current = null;
-    }
-  };
-
-  // When simulating price for BUY trades, check the condition and trigger trade if met
-  useEffect(() => {
-    if (!isSimulating) return;
-    if (actionType === 'buy' && entryPrice === null) {
-      let conditionMet = false;
-      switch (buyConditionType) {
-        case 'Fixed Value':
-          conditionMet = currentPrice >= buyConditionValue;
-          break;
-        case 'Percentage':
-          // Using buyThreshold as the market price reference
-          conditionMet = currentPrice >= (buyThreshold * (1 + buyConditionValue / 100));
-          break;
-        case 'Points':
-          conditionMet = currentPrice >= (buyThreshold + buyConditionValue);
-          break;
-        default:
-          conditionMet = false;
-      }
-      if (conditionMet) {
-        console.log(`** BUY triggered at ${currentPrice} based on ${buyConditionType} condition **`);
-        executeBuyTrade(currentPrice);
-      }
-    }
-  }, [currentPrice, isSimulating, entryPrice, actionType, buyThreshold, buyConditionType, buyConditionValue]);
-
-  // Execute trade (Buy Order) for selected users
-  // Memoize executeBuyTrade using useCallback
-  const executeBuyTrade = useCallback(async (price) => {
-    if (selectedUsers.length === 0) {
-      console.log("No users selected for trade.");
-      return;
-    }
-    const buyData = {
-      users: selectedUsers,
-      symbol: formData.symbol,
-      buy_threshold: buyThreshold,
-      buy_condition_type: buyConditionType,
-      buy_condition_value: buyConditionValue,
-      stop_loss_type: stopLossType,
-      stop_loss_value: stopLossValue,
-      points_condition: pointsCondition
-    };
-    try {
-      const response = await fetch('/api/buy_trade', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buyData)
-      });
-      const data = await response.json();
-      if (response.ok) {
-        console.log(`✅ BUY Trade executed at ${price}:`, data);
-        setEntryPrice(price);
-        basePriceRef.current = price;
-      } else {
-        console.error("❌ BUY Trade execution failed:", data.error);
-      }
-    } catch (error) {
-      console.error("❌ API Error executing BUY trade:", error);
-    }
-  }, [selectedUsers, formData.symbol, buyThreshold, buyConditionType, buyConditionValue, stopLossType, stopLossValue, pointsCondition]);
-
-  // Handle form submission for trade (buy or sell)
-  const handleStopLossSubmission = async (e) => {
-    e.preventDefault();
-    if (selectedUsers.length === 0) {
-      alert("Please select at least one user (maximum 3) for the trade.");
-      return;
-    }
-    if (actionType === 'buy') {
-      const buyData = {
-        users: selectedUsers,
-        symbol: formData.symbol,
-        buy_threshold: buyThreshold,
-        buy_condition_type: buyConditionType,
-        buy_condition_value: buyConditionValue,
-        stop_loss_type: stopLossType,
-        stop_loss_value: stopLossValue,
-        points_condition: pointsCondition
-      };
-      try {
-        const response = await fetch('/api/buy_trade', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buyData)
-        });
-        const data = await response.json();
-        if (response.ok) {
-          console.log("BUY Trade executed successfully:", data);
-          setMessage({ text: 'Buy trade executed successfully!', type: 'success' });
-        } else {
-          setMessage({ text: data.error || 'Buy trade execution failed', type: 'danger' });
-        }
-      } catch (error) {
-        console.error("Error executing BUY trade:", error);
-        setMessage({ text: 'Server error. Try again later.', type: 'danger' });
-      }
-    } else if (actionType === 'sell') {
-      const sellData = {
-        users: selectedUsers,
-        symbol: formData.symbol,
-        sell_threshold: sellThreshold,
-        sell_condition_type: sellConditionType,
-        sell_condition_value: sellConditionValue,
-        stop_gain_type: stopLossType, // using same field names as backend expects
-        stop_gain_value: stopLossValue,
-        points_condition: pointsCondition
-      };
-      try {
-        const response = await fetch('/api/sell_trade', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(sellData)
-        });
-        const data = await response.json();
-        if (response.ok) {
-          console.log("SELL Trade executed successfully:", data);
-          setMessage({ text: 'Sell trade executed successfully!', type: 'success' });
-        } else {
-          setMessage({ text: data.error || 'Sell trade execution failed', type: 'danger' });
-        }
-      } catch (error) {
-        console.error("Error executing SELL trade:", error);
-        setMessage({ text: 'Server error. Try again later.', type: 'danger' });
-      }
-    }
-  };
 
   // Registration submit handler
   const handleRegisterSubmit = async (e) => {
@@ -486,13 +337,6 @@ const Landing = () => {
   };
   
   
-  // ------------------------------
-  // Price Simulation for testing
-  // ------------------------------
-  const startPriceSimulation = () => {
-    startSimulation();
-  };
-
   /********************************************************
    *                     RENDER (JSX)                     *
    ********************************************************/
@@ -720,11 +564,6 @@ const Landing = () => {
           <Col xs="auto">
             <Button onClick={() => { setActionType('sell'); setShowStopLossForm(true); }} className="gradient-button btn-sell">
               <FontAwesomeIcon icon={faExchangeAlt} /> Sell
-            </Button>
-          </Col>
-          <Col xs="auto">
-            <Button onClick={stopSimulation} className="gradient-button btn-stop">
-              Stop Simulation
             </Button>
           </Col>
         </Row>
