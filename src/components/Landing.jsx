@@ -20,7 +20,317 @@ import {
 import './css/landing.css';
 
 const Landing = () => {
-  // ... (Keep all the existing state declarations and API functions unchanged)
+  /********************************************************
+   *           STATES & REGISTRATION SETUP              *
+   ********************************************************/
+  const [users, setUsers] = useState([]); 
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [message, setMessage] = useState({ text: "", type: "" });
+  const [openTrades, setOpenTrades] = useState([]);  
+  const [showTradesDashboard, setShowTradesDashboard] = useState(false);
+
+  const [formStep, setFormStep] = useState(1); // 1: Select Users, 2: Trade Conditions, 3: Confirm Trade
+  const [actionType, setActionType] = useState(null); // 'buy' or 'sell'
+
+  const [formData, setFormData] = useState({
+    username: "",
+    password: "",
+    broker: "Angel",
+    api_key: "",
+    totp_token: "",
+    tradingsymbol: "",
+    symboltoken: "3045",
+    exchange: "NSE",
+    strike_price: 0,
+    producttype: "INTRADAY",
+    buy_threshold_offset: 0,
+    buy_percentage: 0,
+    sell_threshold_offset: 0,
+    sell_percentage: 0,
+    stop_loss_type: "Fixed",
+    stop_loss_value: 0,
+    points_condition: 0,
+  });
+
+  const [ltpPrice, setLtpPrice] = useState(null);
+  const [loadingLtp, setLoadingLtp] = useState(false);
+
+  /********************************************************
+   *                 API FUNCTIONS                      *
+   ********************************************************/
+
+  const fetchUsers = async () => {
+    try {
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_users", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      const data = await response.json();
+      setUsers(data.users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      setMessage({ text: "Failed to fetch users", type: "danger" });
+    }
+  };
+
+  const fetchOpenPositions = async () => {
+    try {
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_trades", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      const data = await response.json();
+      setOpenTrades(data.trades);
+    } catch (error) {
+      console.error("Error fetching open positions:", error);
+      setMessage({ text: "Failed to fetch open positions", type: "danger" });
+    }
+  };
+
+  const fetchLtp = async () => {
+    if (!formData.tradingsymbol || !formData.symboltoken) {
+      setMessage({ text: "Please enter a trading symbol and symbol token.", type: "warning" });
+      return;
+    }
+    setLoadingLtp(true);
+    try {
+      const response = await fetch(`https://mtb-8ra9.onrender.com/api/fetch_ltp?exchange=${formData.exchange}&symbol=${formData.tradingsymbol}&token=${formData.symboltoken}`);
+      const data = await response.json();
+      if (data.status) {
+        setLtpPrice(data.ltp);
+        setMessage({ text: `LTP fetched successfully: ₹${data.ltp} for ${formData.tradingsymbol}`, type: "success" });
+      } else {
+        setLtpPrice(null);
+        setMessage({ text: "Failed to fetch LTP. Check symbol and token.", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error fetching LTP:", error);
+      setMessage({ text: "Server error fetching LTP. Try again later.", type: "danger" });
+    } finally {
+      setLoadingLtp(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: formData.username,
+          password: formData.password,
+          broker: formData.broker,
+          api_key: formData.api_key,
+          totp_token: formData.totp_token,
+          default_quantity: parseInt(formData.default_quantity || 1, 10),
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setMessage({ text: "User registered successfully!", type: "success" });
+        fetchUsers();
+        setFormData({
+          username: "",
+          password: "",
+          broker: "Angel",
+          api_key: "",
+          totp_token: "",
+          tradingsymbol: "",
+          symboltoken: "3045",
+          exchange: "NSE",
+          strike_price: 0,
+          producttype: "INTRADAY",
+          buy_threshold_offset: 0,
+          buy_percentage: 0,
+          sell_threshold_offset: 0,
+          sell_percentage: 0,
+          stop_loss_type: "Fixed",
+          stop_loss_value: 0,
+          points_condition: 0,
+        });
+        setShowRegisterModal(false);
+      } else {
+        setMessage({ text: data.detail || "Registration failed", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error registering user:", error);
+      setMessage({ text: "Server error. Try again later.", type: "danger" });
+    }
+  };
+
+  const handleDeleteUser = async (username) => {
+    try {
+      const response = await fetch(`https://mtb-8ra9.onrender.com/api/delete_user/${username}`, {
+        method: "DELETE",
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setUsers(users.filter(user => user.username !== username));
+        setMessage({ text: "User deleted successfully!", type: "success" });
+      } else {
+        setMessage({ text: data.detail || "Failed to delete user", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      setMessage({ text: "Server error. Try again later.", type: "danger" });
+    }
+  };
+
+  const handleInitiateTrade = async () => {
+    if (!selectedUsers.length) {
+      setMessage({ text: "Please select at least one user.", type: "warning" });
+      return;
+    }
+
+    try {
+      for (const username of selectedUsers) {
+        const response = await fetch("https://mtb-8ra9.onrender.com/api/initiate_trade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username,
+            tradingsymbol: formData.tradingsymbol,
+            symboltoken: formData.symboltoken,
+            exchange: formData.exchange,
+            strike_price: formData.strike_price,
+            producttype: formData.producttype,
+            buy_threshold_offset: actionType === 'buy' ? formData.buy_threshold_offset : null,
+            buy_percentage: actionType === 'buy' ? formData.buy_percentage : null,
+            sell_threshold_offset: actionType === 'sell' ? formData.sell_threshold_offset : null,
+            sell_percentage: actionType === 'sell' ? formData.sell_percentage : null,
+            stop_loss_type: formData.stop_loss_type,
+            stop_loss_value: formData.stop_loss_value,
+            points_condition: formData.points_condition,
+          }),
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          setMessage({ text: `${actionType === 'buy' ? 'Buy' : 'Sell'} initiated successfully for ${username}!`, type: "success" });
+          fetchOpenPositions();
+        } else {
+          setMessage({ text: `Failed to initiate ${actionType} for ${username}: ${data.detail}`, type: "danger" });
+        }
+      }
+    } catch (error) {
+      console.error("Error initiating trade:", error);
+      setMessage({ text: "Server error initiating trade. Try again later.", type: "danger" });
+    }
+    setFormStep(1);
+    setSelectedUsers([]);
+    setActionType(null);
+    setFormData({
+      username: "",
+      password: "",
+      broker: "Angel",
+      api_key: "",
+      totp_token: "",
+      tradingsymbol: "",
+      symboltoken: "3045",
+      exchange: "NSE",
+      strike_price: 0,
+      producttype: "INTRADAY",
+      buy_threshold_offset: 0,
+      buy_percentage: 0,
+      sell_threshold_offset: 0,
+      sell_percentage: 0,
+      stop_loss_type: "Fixed",
+      stop_loss_value: 0,
+      points_condition: 0,
+    });
+  };
+
+  const UserActionsDropdown = ({ setShowRegisterModal, setShowUsers, showUsers }) => (
+    <Dropdown as={ButtonGroup}>
+      <Dropdown.Toggle variant="primary" id="dropdown-basic" className="user-actions-dropdown">
+        <FontAwesomeIcon icon={faUserCog} />
+      </Dropdown.Toggle>
+      <Dropdown.Menu>
+        <Dropdown.Item onClick={() => setShowRegisterModal(true)}>
+          <FontAwesomeIcon icon={faUserPlus} className="me-2" /> Register
+        </Dropdown.Item>
+        <Dropdown.Item onClick={() => { setShowUsers(!showUsers); fetchUsers(); }}>
+          <FontAwesomeIcon icon={faUsers} className="me-2" /> View Users
+        </Dropdown.Item>
+        <Dropdown.Item onClick={() => window.open('https://www.angelone.in/login/?redirectUrl=account', '_blank')}>
+          <FontAwesomeIcon icon={faSignInAlt} className="me-2" /> Angel Login
+        </Dropdown.Item>
+      </Dropdown.Menu>
+    </Dropdown>
+  );
+
+  const AdvancedChart = ({ symbol, openTrades }) => {
+    const chartContainerRef = useRef(null);
+    const tvWidgetRef = useRef(null);
+
+    useEffect(() => {
+      const loadTradingViewScript = () => {
+        if (window.TradingView) {
+          initChart();
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = "https://s3.tradingview.com/tv.js";
+        script.async = true;
+        script.onload = initChart;
+        document.body.appendChild(script);
+      };
+
+      const initChart = () => {
+        if (!window.TradingView) return;
+        tvWidgetRef.current = new window.TradingView.widget({
+          autosize: true,
+          symbol: symbol || "NSE:SBIN",
+          interval: "1",
+          container_id: "advanced_chart_container",
+          datafeed: window.TradingView.defaultDatafeed,
+          library_path: "/charting_library/",
+          locale: "en",
+          disabled_features: ["header_saveload"],
+          enabled_features: [],
+          onChartReady: () => console.log("Advanced chart is ready"),
+        });
+      };
+
+      loadTradingViewScript();
+
+      return () => {
+        if (tvWidgetRef.current) tvWidgetRef.current.remove();
+      };
+    }, [symbol]);
+
+    useEffect(() => {
+      if (tvWidgetRef.current) {
+        updateMarkers(openTrades);
+      }
+    }, [openTrades, symbol]);
+
+    const updateMarkers = (trades) => {
+      if (!tvWidgetRef.current || !tvWidgetRef.current.chart) return;
+      tvWidgetRef.current.chart().removeAllShapes();
+      trades.forEach((trade) => {
+        const time = Math.floor(Date.now() / 1000);
+        tvWidgetRef.current.chart().createShape(
+          { time, price: trade.entry_price },
+          {
+            shape: trade.position_type === "LONG" ? "arrow_up" : "arrow_down",
+            text: `${trade.position_type === "LONG" ? "Buy" : "Sell"} by ${trade.username} at ${trade.entry_price}`,
+            color: trade.position_type === "LONG" ? "green" : "red",
+            disableUndo: true
+          }
+        );
+      });
+    };
+
+    return <div id="advanced_chart_container" ref={chartContainerRef} style={{ height: "500px", width: "100%" }}></div>;
+  };
+
+ 
 
   /********************************************************
    *                     RENDER (JSX)                     *
