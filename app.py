@@ -249,14 +249,40 @@ async def get_token(symbol: str):
     else:
         raise HTTPException(status_code=404, detail="Symbol not found")
     
-# New endpoint for fetching Excel data
 @app.get("/api/get_excel_data")
 async def get_excel_data():
     # Convert symbol_data dictionary back to a list of dictionaries for JSON serialization
     if not symbol_data:
         return {"data": []}  # Return empty list if no data loaded
 
-    return {"data": [{"symbol": symbol, "token": token} for symbol, token in symbol_data.items()]}
+    # Since your Excel data now has multiple columns, we'll select only the first 4
+    result = []
+    for token, details in symbol_data.items():
+        entry = {
+            "token": token,
+            "symbol": details['symbol'],
+            "name": details['name'],
+            "expiry": details['expiry']
+        }
+        result.append(entry)
+
+    return {"data": result}
+
+@app.on_event("startup")
+async def load_excel_data():
+    global symbol_data
+    try:
+        # Load the Excel data
+        df = pd.read_excel('OpenAPIScripMaster.xlsx')
+        # Set the 'token' column as the index and convert to dictionary
+        # Here, we're assuming 'token' is unique for each row
+        symbol_data = df.set_index('token').to_dict('index')
+    except FileNotFoundError:
+        logger.error("Excel file 'OpenAPIScripMaster.xlsx' not found.")
+        symbol_data = {}
+    except Exception as e:
+        logger.error(f"Failed to load Excel data: {e}")
+        symbol_data = {}
 # ------------------------------
 # BUY TRADE Endpoint (Long Position)
 # ------------------------------

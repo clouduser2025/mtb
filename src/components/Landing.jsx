@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'; 
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -78,6 +78,7 @@ const Landing = () => {
   const [showExcelData, setShowExcelData] = useState(false);
   const [symbolForToken, setSymbolForToken] = useState('');
   const [tokenFetchResult, setTokenFetchResult] = useState(null);
+
   /********************************************************
    *                 API FUNCTIONS                      *
    ********************************************************/
@@ -404,35 +405,32 @@ const Landing = () => {
     document.body.appendChild(script);
   };
 
-
-    // Function to fetch Excel data
-    const fetchExcelData = async () => {
-      try {
-        const response = await fetch("https://ramdoot.onrender.com/api/get_excel_data");
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-        const data = await response.json();
-        // We only need the first four columns from the data
-        const filteredData = data.data.map(item => ({
-          symbol: item.symbol,
-          token: item.token,
-          name: item.name,
-          expiry: item.expiry
-        }));
-        setExcelData(filteredData);
-      } catch (error) {
-        console.error("Failed to fetch excel data:", error);
-        setMessage({ text: "Failed to fetch Excel data", type: "danger" });
+  // Function to fetch Excel data
+  const fetchExcelData = async () => {
+    try {
+      const response = await fetch("https://ramdoot.onrender.com/api/get_excel_data");
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
       }
-    };
-  
-    useEffect(() => {
-      // Fetch Excel data when component mounts
-      fetchExcelData();
-    }, []);
+      const data = await response.json();
+      // We only need the first four columns from the data
+      const filteredData = data.data.map(item => ({
+        symbol: item.symbol,
+        token: item.token,
+        name: item.name,
+        expiry: item.expiry
+      }));
+      setExcelData(filteredData);
+    } catch (error) {
+      console.error("Failed to fetch excel data:", error);
+      setMessage({ text: "Failed to fetch Excel data", type: "danger" });
+    }
+  };
 
-
+  useEffect(() => {
+    // Fetch Excel data when component mounts
+    fetchExcelData();
+  }, []);
   /********************************************************
    *                     RENDER (JSX)                     *
    ********************************************************/
@@ -729,286 +727,291 @@ const Landing = () => {
                           type="number" 
                           value={buyConditionValue} 
                           onChange={(e) => setBuyConditionValue(Number(e.target.value))} 
-                          />
-                          </Form.Group>
-                        </Col>
-                      </>
-                    )}
-                    {actionType === 'sell' && (
-                      <>
-                        <Col md={3}>
-                          <Form.Group controlId="sellThreshold">
-                            <Form.Label>Sell Threshold (≤)</Form.Label>
-                            <Form.Control 
-                              type="number" 
-                              value={sellThreshold} 
-                              onChange={(e) => setSellThreshold(Number(e.target.value))} 
-                            />
-                          </Form.Group>
-                        </Col>
-                        <Col md={3}>
-                          <Form.Group controlId="sellConditionType">
-                            <Form.Label>Sell Strategy</Form.Label>
-                            <Form.Select 
-                              value={sellConditionType} 
-                              onChange={(e) => setSellConditionType(e.target.value)}
-                            >
-                              <option value="Fixed Value">Fixed Value</option>
-                              <option value="Percentage">Percentage</option>
-                              <option value="Points">Points</option>
-                            </Form.Select>
-                          </Form.Group>
-                        </Col>
-                        <Col md={3}>
-                          <Form.Group controlId="sellConditionValue">
-                            <Form.Label>Sell Condition Value</Form.Label>
-                            <Form.Control 
-                              type="number" 
-                              value={sellConditionValue} 
-                              onChange={(e) => setSellConditionValue(Number(e.target.value))} 
-                            />
-                          </Form.Group>
-                        </Col>
-                      </>
-                    )}
-                  </Row>
-    
-                  {/* User selection (checkboxes with limit 1–3) */}
-                  <Row className="mb-3">
-                    <Col>
-                      <Form.Label>Select Users (1 to 3):</Form.Label>
-                      {users.map((user, index) => (
-                        <Form.Check
-                          key={index}
-                          type="checkbox"
-                          label={user.username}
-                          checked={selectedUsers.includes(user.username)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              if (selectedUsers.length < 3) {
-                                setSelectedUsers([...selectedUsers, user.username]);
-                              } else {
-                                alert("⚠ You can only select up to 3 users.");
-                              }
-                            } else {
-                              setSelectedUsers(selectedUsers.filter(u => u !== user.username));
-                            }
-                          }}
-                        />
-                      ))}
-                    </Col>
-                  </Row>
-    
-                  <Row className="mb-3">
-                    <Col md={3}>
-                      <Form.Group controlId="symbol">
-                        <Form.Label>Symbol</Form.Label>
-                        <Form.Control 
-                          type="text" 
-                          placeholder="Enter Stock Symbol" 
-                          value={formData.symbol} 
-                          onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} 
                         />
                       </Form.Group>
                     </Col>
-                  </Row>
-    
-                  <Row className="mb-3">
-                    <Col md={3}>
-                      <Form.Group controlId="stopLossType">
-                        <Form.Label>Stop-Loss/Stop-Gain Type</Form.Label>
-                        <Form.Select 
-                          value={stopLossType} 
-                          onChange={(e) => setStopLossType(e.target.value)}
-                        >
-                          <option value="Fixed">Fixed</option>
-                          <option value="Percentage">Percentage</option>
-                          <option value="Points">Points</option>
-                        </Form.Select>
-                      </Form.Group>
-                    </Col>
-                    <Col md={3}>
-                      <Form.Group controlId="stopLossValue">
-                        <Form.Label>Stop-Loss/Stop-Gain Value</Form.Label>
-                        <Form.Control 
-                          type="number" 
-                          value={stopLossValue} 
-                          onChange={(e) => setStopLossValue(Number(e.target.value))} 
-                        />
-                      </Form.Group>
-                    </Col>
-                    <Col md={3}>
-                      <Form.Group controlId="pointsCondition">
-                        <Form.Label>Points Condition</Form.Label>
-                        <Form.Control 
-                          type="number" 
-                          value={pointsCondition} 
-                          onChange={(e) => setPointsCondition(Number(e.target.value))} 
-                        />
-                      </Form.Group>
-                    </Col>
-                  </Row>
-    
-                  <Button 
-                    type="submit" 
-                    style={{ backgroundColor: '#007BA7', borderColor: '#007BA7', color: 'white' }}
-                    className="mt-3"
-                  >
-                    {actionType === 'buy' ? 'Place Order Buy with Stop-Loss' : 'Place Order Sell with Stop-Loss'}
-                  </Button>
-                </Form>
-              </Container>
-            )}
-    
-  
-          <Row className="justify-content-center mb-3">
-            <Col xs="auto">
-              <Button onClick={() => setShowExcelData(!showExcelData)} className="gradient-button btn-excel">
-                <FontAwesomeIcon icon={faFileExcel} /> Excel Data
-              </Button>
-     
-  
-                {/* Excel Data Table */}
-                {showExcelData && (
-                  <Container className="mt-5 p-4 excel-table-container shadow-lg rounded bg-white">
-                    <h3 className="text-center mb-4 text-dark fw-bold">
-                      <FontAwesomeIcon icon={faFileExcel} className="me-2 text-success" /> Excel Data
-                    </h3>
-                    <div className="table-responsive">
-                      <Table striped bordered hover className="excel-table shadow-sm">
-                        <thead className="text-center">
-                          <tr>
-                            <th className="bg-primary text-white">Symbol</th>
-                            <th className="bg-success text-white">Token</th>
-                            <th className="bg-info text-white">Name</th>
-                            <th className="bg-warning text-dark">Expiry</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {excelData.length > 0 ? (
-                            excelData.map((item, index) => (
-                              <tr key={index}>
-                                <td>{item.symbol}</td>
-                                <td>{item.token}</td>
-                                <td>{item.name}</td>
-                                <td>{item.expiry}</td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan="4" className="text-muted text-center">No data available.</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </Table>
-                    </div>
-                  </Container>
+                  </>
                 )}
-        
-          {/* Symbol Token Lookup */}
-          <Container className="mt-3 mb-3 token-lookup-container">
-            <h4 className="text-primary">🔍 Symbol Token Lookup</h4>
-            <Form onSubmit={(e) => { e.preventDefault(); fetchSymbolToken(); }}>
-              <Row>
-                <Col md={6}>
-                  <Form.Group controlId="symbolTokenLookup">
-                    <Form.Label>Enter Symbol</Form.Label>
+                {actionType === 'sell' && (
+                  <>
+                    <Col md={3}>
+                      <Form.Group controlId="sellThreshold">
+                        <Form.Label>Sell Threshold (≤)</Form.Label>
+                        <Form.Control 
+                          type="number" 
+                          value={sellThreshold} 
+                          onChange={(e) => setSellThreshold(Number(e.target.value))} 
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={3}>
+                      <Form.Group controlId="sellConditionType">
+                        <Form.Label>Sell Strategy</Form.Label>
+                        <Form.Select 
+                          value={sellConditionType} 
+                          onChange={(e) => setSellConditionType(e.target.value)}
+                        >
+                          <option                        <option value="Fixed Value">Fixed Value</option>
+                        <option value="Percentage">Percentage</option>
+                        <option value="Points">Points</option>
+                      </Form.Select>
+                    </Form.Group>
+                  </Col>
+                  <Col md={3}>
+                    <Form.Group controlId="sellConditionValue">
+                      <Form.Label>Sell Condition Value</Form.Label>
+                      <Form.Control 
+                        type="number" 
+                        value={sellConditionValue} 
+                        onChange={(e) => setSellConditionValue(Number(e.target.value))} 
+                      />
+                    </Form.Group>
+                  </Col>
+                </>
+              )}
+                <Col md={3}>
+                  <Form.Group controlId="stopLossType">
+                    <Form.Label>Stop-Loss Type</Form.Label>
+                    <Form.Select 
+                      value={stopLossType} 
+                      onChange={(e) => setStopLossType(e.target.value)}
+                    >
+                      <option value="Fixed">Fixed</option>
+                      <option value="Trailing">Trailing</option>
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+                <Col md={3}>
+                  <Form.Group controlId="stopLossValue">
+                    <Form.Label>Stop-Loss Value</Form.Label>
                     <Form.Control 
-                      type="text" 
-                      placeholder="Enter Stock Symbol" 
-                      value={symbolForToken} 
-                      onChange={(e) => setSymbolForToken(e.target.value)} 
+                      type="number" 
+                      value={stopLossValue} 
+                      onChange={(e) => setStopLossValue(Number(e.target.value))} 
                     />
                   </Form.Group>
                 </Col>
-                <Col md={4}>
-                  <Button type="submit" variant="primary" className="mt-3 custom-btn">Fetch Token</Button>
+                {stopLossType === 'Trailing' && (
+                  <Col md={3}>
+                    <Form.Group controlId="pointsCondition">
+                      <Form.Label>Points Condition</Form.Label>
+                      <Form.Control 
+                        type="number" 
+                        value={pointsCondition} 
+                        onChange={(e) => setPointsCondition(Number(e.target.value))} 
+                      />
+                    </Form.Group>
+                  </Col>
+                )}
+              </Row>
+              <Row className="mb-3">
+                <Col md={6}>
+                  <h5>Select Users (1-3):</h5>
+                  {users.map((user, index) => (
+                    <Form.Check 
+                      key={index}
+                      type="checkbox"
+                      id={`user-${user.username}`}
+                      label={`${user.username} - ${user.role || "Trader"}`}
+                      checked={selectedUsers.includes(user.username)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          if (selectedUsers.length < 3) {
+                            setSelectedUsers(prev => [...prev, user.username]);
+                          } else {
+                            e.target.checked = false; // Prevents selection if more than 3 users are selected
+                          }
+                        } else {
+                          setSelectedUsers(selectedUsers.filter(u => u !== user.username));
+                        }
+                      }}
+                    />
+                  ))}
+                </Col>
+                <Col md={6}>
+                  <Form.Group controlId="symbol">
+                    <Form.Label>Symbol</Form.Label>
+                    <Form.Control 
+                      type="text" 
+                      value={formData.symbol} 
+                      onChange={(e) => setFormData({...formData, symbol: e.target.value})} 
+                      required 
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
+              <Row className="mb-3">
+                <Col md={6}>
+                  <Button type="submit" variant="primary" className="gradient-button">
+                    {actionType === 'buy' ? "Submit Buy Order" : "Submit Sell Order"}
+                  </Button>
+                </Col>
+                <Col md={6} className="text-end">
+                  <Button variant="secondary" onClick={() => setShowStopLossForm(false)}>
+                    Cancel
+                  </Button>
                 </Col>
               </Row>
             </Form>
-            {tokenFetchResult && (
-              <Alert variant="info" className="mt-3">
-                Token for <strong>{symbolForToken}</strong>: {tokenFetchResult.token}
-              </Alert>
-            )}
           </Container>
-    
-          {/* Registration Modal */}
-          <Modal show={showRegisterModal} onHide={() => setShowRegisterModal(false)}>
-            <Modal.Header closeButton>
-              <Modal.Title>Register User</Modal.Title>
-            </Modal.Header>
-            <Modal.Body>
-              {message.text && <Alert variant={message.type}>{message.text}</Alert>}
-              <Form onSubmit={handleRegisterSubmit}>
-                <Form.Group controlId="username">
-                  <Form.Label>Username</Form.Label>
+        )}
+
+        {/* Excel Data Display */}
+        {showExcelData && (
+          <Container className="mt-5 p-4 excel-table-container shadow-lg rounded bg-white">
+            <h3 className="text-center mb-4 text-dark fw-bold">
+              <FontAwesomeIcon icon={faFileExcel} className="me-2 text-success" /> Excel Data
+            </h3>
+            <div className="table-responsive">
+              <Table striped bordered hover className="excel-table shadow-sm">
+                <thead className="text-center">
+                  <tr>
+                    <th className="bg-primary text-white">Symbol</th>
+                    <th className="bg-success text-white">Token</th>
+                    <th className="bg-info text-white">Name</th>
+                    <th className="bg-warning text-dark">Expiry</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {excelData.length > 0 ? (
+                    excelData.map((item, index) => (
+                      <tr key={index}>
+                        <td>{item.symbol}</td>
+                        <td>{item.token}</td>
+                        <td>{item.name}</td>
+                        <td>{item.expiry}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="4" className="text-muted text-center">No data available.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </Table>
+            </div>
+          </Container>
+        )}
+
+        {/* Token Fetch Section */}
+        <Container className="mt-4 p-3 border rounded shadow-sm">
+          <h4 className="text-info">🔑 Fetch Token for Symbol</h4>
+          <Form onSubmit={(e) => { e.preventDefault(); fetchSymbolToken(); }}>
+            <Row className="mb-3">
+              <Col md={6}>
+                <Form.Group controlId="symbolForToken">
+                  <Form.Label>Enter Symbol</Form.Label>
                   <Form.Control 
                     type="text" 
-                    placeholder="Enter username" 
-                    value={formData.username} 
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })} 
+                    placeholder="e.g. RELIANCE" 
+                    value={symbolForToken} 
+                    onChange={(e) => setSymbolForToken(e.target.value)} 
                     required 
                   />
                 </Form.Group>
-                <Form.Group controlId="password">
-                  <Form.Label>Password</Form.Label>
-                  <Form.Control 
-                    type="password" 
-                    placeholder="Enter password" 
-                    value={formData.password} 
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
-                    required 
-                  />
-                </Form.Group>
-                <Form.Group controlId="broker">
-                  <Form.Label>Broker</Form.Label>
-                  <Form.Select 
-                    value={formData.broker} 
-                    onChange={(e) => setFormData({ ...formData, broker: e.target.value })}
-                  >
-                    <option value="Angel">Angel</option>
-                    <option value="Zerodha">Zerodha</option>
-                  </Form.Select>
-                </Form.Group>
-                <Form.Group controlId="api_key">
-                  <Form.Label>API Key</Form.Label>
-                  <Form.Control 
-                    type="text" 
-                    placeholder="Enter API Key" 
-                    value={formData.api_key} 
-                    onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} 
-                    required 
-                  />
-                </Form.Group>
-                <Form.Group controlId="totp_token">
-                  <Form.Label>TOTP Token</Form.Label>
-                  <Form.Control 
-                    type="text" 
-                    placeholder="Enter TOTP Token" 
-                    value={formData.totp_token} 
-                    onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} 
-                    required 
-                  />
-                </Form.Group>
-                <Form.Group controlId="default_quantity">
-                  <Form.Label>Default Quantity</Form.Label>
-                  <Form.Control 
-                    type="number" 
-                    placeholder="Enter Quantity" 
-                    value={formData.default_quantity} 
-                    onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} 
-                    required 
-                  />
-                </Form.Group>
-                <Button variant="primary" type="submit" className="mt-3">
-                  Register
-                </Button>
-              </Form>
-            </Modal.Body>
-          </Modal>
-        </>
-      );
-    };
-    
-    export default Landing;
+              </Col>
+              <Col md={6} className="d-flex align-items-end">
+                <Button type="submit" variant="info" className="gradient-button">Fetch Token</Button>
+              </Col>
+            </Row>
+          </Form>
+          {tokenFetchResult && (
+            <Alert variant="info">
+              Token for <strong>{tokenFetchResult.symbol}</strong>: {tokenFetchResult.token}
+            </Alert>
+          )}
+        </Container>
+
+        {/* Message Display */}
+        {message.text && (
+          <Alert variant={message.type} onClose={() => setMessage({ text: "", type: "" })} dismissible>
+            {message.text}
+          </Alert>
+        )}
+
+      </Container>
+
+      {/* Registration Modal */}
+      <Modal show={showRegisterModal} onHide={() => setShowRegisterModal(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>Register New User</Modal.Title>
+        </Modal.Header>
+        <Form onSubmit={handleRegisterSubmit}>
+          <Modal.Body>
+            <Form.Group className="mb-3" controlId="username">
+              <Form.Label>Username</Form.Label>
+              <Form.Control 
+                type="text" 
+                placeholder="Enter username" 
+                value={formData.username} 
+                onChange={(e) => setFormData({...formData, username: e.target.value})} 
+                required 
+              />
+            </Form.Group>
+            <Form.Group className="mb-3" controlId="password">
+              <Form.Label>Password</Form.Label>
+              <Form.Control 
+                type="password" 
+                placeholder="Enter password" 
+                value={formData.password} 
+                onChange={(e) => setFormData({...formData, password: e.target.value})} 
+                required 
+              />
+            </Form.Group>
+            <Form.Group className="mb-3" controlId="broker">
+              <Form.Label>Broker</Form.Label>
+              <Form.Select 
+                value={formData.broker} 
+                onChange={(e) => setFormData({...formData, broker: e.target.value})}
+              >
+                <option value="Angel">Angel</option>
+                <option value="Zerodha">Zerodha</option>
+                <option value="Upstox">Upstox</option>
+              </Form.Select>
+            </Form.Group>
+            <Form.Group className="mb-3" controlId="api_key">
+              <Form.Label>API Key</Form.Label>
+              <Form.Control 
+                type="text" 
+                placeholder="Enter API Key" 
+                value={formData.api_key} 
+                onChange={(e) => setFormData({...formData, api_key: e.target.value})} 
+                required 
+              />
+            </Form.Group>
+            <Form.Group className="mb-3" controlId="totp_token">
+              <Form.Label>TOTP Token</Form.Label>
+              <Form.Control 
+                type="text" 
+                placeholder="Enter TOTP Token" 
+                value={formData.totp_token} 
+                onChange={(e) => setFormData({...formData, totp_token: e.target.value})} 
+                required 
+              />
+            </Form.Group>
+            <Form.Group className="mb-3" controlId="default_quantity">
+              <Form.Label>Default Quantity</Form.Label>
+              <Form.Control 
+                type="number" 
+                placeholder="Enter default quantity" 
+                value={formData.default_quantity} 
+                onChange={(e) => setFormData({...formData, default_quantity: e.target.value})} 
+                required 
+              />
+            </Form.Group>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="secondary" onClick={() => setShowRegisterModal(false)}>
+              Close
+            </Button>
+            <Button variant="primary" type="submit">
+              Register
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+    </>
+  );
+};
+
+export default Landing;
