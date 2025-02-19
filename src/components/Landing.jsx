@@ -78,7 +78,7 @@ const Landing = () => {
   const [showExcelData, setShowExcelData] = useState(false);
   const [symbolForToken, setSymbolForToken] = useState('');
   const [tokenFetchResult, setTokenFetchResult] = useState(null);
-  const [errorMessage, setErrorMessage] = useState('');
+
   /********************************************************
    *                 API FUNCTIONS                      *
    ********************************************************/
@@ -93,6 +93,7 @@ const Landing = () => {
       const response = await fetch(`https://mtb-2.onrender.com/api/fetch_ltp?exchange=${exchange}&symbol=${ltpSymbol}&token=${symbolToken || ''}`);
       const data = await response.json();
       if (data.status) {
+        // Here you could expand to show more details if needed
         setLtpPrice(data.data.ltp);
       } else {
         setLtpPrice(null);
@@ -227,7 +228,12 @@ const Landing = () => {
           default_quantity: "",
         });
       } else {
-        setMessage({ text: data.detail || "Registration failed", type: "danger" });
+        // Check if the error message indicates the user already exists
+        if (data.detail && data.detail.toLowerCase().includes("already exists")) {
+          setMessage({ text: "User already exists", type: "warning" });
+        } else {
+          setMessage({ text: data.detail || "Registration failed", type: "danger" });
+        }
       }
     } catch (error) {
       console.error("Error registering user:", error);
@@ -658,7 +664,17 @@ const Landing = () => {
           )}
         </Container>
 
-
+        {/* Message Display */}
+        `{message.text && (
+          <Alert variant={message.type} onClose={() => setMessage({ text: "", type: "" })} dismissible>
+            {message.text}
+            // Add the following lines here:
+            {message.type === "success" && <FontAwesomeIcon icon={faCheckCircle} className="ms-2" />}
+            {message.type === "warning" && <FontAwesomeIcon icon={faExclamationTriangle} className="ms-2" />}
+            {message.type === "danger" && <FontAwesomeIcon icon={faTimesCircle} className="ms-2" />}
+          </Alert>
+        )}
+`
         {/* Buy/Sell Buttons */}
         <Row className="justify-content-center mb-3">
           <Col xs="auto">

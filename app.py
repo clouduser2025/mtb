@@ -10,6 +10,7 @@ from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import pandas as pd
+import numpy as np 
 app = FastAPI()
 
 # ------------------------------
@@ -253,7 +254,8 @@ async def get_token(symbol: str):
 def get_excel_data():
     try:
         df = pd.read_excel('OpenAPIScripMaster.xlsx')
-        data = df.to_dict('records')
+        # Replace numpy.nan with None for JSON serialization
+        data = df.replace({np.nan: None}).to_dict('records')
         print(f"Data from Excel: {data}")  # Log the data
         return {"data": data}
     except Exception as e:
