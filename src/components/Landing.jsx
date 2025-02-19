@@ -19,7 +19,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons'; 
 import './css/landing.css';
 
-
 const Landing = () => {
   /********************************************************
    *           STATES & REGISTRATION SETUP              *
@@ -176,7 +175,6 @@ const Landing = () => {
     fetchUsers();
   }, []);
 
-
   // Registration submit handler
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
@@ -218,8 +216,7 @@ const Landing = () => {
         console.error("Error registering user:", error);
         setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
-};
-
+  };
 
   // Delete user handler
   const handleDeleteUser = async (username) => {
@@ -241,6 +238,7 @@ const Landing = () => {
       setMessage({ text: "Server error. Try again later.", type: "danger" });
     }
   };
+
   const AdvancedChart = ({ symbol, openTrades }) => {
     const chartContainerRef = useRef(null);
     const tvWidgetRef = useRef(null);
@@ -335,7 +333,6 @@ const Landing = () => {
     script.onload = callback; // Ensure script loads before calling TradingView
     document.body.appendChild(script);
   };
-  
   
   /********************************************************
    *                     RENDER (JSX)                     *
@@ -568,7 +565,7 @@ const Landing = () => {
           </Col>
         </Row>
 
-        {/* Trade Form: Buy/Sell + Stop-Loss/Stop-Gain */}
+        {/* Trade Form: Buy/Sell + Stop-Loss/Stop-Gain (No Submission) */}
         {showStopLossForm && (
           <Container className="mt-4 p-3 border rounded shadow-sm">
             <h4 className={actionType === 'buy' ? "text-success" : "text-danger"}>
@@ -582,7 +579,7 @@ const Landing = () => {
                 </>
               )}
             </h4>
-            <Form onSubmit={handleStopLossSubmission}>
+            <Form>
               <Row className="mb-3">
                 {actionType === 'buy' && (
                   <>
@@ -735,10 +732,6 @@ const Landing = () => {
                   </Form.Group>
                 </Col>
               </Row>
-
-              <Button type="submit" variant="primary">
-                {actionType === 'buy' ? 'Confirm Buy + Stop-Loss' : 'Confirm Sell + Stop-Loss'}
-              </Button>
             </Form>
           </Container>
         )}
