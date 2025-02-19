@@ -506,9 +506,6 @@ const Landing = () => {
             </Button>
           </Col>
           <Col xs="auto">
-            <Button onClick={fetchLtp} className="gradient-button btn-ltp">Fetch LTP</Button>
-          </Col>
-          <Col xs="auto">
             <Button onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchTrades(); }} className="gradient-button btn-trades">
               Trades Dashboard
             </Button>
