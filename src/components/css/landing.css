@@ -266,7 +266,67 @@
   border-radius: 5px;
   transform: scale(1.05);
 }
+/* src/css/landing.css */
+body {
+  margin: 0;
+  font-family: 'Roboto', sans-serif;
+  background: #0f0f23;
+}
 
+/* Modal Dark Theme (for Bootstrap 5) */
+.modal-dark .modal-content {
+  background: #1a1a2e;
+  color: #e0e0e0;
+  border: none;
+}
+
+.modal-dark .modal-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-dark .btn-close {
+  filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+.modal-dark .btn-close:hover {
+  opacity: 0.8;
+}
+
+/* Form Inputs */
+.form-control {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e0e0e0;
+}
+
+.form-control:focus {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #4ecdc4;
+  color: #fff;
+  box-shadow: none;
+}
+
+/* Table Enhancements */
+.table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Optional: Additional Styling for Readability */
+h3, h4 {
+  color: #fff;
+  font-weight: 500;
+}
+
+p {
+  margin: 5px 0;
+  color: #e0e0e0;
+}
+
+/* Ensure TradingView Widget fits nicely */
+.tradingview-widget-container {
+  border-radius: 10px;
+  overflow: hidden;
+}
   /* Dashboard Button Styling */
 .dashboard-button {
   width: 320px; /* Set a fixed width */
@@ -284,11 +344,7 @@
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); /* Add shadow for depth */
   margin: 10px; /* Space between buttons */
 }
-.top-message {
-  position: relative;
-  top: 10%;
-  margin-bottom: 20px;
-}
+
 /* Gradient Colors */
 .btn-market { background: linear-gradient(45deg, #2798de, #392398); } /* Market Overview */
 .btn-indices { background: linear-gradient(45deg, #000000, #f4f3f3); } /* Indices */
