@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from SmartApi import SmartConnect
 from SmartApi.smartWebSocketV2 import SmartWebSocketV2
-from api_helper import ShoonyaApiPy  # Shoonya API import
+from api_helper import ShoonyaApiPy
 import pyotp
 import threading
 import time
@@ -23,47 +23,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Database connection (no global cursor)
 conn = sqlite3.connect("trading_multi.db", check_same_thread=False)
-cursor = conn.cursor()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    password TEXT,
-    broker TEXT CHECK(broker IN ('AngelOne', 'Shoonya')),
-    api_key TEXT,
-    totp_token TEXT,
-    vendor_code TEXT,  -- For Shoonya
-    default_quantity INTEGER
-)
-""")
+# Initialize database tables
+def init_db():
+    with conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT,
+            broker TEXT CHECK(broker IN ('AngelOne', 'Shoonya')),
+            api_key TEXT,
+            totp_token TEXT,
+            vendor_code TEXT,
+            default_quantity INTEGER
+        )
+        """)
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS open_positions (
+            position_id TEXT PRIMARY KEY,
+            username TEXT,
+            symbol TEXT,
+            symboltoken TEXT,
+            entry_price REAL,
+            buy_threshold REAL,
+            stop_loss_type TEXT DEFAULT 'Fixed',
+            stop_loss_value REAL DEFAULT 5.0,
+            points_condition REAL DEFAULT 0,
+            position_type TEXT DEFAULT 'LONG',
+            position_active BOOLEAN DEFAULT 1,
+            highest_price REAL,
+            base_price REAL
+        )
+        """)
+    conn.commit()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS open_positions (
-    position_id TEXT PRIMARY KEY,
-    username TEXT,
-    symbol TEXT,
-    symboltoken TEXT,
-    entry_price REAL,
-    buy_threshold REAL,
-    stop_loss_type TEXT DEFAULT 'Fixed',
-    stop_loss_value REAL DEFAULT 5.0,
-    points_condition REAL DEFAULT 0,
-    position_type TEXT DEFAULT 'LONG',
-    position_active BOOLEAN DEFAULT 1,
-    highest_price REAL,
-    base_price REAL
-)
-""")
-conn.commit()
+init_db()
 
 class User(BaseModel):
     username: str
     password: str
-    broker: str  # 'AngelOne' or 'Shoonya'
+    broker: str
     api_key: str
     totp_token: str
-    vendor_code: Optional[str] = None  # Required for Shoonya
+    vendor_code: Optional[str] = None
     default_quantity: int
 
 class TradeRequest(BaseModel):
@@ -87,7 +91,7 @@ class UpdateTradeRequest(BaseModel):
     stop_loss_value: Optional[float] = 5.0
     points_condition: Optional[float] = 0
 
-smart_api_instances = {}  # Stores AngelOne or Shoonya API instances
+smart_api_instances = {}
 ltp_cache = {}
 websocket_threads = {}
 
@@ -114,7 +118,7 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
             if ret.get('stat') != 'Ok':
                 logger.error(f"Shoonya Authentication failed for {username}: {ret}")
                 raise Exception("Authentication failed")
-            return smart_api, ret['susertoken'], None  # Shoonya uses susertoken, no feed_token
+            return smart_api, ret['susertoken'], None
         except Exception as e:
             logger.error(f"Shoonya Auth error for {username}: {e}")
             raise
@@ -147,7 +151,7 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str):
         raise HTTPException(status_code=400, detail=f"AngelOne {position_type} order failed: {response.get('message')}")
     elif broker == "Shoonya":
         orderparams["buy_or_sell"] = "B" if position_type == "LONG" else "S"
-        orderparams["price_type"] = "MKT"  # Assuming Market order for simplicity
+        orderparams["price_type"] = "MKT"
         response = api_client.place_order(**orderparams)
         if response.get('stat') == 'Ok':
             logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
@@ -155,15 +159,17 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str):
         raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {response.get('emsg')}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
-    cursor.execute("""
-        INSERT OR REPLACE INTO open_positions (position_id, username, symbol, symboltoken, entry_price, buy_threshold, 
-                                              stop_loss_type, stop_loss_value, points_condition, position_type, 
-                                              position_active, highest_price, base_price)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?)
-    """, (position_id, username, symbol, conditions['symboltoken'], entry_price, conditions['buy_threshold'], 
-          conditions['stop_loss_type'], conditions['stop_loss_value'], conditions['points_condition'],
-          entry_price, entry_price))
-    conn.commit()
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO open_positions (position_id, username, symbol, symboltoken, entry_price, buy_threshold, 
+                                                  stop_loss_type, stop_loss_value, points_condition, position_type, 
+                                                  position_active, highest_price, base_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?)
+        """, (position_id, username, symbol, conditions['symboltoken'], entry_price, conditions['buy_threshold'], 
+              conditions['stop_loss_type'], conditions['stop_loss_value'], conditions['points_condition'],
+              entry_price, entry_price))
+        conn.commit()
 
 def on_data_angel(wsapp, message):
     global ltp_cache
@@ -186,34 +192,38 @@ def on_data_shoonya(tick_data):
         logger.error(f"Shoonya WebSocket data error: {e}")
 
 def process_position_update(tradingsymbol: str, ltp: float):
-    cursor.execute("SELECT * FROM open_positions WHERE symbol = ? AND position_active = 1", (tradingsymbol,))
-    positions = cursor.fetchall()
-    for position in positions:
-        pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
-                             "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], position))
-        username = pos_data['username']
-        if username in smart_api_instances:
-            api_client = smart_api_instances[username]
-            check_conditions(api_client, pos_data, ltp)
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM open_positions WHERE symbol = ? AND position_active = 1", (tradingsymbol,))
+        positions = cursor.fetchall()
+        for position in positions:
+            pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
+                                 "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], position))
+            username = pos_data['username']
+            if username in smart_api_instances:
+                api_client = smart_api_instances[username]
+                check_conditions(api_client, pos_data, ltp)
 
 def on_open_angel(wsapp):
     logger.info("AngelOne WebSocket opened")
-    subscribe_to_tokens(wsapp, 1)  # 1 for AngelOne exchangeType
+    subscribe_to_tokens(wsapp, 1)
 
 def on_open_shoonya():
     logger.info("Shoonya WebSocket opened")
-    subscribe_to_tokens(None, None)  # Shoonya handles subscription in start_websocket
+    subscribe_to_tokens(None, None)
 
 def subscribe_to_tokens(wsapp, exchange_type):
-    cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE position_active = 1")
-    tokens = [row[0] for row in cursor.fetchall()]
-    if tokens:
-        if wsapp:  # AngelOne
-            token_list = [{"exchangeType": exchange_type, "tokens": tokens}]
-            wsapp.subscribe("abc123", 1, token_list)
-        else:  # Shoonya
-            for token in tokens:
-                smart_api_instances[list(smart_api_instances.keys())[0]].subscribe(f"NSE|{token}")
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE position_active = 1")
+        tokens = [row[0] for row in cursor.fetchall()]
+        if tokens:
+            if wsapp:  # AngelOne
+                token_list = [{"exchangeType": exchange_type, "tokens": tokens}]
+                wsapp.subscribe("abc123", 1, token_list)
+            else:  # Shoonya
+                for token in tokens:
+                    smart_api_instances[list(smart_api_instances.keys())[0]].subscribe(f"NSE|{token}")
 
 def start_websocket(username: str, broker: str, api_key: str, auth_token: str, feed_token: Optional[str] = None):
     if broker == "AngelOne":
@@ -256,13 +266,17 @@ def check_conditions(api_client, position_data: dict, ltp: float):
         elif stop_loss_type == "Points":
             stop_loss_price = highest_price - stop_loss_value
 
-    cursor.execute("UPDATE open_positions SET highest_price = ?, base_price = ? WHERE position_id = ?", 
-                   (highest_price, base_price, position_id))
-    conn.commit()
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE open_positions SET highest_price = ?, base_price = ? WHERE position_id = ?", 
+                       (highest_price, base_price, position_id))
+        conn.commit()
 
     if ltp <= stop_loss_price:
-        cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
-        broker = cursor.fetchone()[0]
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
+            broker = cursor.fetchone()[0]
         orderparams = {
             "variety": "NORMAL",
             "tradingsymbol": symbol,
@@ -287,14 +301,18 @@ def check_conditions(api_client, position_data: dict, ltp: float):
             "retention": "DAY"
         }
         place_order(api_client, broker, orderparams, "EXIT")
-        cursor.execute("UPDATE open_positions SET position_active = 0 WHERE position_id = ?", (position_id,))
-        conn.commit()
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE open_positions SET position_active = 0 WHERE position_id = ?", (position_id,))
+            conn.commit()
         logger.info(f"Stop-loss hit for {username}. Sold at {ltp}")
 
 @app.on_event("startup")
 async def startup_event():
-    cursor.execute("SELECT * FROM users LIMIT 3")
-    users = cursor.fetchall()
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users LIMIT 3")
+        users = cursor.fetchall()
     for user in users:
         user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity"], user))
         api_client, auth_token, feed_token = authenticate_user(
@@ -310,9 +328,11 @@ def register_user(user: User):
         api_client, auth_token, feed_token = authenticate_user(
             user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code
         )
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)",
-                       (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity))
-        conn.commit()
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)",
+                           (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity))
+            conn.commit()
         smart_api_instances[user.username] = api_client
         threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
         return {"message": "User registered and authenticated successfully"}
@@ -323,23 +343,29 @@ def register_user(user: User):
 
 @app.get("/api/get_users")
 def get_users():
-    cursor.execute("SELECT * FROM users")
-    users = cursor.fetchall()
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users")
+        users = cursor.fetchall()
     return {"users": [dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity"], row)) for row in users]}
 
 @app.delete("/api/delete_user/{username}")
 def delete_user(username: str):
-    cursor.execute("DELETE FROM users WHERE username = ?", (username,))
-    cursor.execute("DELETE FROM open_positions WHERE username = ?", (username,))
-    conn.commit()
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+        cursor.execute("DELETE FROM open_positions WHERE username = ?", (username,))
+        conn.commit()
     if username in smart_api_instances:
         del smart_api_instances[username]
     return {"message": f"User {username} deleted successfully"}
 
 @app.get("/api/get_trades")
 def get_trades():
-    cursor.execute("SELECT * FROM open_positions WHERE position_active = 1")
-    trades = cursor.fetchall()
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM open_positions WHERE position_active = 1")
+        trades = cursor.fetchall()
     return {"trades": [dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                                  "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], row))
                        for row in trades]}
@@ -352,8 +378,10 @@ async def initiate_trade(request: TradeRequest):
             raise HTTPException(status_code=401, detail="User not authenticated")
         
         api_client = smart_api_instances[username]
-        cursor.execute("SELECT broker, default_quantity FROM users WHERE username = ?", (username,))
-        user = cursor.fetchone()
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT broker, default_quantity FROM users WHERE username = ?", (username,))
+            user = cursor.fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         broker, default_quantity = user
@@ -420,8 +448,10 @@ async def update_trade_conditions(request: UpdateTradeRequest):
     try:
         username = request.username
         position_id = request.position_id
-        cursor.execute("SELECT * FROM open_positions WHERE position_id = ? AND position_active = 1", (position_id,))
-        position = cursor.fetchone()
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM open_positions WHERE position_id = ? AND position_active = 1", (position_id,))
+            position = cursor.fetchone()
         if not position:
             raise HTTPException(status_code=404, detail="Position not found or closed")
         
@@ -435,11 +465,13 @@ async def update_trade_conditions(request: UpdateTradeRequest):
         stop_loss_value = params.get('stop_loss_value', pos_data['stop_loss_value'])
         points_condition = params.get('points_condition', pos_data['points_condition'])
 
-        cursor.execute("""
-            UPDATE open_positions SET stop_loss_type = ?, stop_loss_value = ?, points_condition = ?
-            WHERE position_id = ?
-        """, (stop_loss_type, stop_loss_value, points_condition, position_id))
-        conn.commit()
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE open_positions SET stop_loss_type = ?, stop_loss_value = ?, points_condition = ?
+                WHERE position_id = ?
+            """, (stop_loss_type, stop_loss_value, points_condition, position_id))
+            conn.commit()
 
         return {"message": f"Conditions updated for position {position_id}", 
                 "conditions": {"stop_loss_type": stop_loss_type, "stop_loss_value": stop_loss_value, "points_condition": points_condition}}
