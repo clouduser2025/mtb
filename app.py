@@ -1,20 +1,19 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional  # Keep only necessary imports from typing
+from typing import Optional
 from SmartApi import SmartConnect
+from SmartApi.smartWebSocketV2 import SmartWebSocketV2
 import pyotp
 import threading
 import time
 import sqlite3
 from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
-import websocket
 import json
 import uvicorn
 
 app = FastAPI()
 
-# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +22,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database Setup
 conn = sqlite3.connect("trading_multi.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -43,6 +41,7 @@ CREATE TABLE IF NOT EXISTS open_positions (
     position_id TEXT PRIMARY KEY,
     username TEXT,
     symbol TEXT,
+    symboltoken TEXT,
     entry_price REAL,
     buy_threshold REAL,
     stop_loss_type TEXT DEFAULT 'Fixed',
@@ -56,7 +55,6 @@ CREATE TABLE IF NOT EXISTS open_positions (
 """)
 conn.commit()
 
-# Pydantic Models
 class User(BaseModel):
     username: str
     password: str
@@ -86,8 +84,8 @@ class UpdateTradeRequest(BaseModel):
     stop_loss_value: Optional[float] = 5.0
     points_condition: Optional[float] = 0
 
-# Global SmartAPI instances
 smart_api_instances = {}
+ltp_cache = {}
 
 def authenticate_user(username: str, password: str, api_key: str, totp_token: str):
     smartApi = SmartConnect(api_key)
@@ -97,24 +95,22 @@ def authenticate_user(username: str, password: str, api_key: str, totp_token: st
         if data['status'] == False:
             logger.error(f"Authentication failed for {username}: {data}")
             raise Exception("Authentication failed")
+        authToken = data['data']['jwtToken']
+        feedToken = smartApi.getfeedToken()
         smart_api_instances[username] = smartApi
-        return True
+        return smartApi, authToken, feedToken
     except Exception as e:
         logger.error(f"Authentication error for {username}: {e}")
         raise
 
 def get_ltp(smartApi, exchange, tradingsymbol, symboltoken):
     try:
-        historicParam = {
-            "exchange": exchange,
-            "symboltoken": symboltoken,
-            "interval": "ONE_MINUTE",
-            "fromdate": "2025-02-19 09:00",
-            "todate": "2025-02-19 09:01"
-        }
-        candles = smartApi.getCandleData(historicParam)
-        if candles and 'data' in candles and len(candles['data']) > 0:
-            return float(candles['data'][-1][4])
+        symbol_key = f"{exchange}:{tradingsymbol}:{symboltoken}"
+        if symbol_key in ltp_cache:
+            return ltp_cache[symbol_key]
+        ltp_data = smartApi.ltpData(exchange, tradingsymbol, symboltoken)
+        if ltp_data and 'data' in ltp_data and 'ltp' in ltp_data['data']:
+            return float(ltp_data['data']['ltp'])
         raise HTTPException(status_code=400, detail="No LTP data available")
     except Exception as e:
         logger.error(f"Error fetching LTP: {e}")
@@ -132,33 +128,59 @@ def place_order(smartApi, orderparams, position_type: str):
         logger.error(f"{position_type} order placement error: {e}")
         raise HTTPException(status_code=400, detail=f"{position_type} order placement error: {str(e)}")
 
-# Fixed Line 135: Changed 'Dict' to 'dict'
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
     cursor.execute("""
-        INSERT OR REPLACE INTO open_positions (position_id, username, symbol, entry_price, buy_threshold, 
+        INSERT OR REPLACE INTO open_positions (position_id, username, symbol, symboltoken, entry_price, buy_threshold, 
                                               stop_loss_type, stop_loss_value, points_condition, position_type, 
                                               position_active, highest_price, base_price)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?)
-    """, (position_id, username, symbol, entry_price, conditions['buy_threshold'], 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?)
+    """, (position_id, username, symbol, conditions['symboltoken'], entry_price, conditions['buy_threshold'], 
           conditions['stop_loss_type'], conditions['stop_loss_value'], conditions['points_condition'],
           entry_price, entry_price))
     conn.commit()
 
-def on_message(ws, message):
-    data = json.loads(message)
-    if 'ltp' in data and 'symbol' in data:
-        symbol = data['symbol']
-        ltp = float(data['ltp'])
-        logger.info(f"Real-time LTP for {symbol}: {ltp}")
-        cursor.execute("SELECT * FROM open_positions WHERE symbol = ? AND position_active = 1", (symbol,))
+def on_data(wsapp, message):
+    global ltp_cache
+    try:
+        symbol_key = f"{message['exchange']}:{message['tradingsymbol']}:{message['symboltoken']}"
+        ltp = float(message['ltp'])
+        ltp_cache[symbol_key] = ltp
+        logger.info(f"Ticks: {message}")
+        cursor.execute("SELECT * FROM open_positions WHERE symbol = ? AND position_active = 1", (message['tradingsymbol'],))
         positions = cursor.fetchall()
         for position in positions:
-            pos_data = dict(zip(["position_id", "username", "symbol", "entry_price", "buy_threshold", "stop_loss_type", 
+            pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                                  "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], position))
             username = pos_data['username']
             if username in smart_api_instances:
                 smartApi = smart_api_instances[username]
                 check_conditions(smartApi, pos_data, ltp)
+    except Exception as e:
+        logger.error(f"Error processing WebSocket message: {e}")
+
+def on_open(wsapp):
+    logger.info("WebSocket opened")
+    cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE position_active = 1")
+    tokens = [row[0] for row in cursor.fetchall()]
+    if tokens:
+        token_list = [{"exchangeType": 1, "tokens": tokens}]
+        correlation_id = "abc123"
+        mode = 1
+        wsapp.subscribe(correlation_id, mode, token_list)
+
+def on_error(wsapp, error):
+    logger.error(f"WebSocket error: {error}")
+
+def on_close(wsapp):
+    logger.info("WebSocket closed")
+
+def start_websocket(username, api_key, auth_token, feed_token):
+    sws = SmartWebSocketV2(auth_token, api_key, username, feed_token)
+    sws.on_open = on_open
+    sws.on_data = on_data
+    sws.on_error = on_error
+    sws.on_close = on_close
+    sws.connect()
 
 def check_conditions(smartApi, position_data, ltp):
     username = position_data['username']
@@ -208,31 +230,14 @@ def check_conditions(smartApi, position_data, ltp):
         conn.commit()
         logger.info(f"Stop-loss hit for {username}. Sold at {ltp}")
 
-def on_error(ws, error):
-    logger.error(f"WebSocket error: {error}")
-
-def on_close(ws):
-    logger.info("WebSocket connection closed")
-
-def on_open(ws):
-    logger.info("WebSocket connection opened")
-
-def start_websocket(username, api_key, feed_token):
-    ws = websocket.WebSocketApp("wss://wsfeeds.angelbroking.com/NestHtml5Mobile/public/smartwebsocket/uni1/12345678",
-                                on_message=on_message,
-                                on_error=on_error,
-                                on_close=on_close)
-    ws.on_open = lambda ws: on_open(ws)
-    ws.run_forever()
-
 @app.on_event("startup")
 async def startup_event():
     cursor.execute("SELECT * FROM users LIMIT 3")
     users = cursor.fetchall()
     for user in users:
         user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "default_quantity"], user))
-        authenticate_user(user_data['username'], user_data['password'], user_data['api_key'], user_data['totp_token'])
-        threading.Thread(target=start_websocket, args=(user_data['username'], user_data['api_key'], "feed_token"), daemon=True).start()
+        smartApi, auth_token, feed_token = authenticate_user(user_data['username'], user_data['password'], user_data['api_key'], user_data['totp_token'])
+        threading.Thread(target=start_websocket, args=(user_data['username'], user_data['api_key'], auth_token, feed_token), daemon=True).start()
 
 @app.post("/api/register_user")
 def register_user(user: User):
@@ -263,7 +268,7 @@ def delete_user(username: str):
 def get_trades():
     cursor.execute("SELECT * FROM open_positions WHERE position_active = 1")
     trades = cursor.fetchall()
-    return {"trades": [dict(zip(["position_id", "username", "symbol", "entry_price", "buy_threshold", "stop_loss_type", 
+    return {"trades": [dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                                  "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], row))
                        for row in trades]}
 
@@ -307,7 +312,8 @@ async def initiate_trade(request: TradeRequest):
             'buy_threshold': entry_threshold,
             'stop_loss_type': params['stop_loss_type'],
             'stop_loss_value': params['stop_loss_value'],
-            'points_condition': params['points_condition']
+            'points_condition': params['points_condition'],
+            'symboltoken': params['symboltoken']
         }
 
         position_id = f"{username}_{params['tradingsymbol']}_{int(time.time())}"
@@ -330,7 +336,7 @@ async def update_trade_conditions(request: UpdateTradeRequest):
         if not position:
             raise HTTPException(status_code=404, detail="Position not found or closed")
         
-        pos_data = dict(zip(["position_id", "username", "symbol", "entry_price", "buy_threshold", "stop_loss_type", 
+        pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                              "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], position))
         if pos_data['username'] != username:
             raise HTTPException(status_code=403, detail="Unauthorized to modify this position")
