@@ -302,7 +302,7 @@ def get_trades():
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
     try:
-        username = request.username.lower()  # Normalize username to lowercase for consistency
+        username = request.username  # Preserve exact casing (no .lower())
         if username not in smart_api_instances:
             raise HTTPException(status_code=401, detail=f"User {username} not authenticated")
         
@@ -315,7 +315,7 @@ async def initiate_trade(request: TradeRequest):
         if not user:
             raise HTTPException(status_code=404, detail=f"User {username} not found")
         
-        default_quantity = user[0]  # Get the default_quantity (e.g., 1 for AG2128571)
+        default_quantity = user[0]  # Get the default_quantity (e.g., 1 for A62128571)
 
         strike_price = params['strike_price']
         buy_type = params['buy_type']
@@ -366,7 +366,7 @@ async def initiate_trade(request: TradeRequest):
 @app.post("/api/initiate_sell_trade")  # New endpoint for sell orders
 async def initiate_sell_trade(request: TradeRequest):
     try:
-        username = request.username.lower()  # Normalize username to lowercase for consistency
+        username = request.username  # Preserve exact casing (no .lower())
         if username not in smart_api_instances:
             raise HTTPException(status_code=401, detail=f"User {username} not authenticated")
         
@@ -379,7 +379,7 @@ async def initiate_sell_trade(request: TradeRequest):
         if not user:
             raise HTTPException(status_code=404, detail=f"User {username} not found")
         
-        default_quantity = user[0]  # Get the default_quantity (e.g., 1 for AG2128571)
+        default_quantity = user[0]  # Get the default_quantity (e.g., 1 for A62128571)
 
         strike_price = params['strike_price']
         sell_type = params['buy_type']  # Reuse buy_type for sell logic ("Fixed" or "Percentage")
@@ -417,7 +417,7 @@ async def initiate_sell_trade(request: TradeRequest):
 @app.post("/api/update_trade_conditions")
 async def update_trade_conditions(request: UpdateTradeRequest):
     try:
-        username = request.username.lower()  # Normalize username to lowercase for consistency
+        username = request.username  # Preserve exact casing (no .lower())
         position_id = request.position_id
         cursor.execute("SELECT * FROM open_positions WHERE position_id = ? AND position_active = 1", (position_id,))
         position = cursor.fetchone()
