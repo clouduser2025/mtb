@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup, Navbar, Nav } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faDollarSign, faDashboard, faCog, faHandsHelping, faQuestionCircle } from '@fortawesome/free-solid-svg-icons'; 
+import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faDollarSign, faDashboard, faCog, faHandsHelping, faQuestionCircle, faCaretDown } from '@fortawesome/free-solid-svg-icons'; 
 import './css/landing.css';
 
 const Landing = () => {

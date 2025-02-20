@@ -437,6 +437,12 @@ h4 {
 .shoonya-nav-link button {
   border-radius: 4px;
   padding: 5px 10px;
+  border-color: #ddd;
+  background-color: #fff;
+}
+
+.shoonya-nav-link button:hover {
+  background-color: #f5f7fa;
 }
 
 .shoonya-sidebar {
@@ -453,8 +459,10 @@ h4 {
   color: #fff;
   padding: 10px 20px;
   border-radius: 0;
+  transition: background-color 0.3s;
 }
 
+.shoonya-sidebar-link:hover,
 .shoonya-sidebar-link.active {
   background-color: #34495e;
 }
@@ -463,6 +471,7 @@ h4 {
   margin-left: 250px;
   padding: 20px;
   flex-grow: 1;
+  background-color: #f5f7fa;
 }
 
 .shoonya-section {
@@ -473,11 +482,96 @@ h4 {
 }
 
 .shoonya-table {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+.shoonya-table th {
+  background-color: #f5f7fa;
+  color: #333;
+}
+
+.shoonya-table td {
+  color: #666;
 }
 
 .shoonya-modal .modal-content {
   border-radius: 8px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.shoonya-modal .modal-header {
+  background-color: #f5f7fa;
+  border-bottom: 1px solid #ddd;
+}
+
+.user-actions-dropdown {
+  background-color: #ff4500;
+  border-color: #ff4500;
+}
+
+.user-actions-dropdown:hover {
+  background-color: #e03e00;
+  border-color: #e03e00;
+}
+
+.badge.bg-success {
+  background-color: #28a745 !important;
+}
+
+.alert {
+  border-radius: 8px;
+}
+
+.btn-primary {
+  background-color: #ff4500;
+  border-color: #ff4500;
+}
+
+.btn-primary:hover {
+  background-color: #e03e00;
+  border-color: #e03e00;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+
+.btn-secondary:hover {
+  background-color: #5a6268;
+  border-color: #5a6268;
+}
+
+.btn-outline-primary {
+  color: #ff4500;
+  border-color: #ff4500;
+}
+
+.btn-outline-primary:hover {
+  background-color: #ff4500;
+  color: #fff;
+  border-color: #ff4500;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  border-color: #dc3545;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+  border-color: #c82333;
+}
+
+.btn-warning {
+  background-color: #ffc107;
+  border-color: #ffc107;
+  color: #212529;
+}
+
+.btn-warning:hover {
+  background-color: #e0a800;
+  border-color: #e0a800;
 }
