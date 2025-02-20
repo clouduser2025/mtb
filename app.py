@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional  # Keep only necessary imports from typing
 from SmartApi import SmartConnect
 import pyotp
 import threading
@@ -71,13 +71,13 @@ class TradeRequest(BaseModel):
     symboltoken: str
     exchange: str = "NSE"
     strike_price: float
-    buy_type: str = "Fixed"  # Default: Fixed Price Buy
-    buy_threshold: float = 110  # Default: ₹110
-    previous_close: Optional[float] = None  # Required for Percentage Buy
+    buy_type: str = "Fixed"
+    buy_threshold: float = 110
+    previous_close: Optional[float] = None
     producttype: str = "INTRADAY"
-    stop_loss_type: str = "Fixed"  # Default: Fixed Stop-Loss
-    stop_loss_value: float = 5.0  # Default: 5 points below entry
-    points_condition: float = 0  # Default: No trailing adjustment
+    stop_loss_type: str = "Fixed"
+    stop_loss_value: float = 5.0
+    points_condition: float = 0
 
 class UpdateTradeRequest(BaseModel):
     username: str
@@ -132,7 +132,8 @@ def place_order(smartApi, orderparams, position_type: str):
         logger.error(f"{position_type} order placement error: {e}")
         raise HTTPException(status_code=400, detail=f"{position_type} order placement error: {str(e)}")
 
-def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: Dict):
+# Fixed Line 135: Changed 'Dict' to 'dict'
+def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
     cursor.execute("""
         INSERT OR REPLACE INTO open_positions (position_id, username, symbol, entry_price, buy_threshold, 
                                               stop_loss_type, stop_loss_value, points_condition, position_type, 
@@ -160,7 +161,6 @@ def on_message(ws, message):
                 check_conditions(smartApi, pos_data, ltp)
 
 def check_conditions(smartApi, position_data, ltp):
-    # Step 5: Sell Condition (Based on Stop-Loss from Step 3)
     username = position_data['username']
     symbol = position_data['symbol']
     position_id = position_data['position_id']
@@ -173,16 +173,16 @@ def check_conditions(smartApi, position_data, ltp):
 
     stop_loss_price = None
     if stop_loss_type == "Fixed":
-        stop_loss_price = entry_price - stop_loss_value  # Scenario 1
+        stop_loss_price = entry_price - stop_loss_value
     elif stop_loss_type in ["Percentage", "Points"]:
         highest_price = max(ltp, highest_price)
         if points_condition < 0 and ltp < base_price + points_condition:
-            base_price = ltp  # Scenarios 3, 5
+            base_price = ltp
         profit = highest_price - base_price
         if stop_loss_type == "Percentage":
-            stop_loss_price = base_price + (profit * (1 - stop_loss_value / 100))  # Scenarios 2, 3, 5
+            stop_loss_price = base_price + (profit * (1 - stop_loss_value / 100))
         elif stop_loss_type == "Points":
-            stop_loss_price = highest_price - stop_loss_value  # Scenario 4
+            stop_loss_price = highest_price - stop_loss_value
 
     cursor.execute("UPDATE open_positions SET highest_price = ?, base_price = ? WHERE position_id = ?", 
                    (highest_price, base_price, position_id))
@@ -270,7 +270,6 @@ def get_trades():
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
     try:
-        # Step 1: User Authentication (Already selected)
         username = request.username
         if username not in smart_api_instances:
             raise HTTPException(status_code=401, detail="User not authenticated")
@@ -278,10 +277,7 @@ async def initiate_trade(request: TradeRequest):
         smartApi = smart_api_instances[username]
         params = request.dict()
 
-        # Step 2: Symbol and Strike Price (User Input)
         strike_price = params['strike_price']
-
-        # Step 4: Buy Condition
         buy_type = params['buy_type']
         buy_threshold = params['buy_threshold']
         previous_close = params.get('previous_close', strike_price)
@@ -290,7 +286,6 @@ async def initiate_trade(request: TradeRequest):
         if ltp < entry_threshold:
             raise HTTPException(status_code=400, detail=f"Current LTP {ltp} below buy threshold {entry_threshold}")
 
-        # Execute Buy Order
         buy_order_params = {
             "variety": "NORMAL",
             "tradingsymbol": params['tradingsymbol'],
@@ -308,7 +303,6 @@ async def initiate_trade(request: TradeRequest):
         buy_result = place_order(smartApi, buy_order_params, "LONG")
         entry_price = ltp
 
-        # Step 3 & 5: Stop-Loss and Sell Condition (User-Defined or Default)
         conditions = {
             'buy_threshold': entry_threshold,
             'stop_loss_type': params['stop_loss_type'],
