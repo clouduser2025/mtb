@@ -120,9 +120,13 @@ def get_ltp(smartApi, exchange, tradingsymbol, symboltoken):
 def place_order(smartApi, orderparams, position_type: str):
     try:
         orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
+        # Ensure quantity is a string if required by Angel Broking
+        if "quantity" in orderparams and isinstance(orderparams["quantity"], int):
+            orderparams["quantity"] = str(orderparams["quantity"])
         response = smartApi.placeOrderFullResponse(orderparams)
-        logger.debug(f"Order placement response for {position_type} with params {orderparams}: {response}")
-        if response['status'] == 'success':
+        logger.debug(f"Full order response for {position_type} with params {orderparams}: {response}")
+        # Check for both boolean True and string 'success'
+        if response.get('status', False) is True or response.get('status', '').lower() == 'success':
             logger.info(f"{position_type} order placed successfully. Order ID: {response['data']['orderid']}")
             return {"order_id": response['data']['orderid'], "status": "success"}
         raise HTTPException(status_code=400, detail=f"{position_type} order placement failed: {response.get('message', 'Unknown error')}")
