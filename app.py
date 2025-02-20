@@ -242,12 +242,27 @@ async def startup_event():
 @app.post("/api/register_user")
 def register_user(user: User):
     try:
+        # Authenticate user before registering
+        smartApi, auth_token, feed_token = authenticate_user(user.username, user.password, user.api_key, user.totp_token)
+
+        # If authentication succeeds, store the user details
         cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)",
                        (user.username, user.password, user.broker, user.api_key, user.totp_token, user.default_quantity))
         conn.commit()
-        return {"message": "User registered successfully"}
+
+        # Store authenticated instance
+        smart_api_instances[user.username] = smartApi
+
+        # Start WebSocket for the user
+        threading.Thread(target=start_websocket, args=(user.username, user.api_key, auth_token, feed_token), daemon=True).start()
+
+        return {"message": "User registered and authenticated successfully"}
+
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="User already exists")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
+
 
 @app.get("/api/get_users")
 def get_users():
