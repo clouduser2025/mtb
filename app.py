@@ -92,7 +92,7 @@ class UpdateTradeRequest(BaseModel):
 smart_api_instances = {}
 ltp_cache = {}
 auth_tokens = {}
-refresh_tokens = {}  # Store refresh tokens for AngelOne
+refresh_tokens = {}
 feed_tokens = {}
 
 def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None):
@@ -127,7 +127,6 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
         raise HTTPException(status_code=400, detail=f"Unsupported broker: {broker}")
 
 def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
-    """Attempt to refresh the session using the refresh token."""
     if username not in refresh_tokens:
         return False
     try:
@@ -145,7 +144,6 @@ def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
         return False
 
 def full_reauth_user(username: str):
-    """Perform a full re-authentication if refresh fails."""
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT password, broker, api_key, totp_token, vendor_code FROM users WHERE username = ?", (username,))
@@ -172,7 +170,9 @@ def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symbolto
         try:
             ltp_data = api_client.ltpData(exchange, tradingsymbol, symboltoken)
             if ltp_data and 'data' in ltp_data and 'ltp' in ltp_data['data']:
-                return float(ltp_data['data']['ltp'])
+                ltp = float(ltp_data['data']['ltp'])
+                ltp_cache[symbol_key] = ltp
+                return ltp
             raise HTTPException(status_code=400, detail="No LTP data available")
         except Exception as e:
             logger.error(f"AngelOne LTP fetch error: {e}")
@@ -180,7 +180,9 @@ def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symbolto
     elif broker == "Shoonya":
         quotes = api_client.get_quotes(exchange=exchange, token=symboltoken)
         if quotes.get('stat') == 'Ok' and 'lp' in quotes:
-            return float(quotes['lp'])
+            ltp = float(quotes['lp'])
+            ltp_cache[symbol_key] = ltp
+            return ltp
         raise HTTPException(status_code=400, detail="No LTP data available")
 
 def place_order(api_client, broker: str, orderparams: dict, position_type: str, username: str):
@@ -188,42 +190,50 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
         orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
         try:
             response = api_client.placeOrderFullResponse(orderparams)
-            if response['status'] == 'success':
+            logger.debug(f"AngelOne {position_type} order response: {response}")  # Log full response
+            if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
                 logger.info(f"AngelOne {position_type} order placed: {response['data']['orderid']}")
                 return {"order_id": response['data']['orderid'], "status": "success"}
-            if response.get('errorcode') == 'AB1010':  # Session expired
+            elif response.get('errorcode') == 'AB1010':  # Session expired
                 logger.warning(f"Session expired for {username}. Attempting refresh...")
                 if refresh_angelone_session(username, api_client):
                     response = api_client.placeOrderFullResponse(orderparams)
-                    if response['status'] == 'success':
+                    if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
                         logger.info(f"AngelOne {position_type} order placed after refresh: {response['data']['orderid']}")
                         return {"order_id": response['data']['orderid'], "status": "success"}
-                else:
-                    logger.warning(f"Refresh failed. Performing full re-authentication for {username}")
-                    api_client = full_reauth_user(username)
-                    response = api_client.placeOrderFullResponse(orderparams)
-                    if response['status'] == 'success':
-                        logger.info(f"AngelOne {position_type} order placed after re-auth: {response['data']['orderid']}")
-                        return {"order_id": response['data']['orderid'], "status": "success"}
-            raise HTTPException(status_code=400, detail=f"AngelOne {position_type} order failed: {response.get('message')}")
+                logger.warning(f"Refresh failed. Performing full re-authentication for {username}")
+                api_client = full_reauth_user(username)
+                response = api_client.placeOrderFullResponse(orderparams)
+                if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
+                    logger.info(f"AngelOne {position_type} order placed after re-auth: {response['data']['orderid']}")
+                    return {"order_id": response['data']['orderid'], "status": "success"}
+            raise HTTPException(status_code=400, detail=f"AngelOne {position_type} order failed: {response.get('message', 'Unknown error')}")
+        except HTTPException as e:
+            logger.error(f"AngelOne {position_type} order placement error: {e.detail}")
+            raise
         except Exception as e:
-            logger.error(f"AngelOne {position_type} order placement error: {e}")
+            logger.error(f"AngelOne {position_type} order placement error: {str(e)}")
             raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
     elif broker == "Shoonya":
         orderparams["buy_or_sell"] = "B" if position_type == "LONG" else "S"
         orderparams["price_type"] = "MKT"
-        response = api_client.place_order(**orderparams)
-        if response.get('stat') == 'Ok':
-            logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
-            return {"order_id": response['norenordno'], "status": "success"}
-        if response.get('emsg', '').startswith("Session Expired"):
-            logger.warning(f"Session expired for {username}. Re-authenticating...")
-            api_client = full_reauth_user(username)
+        try:
             response = api_client.place_order(**orderparams)
-            if response.get('stat') == 'Ok':
-                logger.info(f"Shoonya {position_type} order placed after re-auth: {response['norenordno']}")
+            logger.debug(f"Shoonya {position_type} order response: {response}")
+            if response.get('stat') == 'Ok' and 'norenordno' in response:
+                logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
                 return {"order_id": response['norenordno'], "status": "success"}
-        raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {response.get('emsg')}")
+            if response.get('emsg', '').startswith("Session Expired"):
+                logger.warning(f"Session expired for {username}. Re-authenticating...")
+                api_client = full_reauth_user(username)
+                response = api_client.place_order(**orderparams)
+                if response.get('stat') == 'Ok' and 'norenordno' in response:
+                    logger.info(f"Shoonya {position_type} order placed after re-auth: {response['norenordno']}")
+                    return {"order_id": response['norenordno'], "status": "success"}
+            raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {response.get('emsg', 'Unknown error')}")
+        except Exception as e:
+            logger.error(f"Shoonya {position_type} order placement error: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
     with conn:
