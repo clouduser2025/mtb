@@ -1,154 +1,161 @@
+@keyframes moveImages {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
 
-  
+.custom-btn {
+  padding: 12px 20px; /* Padding for larger buttons */
+  font-size: 16px; /* Larger font size */
+  margin: 8px 0; /* Spacing between buttons */
+  border-radius: 6px; /* Rounded corners */
+  width: 100%; /* Full width for the button */
+  text-align: center; /* Center text */
+  background-color: #ffffff; /* White background for visibility */
+  color: #000080; /* Navy blue text for contrast */
+  border: 1px solid #007bff;
+}
 
-  @keyframes moveImages {
-    0% {
-      transform: translateX(0);
-    }
-    100% {
-      transform: translateX(-100%);
-    }
-  }
-  .custom-btn {
-    padding: 12px 20px;   /* Padding for larger buttons */
-    font-size: 16px;       /* Larger font size */
-    margin: 8px 0;         /* Spacing between buttons */
-    border-radius: 6px;    /* Rounded corners */
-    width: 100%;           /* Full width for the button */
-    text-align: center;    /* Center text */
-  }
-  
-  .custom-btn:hover {
-    background-color: #e7f1f7; /* Light background change on hover */
-    border-color: #007bff;     /* Border color change */
-  }
-  
-  .container {
-    padding: 20px;       /* Padding around the form */
-    margin-top: 20px;    /* Space above the container */
-  }
-  
-  h4 {
-    font-size: 20px;      /* Larger title */
-    margin-bottom: 16px;  /* Space between title and form */
-  }
-  
+.custom-btn:hover {
+  background-color: #e7f1f7; /* Light background change on hover */
+  border-color: #007bff; /* Border color change */
+  color: #000080; /* Maintain text color */
+}
+
+.container {
+  padding: 20px; /* Padding around the form */
+  margin-top: 20px; /* Space above the container */
+  background-color: #ffffff; /* White background */
+}
+
+h4 {
+  font-size: 20px; /* Larger title */
+  margin-bottom: 16px; /* Space between title and form */
+  color: #000080; /* Navy blue text */
+}
+
 .download-button {
-    background-color: #000080;
-    color: #fff;
-    padding: 4px 8px;
-    border: none;
-    border-radius: 5px;
-    font-size: 1.3rem;
-    cursor: pointer;
-    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
-  }
+  background-color: #000080; /* Navy blue background */
+  color: #ffffff; /* White text for contrast */
+  padding: 4px 8px;
+  border: none;
+  border-radius: 5px;
+  font-size: 1.3rem;
+  cursor: pointer;
+  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+}
 
-  .heading {
-    background-color: #000080;
-    color: white;
-    text-align: center;
-    padding: 0.5rem 1rem;
-    border-radius: 5px;
-  }
-  
+.heading {
+  background-color: #000080; /* Navy blue background */
+  color: #ffffff; /* White text */
+  text-align: center;
+  padding: 0.5rem 1rem;
+  border-radius: 5px;
+}
 
-  .landing-container {
-    display: flex;
-    margin-top: 30px;
-    margin-bottom: 30px;
-    justify-content: center;
-    align-items: center;
-    background-color: #f8f9fa;
-    max-width: 100vw;
-    overflow-x: scroll;
-    -ms-overflow-style: none;  /* For Internet Explorer */
-    scrollbar-width: none;
-  }
+.landing-container {
+  display: flex;
+  margin-top: 30px;
+  margin-bottom: 30px;
+  justify-content: center;
+  align-items: center;
+  background-color: #ffffff; /* White background instead of #f8f9fa */
+  max-width: 100vw;
+  overflow-x: scroll;
+  -ms-overflow-style: none; /* For Internet Explorer */
+  scrollbar-width: none;
+}
 
-  
-  .top-overlay {
-    position: absolute;
-    top: 0;
-    margin-top: 5px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(236, 217, 217, 0.9);
-    color: black;
-    padding: 5px 10px;
-    border-radius: 5px;
-    text-align: center;
-    font-size: 0.8rem;
-    width: auto;
-  }
-  .bottom-overlays {
-    position: absolute;
-    bottom: 37px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex; /* Flexbox layout for side-by-side alignment */
-    gap: 10px; /* Spacing between the overlays */
-  }
-  
-  .bottom-overlay {
-    background: rgba(236, 217, 217, 0.9);
-    color: black;
-    bottom: 37px;
-    padding: 5px 10px;
-    border-radius: 5px;
-    text-align: center;
-    font-size: 10px;
-    font-weight: 700;
-    min-width: 80px; /* Optional: ensure consistent width for overlays */
-  }
-  
- 
+.top-overlay {
+  position: absolute;
+  top: 0;
+  margin-top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.9); /* White semi-transparent background */
+  color: #000080; /* Navy blue text */
+  padding: 5px 10px;
+  border-radius: 5px;
+  text-align: center;
+  font-size: 0.8rem;
+  width: auto;
+}
 
-  .custom-table {
-    font-size: 1rem;
-    text-align: center;
-    vertical-align: middle;
-    font-weight: 700;
-  }
-  
-  .custom-table thead {
-    background-color: #000080;
-    color: white;
-  }
-  .custom-table td{
-    color: #000080;
-  }
-  
-  .custom-table thead th {
-    background-color: #000080 !important;
-    color: #ffffff !important;
-    font-weight: 700 !important;
-    text-align: center !important;
- 
-  }
+.bottom-overlays {
+  position: absolute;
+  bottom: 37px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex; /* Flexbox layout for side-by-side alignment */
+  gap: 10px; /* Spacing between the overlays */
+}
 
-  /* 📌 Table Styling */
+.bottom-overlay {
+  background: rgba(255, 255, 255, 0.9); /* White semi-transparent background */
+  color: #000080; /* Navy blue text */
+  padding: 5px 10px;
+  border-radius: 5px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 80px; /* Optional: ensure consistent width for overlays */
+}
+
+.custom-table {
+  font-size: 1rem;
+  text-align: center;
+  vertical-align: middle;
+  font-weight: 700;
+  background-color: #ffffff; /* White background */
+}
+
+.custom-table thead {
+  background-color: #000080; /* Navy blue header */
+  color: #ffffff; /* White text */
+}
+
+.custom-table td {
+  color: #000080; /* Navy blue text */
+}
+
+.custom-table thead th {
+  background-color: #000080 !important; /* Navy blue header */
+  color: #ffffff !important; /* White text */
+  font-weight: 700 !important;
+  text-align: center !important;
+}
+
+/* 📌 Table Styling */
 .users-table {
   border-radius: 8px;
   overflow: hidden;
+  background-color: #ffffff; /* White background */
 }
 
-.table th, .table td {
+.table th,
+.table td {
   padding: 14px;
   text-align: center;
   vertical-align: middle;
+  color: #000080; /* Navy blue text */
 }
 
 .table-header {
-  font-size: 16px; /* ✅ Increased font size */
+  font-size: 16px; /* Increased font size */
   font-weight: bold;
   text-align: center;
   padding: 12px;
+  background-color: #000080; /* Navy blue header */
+  color: #ffffff; /* White text */
 }
 
 .table-row td {
-  font-size: 15px; /* ✅ Increased row text size */
+  font-size: 15px; /* Increased row text size */
   padding: 10px;
+  color: #000080; /* Navy blue text */
 }
 
 .rounded-left {
@@ -161,40 +168,46 @@
 
 /* ✨ Hover Effect for Rows */
 .table-row:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: #f0f0f0; /* Light gray hover for visibility */
   transition: 0.3s ease-in-out;
 }
 
 /* 🚀 Improved Delete Button */
 .btn-delete {
-  background-color: #dc3545;
+  background-color: #dc3545; /* Red background */
   border: none;
   padding: 6px 10px;
   font-size: 13px;
   border-radius: 6px;
   transition: all 0.3s ease;
+  color: #ffffff; /* White text */
 }
 
 .btn-delete:hover {
-  background-color: #c82333;
+  background-color: #c82333; /* Darker red on hover */
   transform: scale(1.05);
+  color: #ffffff; /* White text */
 }
 
 /* 🔹 Improve Table Responsiveness */
 .table-responsive {
   overflow-x: auto;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+  background-color: #ffffff; /* White background */
 }
 
 /* 🔹 Table Container - Add Margin Below */
 .users-table-container {
   margin-bottom: 30px; /* Adds space between table & next section */
+  background-color: #ffffff; /* White background */
 }
 
 /* 🌟 Improve Table Padding */
-.users-table th, .users-table td {
+.users-table th,
+.users-table td {
   padding: 14px 16px; /* Increase padding for better spacing */
   text-align: center;
+  color: #000080; /* Navy blue text */
 }
 
 /* ✨ Add Spacing to Buttons Below Table */
@@ -210,23 +223,24 @@
   margin-top: 20px; /* Space between LTP section & buttons */
   padding: 20px;
   border-radius: 10px;
-  background: #f8f9fa;
+  background: #ffffff; /* White background */
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
+
 /* 📌 Live LTP Box - Add More Margin Below */
 .ltp-container {
   margin-top: 20px; /* Space above */
-  margin-bottom: 40px; /* 🔥 Increased space below */
+  margin-bottom: 40px; /* Increased space below */
   padding: 20px;
   border-radius: 10px;
-  background: #f8f9fa;
+  background: #ffffff; /* White background */
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
 }
 
 /* 🎨 Dropdown Button - Gradient */
 .btn-dropdown {
-  background: linear-gradient(45deg, #6a11cb, #2575fc);
-  color: rgb(210, 32, 189);
+  background: linear-gradient(45deg, #6a11cb, #2575fc); /* Gradient */
+  color: #ffffff; /* White text instead of rgb(210, 32, 189) */
   border: none;
   font-weight: bold;
   padding: 10px 15px;
@@ -238,13 +252,14 @@
   opacity: 0.85;
   transform: scale(1.05);
   background: linear-gradient(45deg, #2575fc, #6a11cb); /* Reverse gradient on hover */
+  color: #ffffff; /* White text */
 }
 
 /* 🎨 Dropdown Menu - Background Styling */
 .dropdown-menu-custom {
-  background: rgb(210, 39, 193);
+  background: #ffffff; /* White background instead of rgb(210, 39, 193) */
   border-radius: 10px;
-  border: none;
+  border: 1px solid #000080; /* Navy blue border */
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
   overflow-y: auto;
   max-height: 200px; /* Enables scrolling */
@@ -252,7 +267,7 @@
 
 /* 📌 Dropdown Items - Normal State */
 .dropdown-menu-custom .dropdown-item {
-  color: #000080;
+  color: #000080; /* Navy blue text */
   font-weight: bold;
   padding: 12px 15px;
   transition: all 0.3s ease-in-out;
@@ -262,78 +277,18 @@
 /* 🌟 Dropdown Items - Hover Effect */
 .dropdown-menu-custom .dropdown-item:hover {
   background: linear-gradient(45deg, #ff8c00, #ff4500); /* Orange Gradient */
-  color: rgb(229, 153, 31);
+  color: #ffffff; /* White text instead of rgb(229, 153, 31) */
   border-radius: 5px;
   transform: scale(1.05);
 }
-/* src/css/landing.css */
-body {
-  margin: 0;
-  font-family: 'Roboto', sans-serif;
-  background: #0f0f23;
-}
 
-/* Modal Dark Theme (for Bootstrap 5) */
-.modal-dark .modal-content {
-  background: #1a1a2e;
-  color: #e0e0e0;
-  border: none;
-}
-
-.modal-dark .modal-header {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.modal-dark .btn-close {
-  filter: invert(1) grayscale(100%) brightness(200%);
-}
-
-.modal-dark .btn-close:hover {
-  opacity: 0.8;
-}
-
-/* Form Inputs */
-.form-control {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #e0e0e0;
-}
-
-.form-control:focus {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: #4ecdc4;
-  color: #fff;
-  box-shadow: none;
-}
-
-/* Table Enhancements */
-.table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-/* Optional: Additional Styling for Readability */
-h3, h4 {
-  color: #fff;
-  font-weight: 500;
-}
-
-p {
-  margin: 5px 0;
-  color: #e0e0e0;
-}
-
-/* Ensure TradingView Widget fits nicely */
-.tradingview-widget-container {
-  border-radius: 10px;
-  overflow: hidden;
-}
-  /* Dashboard Button Styling */
+/* Dashboard Button Styling */
 .dashboard-button {
   width: 320px; /* Set a fixed width */
   height: 90px; /* Increase height */
   font-size: 18px; /* Larger text */
   font-weight: bold;
-  color: white;
+  color: #ffffff; /* White text */
   border: none;
   border-radius: 12px;
   display: flex;
@@ -346,18 +301,41 @@ p {
 }
 
 /* Gradient Colors */
-.btn-market { background: linear-gradient(45deg, #2798de, #392398); } /* Market Overview */
-.btn-indices { background: linear-gradient(45deg, #000000, #f4f3f3); } /* Indices */
-.btn-chart { background: linear-gradient(45deg, #6c28a4, #0c9e21); } /* Chart */
-.btn-option { background: linear-gradient(45deg, #DC143C, #d79b19); } /* Option Chain */
-.btn-ltp { background: linear-gradient(45deg, #b12c85, #2b4eba); } /* Fetch LTP */
-.btn-buy { background: linear-gradient(45deg, #32CD32, #008000); } /* Buy */
-.btn-sell { background: linear-gradient(45deg, #FF4500, #DC143C); } /* Sell */
-.btn-stop { background: linear-gradient(45deg, #2C3E50, #4CA1AF); } /* Stop Simulation */
-.btn-register { background: linear-gradient(45deg, #6a11cb, #2575fc); } /* Register */
-.btn-users { background: linear-gradient(45deg, #8e44ad, #3498db); } /* View Users */
-.btn-login { background: linear-gradient(45deg, #7B68EE, #00BFFF); } /* Angel Login */
-.btn-trades {background: linear-gradient(45deg, #229db0, #e75607); /* Trades Dashboard Gradient */
+.btn-market {
+  background: linear-gradient(45deg, #2798de, #392398);
+}
+.btn-indices {
+  background: linear-gradient(45deg, #000000, #f4f3f3);
+}
+.btn-chart {
+  background: linear-gradient(45deg, #6c28a4, #0c9e21);
+}
+.btn-option {
+  background: linear-gradient(45deg, #dc143c, #d79b19);
+}
+.btn-ltp {
+  background: linear-gradient(45deg, #b12c85, #2b4eba);
+}
+.btn-buy {
+  background: linear-gradient(45deg, #32cd32, #008000);
+}
+.btn-sell {
+  background: linear-gradient(45deg, #ff4500, #dc143c);
+}
+.btn-stop {
+  background: linear-gradient(45deg, #2c3e50, #4ca1af);
+}
+.btn-register {
+  background: linear-gradient(45deg, #6a11cb, #2575fc);
+}
+.btn-users {
+  background: linear-gradient(45deg, #8e44ad, #3498db);
+}
+.btn-login {
+  background: linear-gradient(45deg, #7b68ee, #00bfff);
+}
+.btn-trades {
+  background: linear-gradient(45deg, #229db0, #e75607); /* Trades Dashboard Gradient */
 }
 
 /* Hover Effect */
@@ -365,22 +343,24 @@ p {
   transform: scale(1.07);
   opacity: 0.85;
   box-shadow: 0 6px 8px rgba(0, 0, 0, 0.3);
+  color: #ffffff; /* Maintain white text */
 }
 
 /* Ensure buttons align in rows properly */
 .d-flex.flex-wrap {
   justify-content: center;
-} 
+}
 
 .trading-chart-container {
   margin-bottom: 50px; /* Adjust as needed */
+  background-color: #ffffff; /* White background */
 }
 
 /* ===================== Custom Table Styles ===================== */
 .table-custom {
   border-radius: 10px;
   overflow: hidden;
-  background: #f8f9fa;
+  background: #ffffff; /* White background */
 }
 
 .table-header {
@@ -395,19 +375,19 @@ p {
 }
 
 .table-custom tbody tr:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: #f0f0f0; /* Light gray hover for visibility */
 }
 
 /* ===================== Trade Position Styles ===================== */
 .long-trade {
   background: rgba(0, 255, 0, 0.1);
-  color: #198754;
+  color: #198754; /* Green text */
   font-weight: bold;
 }
 
 .short-trade {
   background: rgba(255, 0, 0, 0.1);
-  color: #dc3545;
+  color: #dc3545; /* Red text */
   font-weight: bold;
 }
 
@@ -418,12 +398,12 @@ p {
 }
 
 .user-icon {
-  color: #0d6efd;
+  color: #0d6efd; /* Blue icon */
   font-size: 16px;
   transition: all 0.3s;
 }
 
 .user-icon:hover {
   transform: scale(1.2);
-  color: #0a58ca;
+  color: #0a58ca; /* Darker blue on hover */
 }
