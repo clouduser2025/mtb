@@ -63,19 +63,9 @@ const Landing = () => {
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = {
-        username: formData.username,
-        password: formData.password,
-        broker: formData.broker,
-        api_key: formData.api_key,
-        totp_token: formData.totp_token,
-        default_quantity: parseInt(formData.default_quantity || 1, 10),
-      };
-      if (formData.broker === "Shoonya") {
-        payload.vendor_code = formData.vendor_code;
-      }
+      const payload = { /* ... */ };
       const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
-        method: "POST",
+        método: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -85,6 +75,7 @@ const Landing = () => {
         fetchUsers();
         setFormData({ ...formData, username: "", password: "", api_key: "", totp_token: "", vendor_code: "" });
         setShowRegisterModal(false);
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds for WebSocket to initialize
       } else {
         setMessage({ text: data.detail || "Registration failed", type: "danger" });
       }

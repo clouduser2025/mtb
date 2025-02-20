@@ -190,37 +190,49 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
         try:
             response = api_client.placeOrderFullResponse(orderparams)
             logger.debug(f"AngelOne {position_type} order response: {response}")
-            if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
+            # Angel One returns 'status': True for success, not 'success'
+            if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
                 logger.info(f"AngelOne {position_type} order placed: {response['data']['orderid']}")
                 return {"order_id": response['data']['orderid'], "status": "success"}
             elif response.get('errorcode') == 'AB1010':
                 logger.warning(f"Session expired for {username}. Attempting refresh...")
                 if refresh_angelone_session(username, api_client):
                     response = api_client.placeOrderFullResponse(orderparams)
-                    if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
+                    if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
+                        logger.info(f"AngelOne {position_type} order placed after refresh: {response['data']['orderid']}")
                         return {"order_id": response['data']['orderid'], "status": "success"}
+                logger.warning(f"Refresh failed. Performing full re-authentication for {username}")
                 api_client = full_reauth_user(username)
                 response = api_client.placeOrderFullResponse(orderparams)
-                if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
+                if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
+                    logger.info(f"AngelOne {position_type} order placed after re-auth: {response['data']['orderid']}")
                     return {"order_id": response['data']['orderid'], "status": "success"}
             raise HTTPException(status_code=400, detail=f"AngelOne {position_type} order failed: {response.get('message', 'Unknown error')}")
+        except HTTPException as e:
+            raise e
         except Exception as e:
             logger.error(f"AngelOne {position_type} order error: {e}")
             raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
     elif broker == "Shoonya":
         orderparams["buy_or_sell"] = "B" if position_type == "LONG" else "S"
         orderparams["price_type"] = "MKT"
-        response = api_client.place_order(**orderparams)
-        logger.debug(f"Shoonya {position_type} order response: {response}")
-        if response.get('stat') == 'Ok' and 'norenordno' in response:
-            logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
-            return {"order_id": response['norenordno'], "status": "success"}
-        if response.get('emsg', '').startswith("Session Expired"):
-            api_client = full_reauth_user(username)
+        try:
             response = api_client.place_order(**orderparams)
+            logger.debug(f"Shoonya {position_type} order response: {response}")
             if response.get('stat') == 'Ok' and 'norenordno' in response:
+                logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
                 return {"order_id": response['norenordno'], "status": "success"}
-        raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {response.get('emsg', 'Unknown error')}")
+            if response.get('emsg', '').startswith("Session Expired"):
+                logger.warning(f"Session expired for {username}. Re-authenticating...")
+                api_client = full_reauth_user(username)
+                response = api_client.place_order(**orderparams)
+                if response.get('stat') == 'Ok' and 'norenordno' in response:
+                    logger.info(f"Shoonya {position_type} order placed after re-auth: {response['norenordno']}")
+                    return {"order_id": response['norenordno'], "status": "success"}
+            raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {response.get('emsg', 'Unknown error')}")
+        except Exception as e:
+            logger.error(f"Shoonya {position_type} order error: {e}")
+            raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
     with conn:
