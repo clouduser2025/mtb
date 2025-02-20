@@ -11,4 +11,3 @@ pydantic
 openpyxl
 numpy
 shoonya-api
-NorenRestApi-0.0.30-py2.py3-none-any.whl
