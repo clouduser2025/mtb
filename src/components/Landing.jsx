@@ -37,7 +37,7 @@ const Landing = () => {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch("http://localhost:8000/api/get_users");
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_users");
       const data = await response.json();
       setUsers(data.users || []);
     } catch (error) {
@@ -48,7 +48,7 @@ const Landing = () => {
 
   const fetchOpenPositions = async () => {
     try {
-      const response = await fetch("http://localhost:8000/api/get_trades");
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_trades");
       const data = await response.json();
       setOpenTrades(data.trades || []);
     } catch (error) {
@@ -60,7 +60,7 @@ const Landing = () => {
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch("http://localhost:8000/api/register_user", {
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -89,7 +89,7 @@ const Landing = () => {
 
   const handleDeleteUser = async (username) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/delete_user/${username}`, { method: "DELETE" });
+      const response = await fetch(`https://mtb-8ra9.onrender.com/api/delete_user/${username}`, { method: "DELETE" });
       const data = await response.json();
       if (response.ok) {
         setUsers(users.filter(user => user.username !== username));
@@ -111,7 +111,7 @@ const Landing = () => {
 
     try {
       for (const username of selectedUsers) {
-        const response = await fetch("http://localhost:8000/api/initiate_buy_trade", {
+        const response = await fetch("https://mtb-8ra9.onrender.com/api/initiate_buy_trade", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -155,7 +155,7 @@ const Landing = () => {
 
     try {
       for (const username of selectedUsers) {
-        const response = await fetch("http://localhost:8000/api/update_trade_conditions", {
+        const response = await fetch("https://mtb-8ra9.onrender.com/api/update_trade_conditions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
