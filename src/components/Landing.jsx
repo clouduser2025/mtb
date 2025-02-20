@@ -18,18 +18,18 @@ const Landing = () => {
   const [formData, setFormData] = useState({
     username: "",
     password: "",
-    broker: "Angel",
+    broker: "Angel",  // Default to Angel, can be "Shoonya"
     api_key: "",
     totp_token: "",
     default_quantity: 1,
     tradingsymbol: "",
-    symboltoken: "3045",
+    symboltoken: "3045",  // Default for Angel, can adjust for Shoonya
     exchange: "NSE",
     strike_price: 100,  // Default from examples
     buy_type: "Fixed",  // Default: Fixed Price Buy
     buy_threshold: 110, // Default: ₹110
     previous_close: 100, // Default for Percentage Buy
-    producttype: "INTRADAY",
+    producttype: "INTRADAY",  // Default for Angel, can be "C", "I", etc. for Shoonya
     stop_loss_type: "Fixed", // Default: Fixed Stop-Loss
     stop_loss_value: 5,      // Default: 5 points
     points_condition: 0,     // Default: No adjustment
@@ -74,7 +74,7 @@ const Landing = () => {
       });
       const data = await response.json();
       if (response.ok) {
-        setMessage({ text: "User registered successfully!", type: "success" });
+        setMessage({ text: `User ${formData.username} registered successfully (${formData.broker})!`, type: "success" });
         fetchUsers();
         setFormData({ ...formData, username: "", password: "", api_key: "", totp_token: "" });
         setShowRegisterModal(false);
@@ -83,7 +83,7 @@ const Landing = () => {
       }
     } catch (error) {
       console.error("Error registering user:", error);
-      setMessage({ text: "Server error. Try again later.", type: "danger" });
+      setMessage({ text: `Server error registering ${formData.broker} user. Try again later.`, type: "danger" });
     }
   };
 
@@ -111,6 +111,12 @@ const Landing = () => {
 
     try {
       for (const username of selectedUsers) {
+        const user = users.find(u => u.username === username);
+        if (!user) continue;
+
+        // Adjust producttype based on broker (e.g., "INTRADAY" for Angel, "I" for Shoonya MIS)
+        const adjustedProductType = user.broker === "Shoonya" && formData.producttype === "INTRADAY" ? "I" : formData.producttype;
+
         const response = await fetch("https://mtb-8ra9.onrender.com/api/initiate_buy_trade", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -123,7 +129,7 @@ const Landing = () => {
             buy_type: formData.buy_type,
             buy_threshold: formData.buy_threshold,
             previous_close: formData.buy_type === "Percentage" ? formData.previous_close : undefined,
-            producttype: formData.producttype,
+            producttype: adjustedProductType,
             stop_loss_type: formData.stop_loss_type,
             stop_loss_value: formData.stop_loss_value,
             points_condition: formData.points_condition,
@@ -132,11 +138,11 @@ const Landing = () => {
 
         const data = await response.json();
         if (response.ok) {
-          setMessage({ text: `Buy trade initiated for ${username}! Position ID: ${data.position_id}`, type: "success" });
+          setMessage({ text: `Buy trade initiated for ${username} (${user.broker})! Position ID: ${data.position_id}`, type: "success" });
           setActiveTradeId(data.position_id);
           fetchOpenPositions();
         } else {
-          setMessage({ text: `Failed for ${username}: ${data.detail}`, type: "danger" });
+          setMessage({ text: `Failed for ${username} (${user.broker}): ${data.detail}`, type: "danger" });
         }
       }
     } catch (error) {
@@ -155,6 +161,9 @@ const Landing = () => {
 
     try {
       for (const username of selectedUsers) {
+        const user = users.find(u => u.username === username);
+        if (!user) continue;
+
         const response = await fetch("https://mtb-8ra9.onrender.com/api/update_trade_conditions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -169,9 +178,9 @@ const Landing = () => {
 
         const data = await response.json();
         if (response.ok) {
-          setMessage({ text: `Conditions updated for ${username}!`, type: "success" });
+          setMessage({ text: `Conditions updated for ${username} (${user.broker})!`, type: "success" });
         } else {
-          setMessage({ text: `Failed to update for ${username}: ${data.detail}`, type: "danger" });
+          setMessage({ text: `Failed to update for ${username} (${user.broker}): ${data.detail}`, type: "danger" });
         }
       }
     } catch (error) {
@@ -194,6 +203,9 @@ const Landing = () => {
         </Dropdown.Item>
         <Dropdown.Item onClick={() => window.open('https://www.angelone.in/login/?redirectUrl=account', '_blank')}>
           <FontAwesomeIcon icon={faSignInAlt} className="me-2" /> Angel Login
+        </Dropdown.Item>
+        <Dropdown.Item onClick={() => window.open('https://www.shoonya.com/login', '_blank')}>
+          <FontAwesomeIcon icon={faSignInAlt} className="me-2" /> Shoonya Login
         </Dropdown.Item>
       </Dropdown.Menu>
     </Dropdown>
@@ -260,6 +272,7 @@ const Landing = () => {
                 <th>Stop-Loss Type</th>
                 <th>Stop-Loss Value</th>
                 <th>Position</th>
+                <th>Broker</th>
               </tr>
             </thead>
             <tbody>
@@ -274,10 +287,11 @@ const Landing = () => {
                     <td>{trade.stop_loss_type}</td>
                     <td>{trade.stop_loss_value}</td>
                     <td><span className="badge bg-success">Buy</span></td>
+                    <td>{users.find(u => u.username === trade.username)?.broker || "Unknown"}</td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="8" className="text-muted text-center">No active trades found.</td></tr>
+                <tr><td colSpan="9" className="text-muted text-center">No active trades found.</td></tr>
               )}
             </tbody>
           </Table>
@@ -373,6 +387,22 @@ const Landing = () => {
                 {formData.buy_type === "Percentage" && (
                   <Col md={4}><Form.Group><Form.Label>Previous Close</Form.Label><Form.Control type="number" value={formData.previous_close} onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })} required /></Form.Group></Col>
                 )}
+                <Col md={4}><Form.Group><Form.Label>Product Type</Form.Label><Form.Select value={formData.producttype} onChange={(e) => setFormData({ ...formData, producttype: e.target.value })}>
+                  {formData.broker === "Angel" ? (
+                    <>
+                      <option value="INTRADAY">Intraday</option>
+                      <option value="DELIVERY">Delivery</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="C">CNC (Cash and Carry)</option>
+                      <option value="I">MIS (Intraday)</option>
+                      <option value="M">NRML (Normal)</option>
+                      <option value="B">Bracket Order</option>
+                      <option value="H">Cover Order</option>
+                    </>
+                  )}
+                </Form.Select></Form.Group></Col>
               </Row>
               <Button variant="primary" onClick={() => setFormStep(5)}>Next</Button>
               <Button variant="secondary" onClick={() => setFormStep(3)} className="ms-2">Back</Button>
@@ -392,6 +422,8 @@ const Landing = () => {
                   <p><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
                   <p><strong>Buy Condition:</strong> {formData.buy_type === "Fixed" ? `≥ ₹${formData.buy_threshold}` : `≥ ₹${(formData.previous_close * (1 + formData.buy_threshold / 100)).toFixed(2)} (${formData.buy_threshold}%)`}</p>
                   <p><strong>Sell Condition (Stop-Loss):</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
+                  <p><strong>Product Type:</strong> {formData.producttype}</p>
+                  <p><strong>Broker:</strong> {formData.broker}</p>
                 </Col>
               </Row>
               <Button variant="success" onClick={handleInitiateTrade}>Execute Trade</Button>
@@ -423,7 +455,10 @@ const Landing = () => {
           <Form onSubmit={handleRegisterSubmit}>
             <Form.Group><Form.Label>Username</Form.Label><Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required /></Form.Group>
             <Form.Group><Form.Label>Password</Form.Label><Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required /></Form.Group>
-            <Form.Group><Form.Label>Broker</Form.Label><Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })}><option value="Angel">Angel</option><option value="Zerodha">Zerodha</option></Form.Select></Form.Group>
+            <Form.Group><Form.Label>Broker</Form.Label><Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })}>
+              <option value="Angel">Angel</option>
+              <option value="Shoonya">Shoonya</option>
+            </Form.Select></Form.Group>
             <Form.Group><Form.Label>API Key</Form.Label><Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required /></Form.Group>
             <Form.Group><Form.Label>TOTP Token</Form.Label><Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required /></Form.Group>
             <Form.Group><Form.Label>Default Quantity</Form.Label><Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required /></Form.Group>
