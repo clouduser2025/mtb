@@ -18,22 +18,24 @@ const Landing = () => {
   const [formData, setFormData] = useState({
     username: "",
     password: "",
-    broker: "AngelOne",  // Updated default to match backend
+    broker: "AngelOne",
     api_key: "",
     totp_token: "",
-    vendor_code: "",     // Added for Shoonya
+    vendor_code: "",
     default_quantity: 1,
     tradingsymbol: "",
-    symboltoken: "3045", // Default for AngelOne, adjustable for Shoonya
+    symboltoken: "3045",
     exchange: "NSE",
     strike_price: 100,
     buy_type: "Fixed",
     buy_threshold: 110,
     previous_close: 100,
-    producttype: "INTRADAY", // Default for AngelOne, adjustable for Shoonya
+    producttype: "INTRADAY",
     stop_loss_type: "Fixed",
     stop_loss_value: 5,
     points_condition: 0,
+    sell_type: "Fixed",
+    sell_threshold: 90
   });
 
   const fetchUsers = async () => {
@@ -70,7 +72,7 @@ const Landing = () => {
         default_quantity: parseInt(formData.default_quantity || 1, 10),
       };
       if (formData.broker === "Shoonya") {
-        payload.vendor_code = formData.vendor_code; // Include vendor_code for Shoonya
+        payload.vendor_code = formData.vendor_code;
       }
       const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
         method: "POST",
@@ -132,11 +134,13 @@ const Landing = () => {
             strike_price: formData.strike_price,
             buy_type: formData.buy_type,
             buy_threshold: formData.buy_threshold,
-            previous_close: formData.buy_type === "Percentage" ? formData.previous_close : undefined,
+            previous_close: formData.buy_type === "Percentage" || formData.sell_type === "Percentage" ? formData.previous_close : undefined,
             producttype: adjustedProductType,
             stop_loss_type: formData.stop_loss_type,
             stop_loss_value: formData.stop_loss_value,
             points_condition: formData.points_condition,
+            sell_type: formData.sell_type,
+            sell_threshold: formData.sell_threshold
           }),
         });
 
@@ -222,7 +226,11 @@ const Landing = () => {
 
   return (
     <Container className="mt-4">
-      {message.text && <Alert variant={message.type} className="mt-3 mb-3">{message.text}</Alert>}
+      {message.text && (
+        <Alert variant={message.type === "success" ? "success" : "danger"} className="mt-3 mb-3" style={{ backgroundColor: message.type === "success" ? "#d4edda" : "#f8d7da", color: message.type === "success" ? "#155724" : "#721c24" }}>
+          {message.text}
+        </Alert>
+      )}
 
       <Row className="justify-content-end mb-3" style={{ position: "absolute", top: "9%", right: "10px", zIndex: "1000" }}>
         <Col xs="auto">
@@ -240,7 +248,7 @@ const Landing = () => {
                 <th>Username</th>
                 <th>Broker</th>
                 <th>Default Quantity</th>
-                <th>Vendor Code</th> {/* Added for Shoonya */}
+                <th>Vendor Code</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -277,6 +285,7 @@ const Landing = () => {
                 <th>Buy Threshold</th>
                 <th>Stop-Loss Type</th>
                 <th>Stop-Loss Value</th>
+                <th>Sell Threshold</th>
                 <th>Position</th>
                 <th>Broker</th>
               </tr>
@@ -288,16 +297,17 @@ const Landing = () => {
                     <td>{index + 1}</td>
                     <td>{trade.username}</td>
                     <td>{trade.symbol}</td>
-                    <td>₹{trade.entry_price}</td>
+                    <td style={{ color: "green" }}>₹{trade.entry_price}</td>
                     <td>₹{trade.buy_threshold}</td>
                     <td>{trade.stop_loss_type}</td>
                     <td>{trade.stop_loss_value}</td>
+                    <td style={{ color: "red" }}>₹{trade.sell_threshold || "N/A"}</td>
                     <td><span className="badge bg-success">Buy</span></td>
                     <td>{users.find(u => u.username === trade.username)?.broker || "Unknown"}</td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="9" className="text-muted text-center">No active trades found.</td></tr>
+                <tr><td colSpan="10" className="text-muted text-center">No active trades found.</td></tr>
               )}
             </tbody>
           </Table>
@@ -428,12 +438,31 @@ const Landing = () => {
             <h4 className="text-success"><FontAwesomeIcon icon={faExchangeAlt} /> Step 5: Confirm Sell Condition and Execute Trade</h4>
             <Form>
               <Row className="mb-3">
+                <Col md={4}>
+                  <Form.Group><Form.Label>Sell Condition Type</Form.Label>
+                    <Form.Select value={formData.sell_type} onChange={(e) => setFormData({ ...formData, sell_type: e.target.value })}>
+                      <option value="Fixed">Fixed Price (e.g., ₹90)</option>
+                      <option value="Percentage">Percentage Decrease (e.g., 5%)</option>
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+                <Col md={4}>
+                  <Form.Group><Form.Label>{formData.sell_type === "Fixed" ? "Sell Threshold" : "Sell % Decrease"}</Form.Label>
+                    <Form.Control type="number" value={formData.sell_threshold} onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })} required />
+                  </Form.Group>
+                </Col>
+                {formData.sell_type === "Percentage" && (
+                  <Col md={4}><Form.Group><Form.Label>Previous Close</Form.Label><Form.Control type="number" value={formData.previous_close} onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })} required /></Form.Group></Col>
+                )}
+              </Row>
+              <Row className="mb-3">
                 <Col>
                   <p><strong>Selected Users:</strong> {selectedUsers.join(", ")}</p>
                   <p><strong>Symbol:</strong> {formData.tradingsymbol}</p>
                   <p><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
-                  <p><strong>Buy Condition:</strong> {formData.buy_type === "Fixed" ? `≥ ₹${formData.buy_threshold}` : `≥ ₹${(formData.previous_close * (1 + formData.buy_threshold / 100)).toFixed(2)} (${formData.buy_threshold}%)`}</p>
-                  <p><strong>Sell Condition (Stop-Loss):</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
+                  <p style={{ color: "green" }}><strong>Buy Condition:</strong> {formData.buy_type === "Fixed" ? `≥ ₹${formData.buy_threshold}` : `≥ ₹${(formData.previous_close * (1 + formData.buy_threshold / 100)).toFixed(2)} (${formData.buy_threshold}%)`}</p>
+                  <p style={{ color: "red" }}><strong>Stop-Loss:</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
+                  <p style={{ color: "red" }}><strong>Sell Condition:</strong> {formData.sell_type === "Fixed" ? `≤ ₹${formData.sell_threshold}` : `≤ ₹${(formData.previous_close * (1 - formData.sell_threshold / 100)).toFixed(2)} (${formData.sell_threshold}%)`}</p>
                   <p><strong>Product Type:</strong> {formData.producttype}</p>
                   <p><strong>Brokers:</strong> {selectedUsers.map(u => users.find(user => user.username === u)?.broker).join(", ")}</p>
                 </Col>
@@ -462,7 +491,7 @@ const Landing = () => {
       <Modal show={showRegisterModal} onHide={() => setShowRegisterModal(false)}>
         <Modal.Header closeButton><Modal.Title>Register User</Modal.Title></Modal.Header>
         <Modal.Body>
-          {message.text && <Alert variant={message.type}>{message.text}</Alert>}
+          {message.text && <Alert variant={message.type === "success" ? "success" : "danger"}>{message.text}</Alert>}
           <Form onSubmit={handleRegisterSubmit}>
             <Form.Group><Form.Label>Username</Form.Label><Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required /></Form.Group>
             <Form.Group><Form.Label>Password</Form.Label><Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required /></Form.Group>

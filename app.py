@@ -52,7 +52,10 @@ def init_db():
             position_type TEXT DEFAULT 'LONG',
             position_active BOOLEAN DEFAULT 1,
             highest_price REAL,
-            base_price REAL
+            base_price REAL,
+            sell_type TEXT,
+            sell_threshold REAL,
+            previous_close REAL
         )
         """)
     conn.commit()
@@ -81,6 +84,8 @@ class TradeRequest(BaseModel):
     stop_loss_type: str = "Fixed"
     stop_loss_value: float = 5.0
     points_condition: float = 0
+    sell_type: Optional[str] = "Fixed"
+    sell_threshold: Optional[float] = 90
 
 class UpdateTradeRequest(BaseModel):
     username: str
@@ -103,7 +108,7 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
             data = smart_api.generateSession(username, password, totp)
             if data['status'] == False:
                 logger.error(f"AngelOne Authentication failed for {username}: {data}")
-                raise Exception(f"Authentication failed: {data.get('message', 'Unknown error')}")
+                raise Exception(f"Authentication failed: {data.get('message')}")
             auth_token = data['data']['jwtToken']
             refresh_token = data['data']['refreshToken']
             feed_token = smart_api.getfeedToken()
@@ -118,13 +123,12 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
             ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei="trading_app")
             if ret.get('stat') != 'Ok':
                 logger.error(f"Shoonya Authentication failed for {username}: {ret}")
-                raise Exception(f"Authentication failed: {ret.get('emsg', 'Unknown error')}")
+                raise Exception(f"Authentication failed: {ret.get('emsg')}")
             return smart_api, ret['susertoken'], None, None
         except Exception as e:
             logger.error(f"Shoonya Auth error for {username}: {e}")
             raise
-    else:
-        raise HTTPException(status_code=400, detail=f"Unsupported broker: {broker}")
+    raise HTTPException(status_code=400, detail=f"Unsupported broker: {broker}")
 
 def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
     if username not in refresh_tokens:
@@ -165,18 +169,13 @@ def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symbolto
     symbol_key = f"{exchange}:{tradingsymbol}:{symboltoken}"
     if symbol_key in ltp_cache:
         return ltp_cache[symbol_key]
-    
     if broker == "AngelOne":
-        try:
-            ltp_data = api_client.ltpData(exchange, tradingsymbol, symboltoken)
-            if ltp_data and 'data' in ltp_data and 'ltp' in ltp_data['data']:
-                ltp = float(ltp_data['data']['ltp'])
-                ltp_cache[symbol_key] = ltp
-                return ltp
-            raise HTTPException(status_code=400, detail="No LTP data available")
-        except Exception as e:
-            logger.error(f"AngelOne LTP fetch error: {e}")
-            raise HTTPException(status_code=400, detail="LTP fetch failed")
+        ltp_data = api_client.ltpData(exchange, tradingsymbol, symboltoken)
+        if ltp_data and 'data' in ltp_data and 'ltp' in ltp_data['data']:
+            ltp = float(ltp_data['data']['ltp'])
+            ltp_cache[symbol_key] = ltp
+            return ltp
+        raise HTTPException(status_code=400, detail="No LTP data available")
     elif broker == "Shoonya":
         quotes = api_client.get_quotes(exchange=exchange, token=symboltoken)
         if quotes.get('stat') == 'Ok' and 'lp' in quotes:
@@ -190,50 +189,38 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
         orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
         try:
             response = api_client.placeOrderFullResponse(orderparams)
-            logger.debug(f"AngelOne {position_type} order response: {response}")  # Log full response
+            logger.debug(f"AngelOne {position_type} order response: {response}")
             if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
                 logger.info(f"AngelOne {position_type} order placed: {response['data']['orderid']}")
                 return {"order_id": response['data']['orderid'], "status": "success"}
-            elif response.get('errorcode') == 'AB1010':  # Session expired
+            elif response.get('errorcode') == 'AB1010':
                 logger.warning(f"Session expired for {username}. Attempting refresh...")
                 if refresh_angelone_session(username, api_client):
                     response = api_client.placeOrderFullResponse(orderparams)
                     if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
-                        logger.info(f"AngelOne {position_type} order placed after refresh: {response['data']['orderid']}")
                         return {"order_id": response['data']['orderid'], "status": "success"}
-                logger.warning(f"Refresh failed. Performing full re-authentication for {username}")
                 api_client = full_reauth_user(username)
                 response = api_client.placeOrderFullResponse(orderparams)
                 if response.get('status') == 'success' and 'data' in response and 'orderid' in response['data']:
-                    logger.info(f"AngelOne {position_type} order placed after re-auth: {response['data']['orderid']}")
                     return {"order_id": response['data']['orderid'], "status": "success"}
             raise HTTPException(status_code=400, detail=f"AngelOne {position_type} order failed: {response.get('message', 'Unknown error')}")
-        except HTTPException as e:
-            logger.error(f"AngelOne {position_type} order placement error: {e.detail}")
-            raise
         except Exception as e:
-            logger.error(f"AngelOne {position_type} order placement error: {str(e)}")
+            logger.error(f"AngelOne {position_type} order error: {e}")
             raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
     elif broker == "Shoonya":
         orderparams["buy_or_sell"] = "B" if position_type == "LONG" else "S"
         orderparams["price_type"] = "MKT"
-        try:
+        response = api_client.place_order(**orderparams)
+        logger.debug(f"Shoonya {position_type} order response: {response}")
+        if response.get('stat') == 'Ok' and 'norenordno' in response:
+            logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
+            return {"order_id": response['norenordno'], "status": "success"}
+        if response.get('emsg', '').startswith("Session Expired"):
+            api_client = full_reauth_user(username)
             response = api_client.place_order(**orderparams)
-            logger.debug(f"Shoonya {position_type} order response: {response}")
             if response.get('stat') == 'Ok' and 'norenordno' in response:
-                logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
                 return {"order_id": response['norenordno'], "status": "success"}
-            if response.get('emsg', '').startswith("Session Expired"):
-                logger.warning(f"Session expired for {username}. Re-authenticating...")
-                api_client = full_reauth_user(username)
-                response = api_client.place_order(**orderparams)
-                if response.get('stat') == 'Ok' and 'norenordno' in response:
-                    logger.info(f"Shoonya {position_type} order placed after re-auth: {response['norenordno']}")
-                    return {"order_id": response['norenordno'], "status": "success"}
-            raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {response.get('emsg', 'Unknown error')}")
-        except Exception as e:
-            logger.error(f"Shoonya {position_type} order placement error: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {response.get('emsg', 'Unknown error')}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
     with conn:
@@ -241,11 +228,11 @@ def update_open_positions(position_id: str, username: str, symbol: str, entry_pr
         cursor.execute("""
             INSERT OR REPLACE INTO open_positions (position_id, username, symbol, symboltoken, entry_price, buy_threshold, 
                                                   stop_loss_type, stop_loss_value, points_condition, position_type, 
-                                                  position_active, highest_price, base_price)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?)
+                                                  position_active, highest_price, base_price, sell_type, sell_threshold, previous_close)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?, ?, ?, ?)
         """, (position_id, username, symbol, conditions['symboltoken'], entry_price, conditions['buy_threshold'], 
               conditions['stop_loss_type'], conditions['stop_loss_value'], conditions['points_condition'],
-              entry_price, entry_price))
+              entry_price, entry_price, conditions.get('sell_type'), conditions.get('sell_threshold'), conditions.get('previous_close')))
         conn.commit()
 
 def on_data_angel(wsapp, message):
@@ -275,7 +262,8 @@ def process_position_update(tradingsymbol: str, ltp: float):
         positions = cursor.fetchall()
     for position in positions:
         pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
-                             "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], position))
+                             "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
+                             "sell_type", "sell_threshold", "previous_close"], position))
         username = pos_data['username']
         if username in smart_api_instances:
             api_client = smart_api_instances[username]
@@ -334,13 +322,19 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
         elif position_data['stop_loss_type'] == "Points":
             stop_loss_price = highest_price - position_data['stop_loss_value']
 
+    sell_price = None
+    if position_data.get('sell_type') == "Fixed" and position_data.get('sell_threshold'):
+        sell_price = position_data['sell_threshold']
+    elif position_data.get('sell_type') == "Percentage" and position_data.get('sell_threshold') and position_data.get('previous_close'):
+        sell_price = position_data['previous_close'] * (1 - position_data['sell_threshold'] / 100)
+
     with conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE open_positions SET highest_price = ?, base_price = ? WHERE position_id = ?", 
                        (highest_price, base_price, position_data['position_id']))
         conn.commit()
 
-    if ltp <= stop_loss_price:
+    if (stop_loss_price and ltp <= stop_loss_price) or (sell_price and ltp <= sell_price):
         with conn:
             cursor = conn.cursor()
             cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
@@ -373,7 +367,7 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             cursor = conn.cursor()
             cursor.execute("UPDATE open_positions SET position_active = 0 WHERE position_id = ?", (position_data['position_id'],))
             conn.commit()
-        logger.info(f"Stop-loss hit for {username}. Sold at {ltp}")
+        logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -449,8 +443,8 @@ def get_trades():
         cursor.execute("SELECT * FROM open_positions WHERE position_active = 1")
         trades = cursor.fetchall()
     return {"trades": [dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
-                                 "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], row))
-                       for row in trades]}
+                                 "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
+                                 "sell_type", "sell_threshold", "previous_close"], row)) for row in trades]}
 
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
@@ -494,7 +488,7 @@ async def initiate_trade(request: TradeRequest):
                 "stoploss": "0"
             } if broker == "AngelOne" else {
                 "buy_or_sell": "B",
-                "product_type": "I",
+                "product_type": "I" if params['producttype'] == "INTRADAY" else params['producttype'],
                 "exchange": params['exchange'],
                 "tradingsymbol": params['tradingsymbol'],
                 "quantity": default_quantity,
@@ -512,7 +506,10 @@ async def initiate_trade(request: TradeRequest):
             'stop_loss_type': params['stop_loss_type'],
             'stop_loss_value': params['stop_loss_value'],
             'points_condition': params['points_condition'],
-            'symboltoken': params['symboltoken']
+            'symboltoken': params['symboltoken'],
+            'sell_type': params.get('sell_type'),
+            'sell_threshold': params.get('sell_threshold'),
+            'previous_close': params.get('previous_close')
         }
 
         position_id = f"{username}_{params['tradingsymbol']}_{int(time.time())}"
@@ -538,7 +535,8 @@ async def update_trade_conditions(request: UpdateTradeRequest):
             raise HTTPException(status_code=404, detail="Position not found or closed")
         
         pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
-                             "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price"], position))
+                             "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
+                             "sell_type", "sell_threshold", "previous_close"], position))
         if pos_data['username'] != username:
             raise HTTPException(status_code=403, detail="Unauthorized to modify this position")
 
