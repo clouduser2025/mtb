@@ -120,10 +120,11 @@ def place_order(smartApi, orderparams, position_type: str):
     try:
         orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
         response = smartApi.placeOrderFullResponse(orderparams)
+        logger.debug(f"Order placement response for {position_type}: {response}")
         if response['status'] == 'success':
             logger.info(f"{position_type} order placed successfully. Order ID: {response['data']['orderid']}")
             return {"order_id": response['data']['orderid'], "status": "success"}
-        raise HTTPException(status_code=400, detail=f"{position_type} order placement failed: {response['message']}")
+        raise HTTPException(status_code=400, detail=f"{position_type} order placement failed: {response.get('message', 'Unknown error')}")
     except Exception as e:
         logger.error(f"{position_type} order placement error: {e}")
         raise HTTPException(status_code=400, detail=f"{position_type} order placement error: {str(e)}")
@@ -221,7 +222,7 @@ def check_conditions(smartApi, position_data, ltp):
             "producttype": "INTRADAY",
             "duration": "DAY",
             "price": "0",
-            "quantity": "1",
+            "quantity": "1",  # This could also use default_quantity if needed for exit orders
             "squareoff": "0",
             "stoploss": "0"
         }
@@ -263,7 +264,6 @@ def register_user(user: User):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
-
 @app.get("/api/get_users")
 def get_users():
     cursor.execute("SELECT * FROM users")
@@ -297,6 +297,14 @@ async def initiate_trade(request: TradeRequest):
         smartApi = smart_api_instances[username]
         params = request.dict()
 
+        # Fetch the default_quantity for the user from the users table
+        cursor.execute("SELECT default_quantity FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        default_quantity = user[0]  # Get the default_quantity (e.g., 1 for AG2128571)
+
         strike_price = params['strike_price']
         buy_type = params['buy_type']
         buy_threshold = params['buy_threshold']
@@ -306,6 +314,7 @@ async def initiate_trade(request: TradeRequest):
         if ltp < entry_threshold:
             raise HTTPException(status_code=400, detail=f"Current LTP {ltp} below buy threshold {entry_threshold}")
 
+        # Use the user's default_quantity instead of hardcoding "1"
         buy_order_params = {
             "variety": "NORMAL",
             "tradingsymbol": params['tradingsymbol'],
@@ -316,7 +325,7 @@ async def initiate_trade(request: TradeRequest):
             "producttype": params['producttype'],
             "duration": "DAY",
             "price": "0",
-            "quantity": "1",
+            "quantity": default_quantity,  # Use the user's default quantity (as an integer)
             "squareoff": "0",
             "stoploss": "0"
         }
