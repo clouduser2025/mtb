@@ -3,9 +3,9 @@ import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, Butto
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt,
-  faUser, faUserTie, faChartLine, faDollarSign, faChartBar, faHourglassHalf,
-  faBullseye, faMapMarkerAlt
-} from '@fortawesome/free-solid-svg-icons'; 
+  faUser, faChartLine, faDollarSign, faChartBar, faHourglassHalf, faBullseye,
+  faMapMarkerAlt
+} from '@fortawesome/free-solid-svg-icons';
 import './css/landing.css';
 
 const Landing = () => {
@@ -76,7 +76,7 @@ const Landing = () => {
     setLoadingLtp(true);
     try {
       const response = await fetch(
-        `https://mtb-8ra9.onrender.com/api/fetch_ltp?exchange=${formData.exchange}&symbol=${formData.tradingsymbol}&token=${formData.symboltoken}`
+        `https://mtb-8ra9.onrender.com/api/fetch_ltp_for_placing_trade?exchange=${formData.exchange}&symbol=${formData.tradingsymbol}&token=${formData.symboltoken}`
       );
       if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
       const data = await response.json();
