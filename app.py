@@ -69,13 +69,13 @@ class TradeRequest(BaseModel):
     symboltoken: str
     exchange: str = "NSE"
     strike_price: float
-    buy_type: str = "Fixed"
-    buy_threshold: float = 110
-    previous_close: Optional[float] = None
+    buy_type: str = "Fixed"  # "Fixed" or "Percentage"
+    buy_threshold: float = 110  # Threshold price or percentage increase
+    previous_close: Optional[float] = None  # For percentage-based buy
     producttype: str = "INTRADAY"
-    stop_loss_type: str = "Fixed"
-    stop_loss_value: float = 5.0
-    points_condition: float = 0
+    stop_loss_type: str = "Fixed"  # "Fixed", "Percentage", or "Points"
+    stop_loss_value: float = 5.0  # Value for stop-loss (price, percentage, or points)
+    points_condition: float = 0  # For trailing stop-loss adjustments
 
 class UpdateTradeRequest(BaseModel):
     username: str
@@ -98,6 +98,7 @@ def authenticate_user(username: str, password: str, api_key: str, totp_token: st
         authToken = data['data']['jwtToken']
         feedToken = smartApi.getfeedToken()
         smart_api_instances[username] = smartApi
+        logger.info(f"User {username} authenticated successfully")
         return smartApi, authToken, feedToken
     except Exception as e:
         logger.error(f"Authentication error for {username}: {e}")
@@ -113,20 +114,20 @@ def get_ltp(smartApi, exchange, tradingsymbol, symboltoken):
             return float(ltp_data['data']['ltp'])
         raise HTTPException(status_code=400, detail="No LTP data available")
     except Exception as e:
-        logger.error(f"Error fetching LTP: {e}")
+        logger.error(f"Error fetching LTP for {tradingsymbol}: {e}")
         raise HTTPException(status_code=400, detail=f"LTP fetch error: {str(e)}")
 
 def place_order(smartApi, orderparams, position_type: str):
     try:
         orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
         response = smartApi.placeOrderFullResponse(orderparams)
-        logger.debug(f"Order placement response for {position_type}: {response}")
+        logger.debug(f"Order placement response for {position_type} with params {orderparams}: {response}")
         if response['status'] == 'success':
             logger.info(f"{position_type} order placed successfully. Order ID: {response['data']['orderid']}")
             return {"order_id": response['data']['orderid'], "status": "success"}
         raise HTTPException(status_code=400, detail=f"{position_type} order placement failed: {response.get('message', 'Unknown error')}")
     except Exception as e:
-        logger.error(f"{position_type} order placement error: {e}")
+        logger.error(f"{position_type} order placement error with params {orderparams}: {e}")
         raise HTTPException(status_code=400, detail=f"{position_type} order placement error: {str(e)}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
@@ -146,7 +147,7 @@ def on_data(wsapp, message):
         symbol_key = f"{message['exchange']}:{message['tradingsymbol']}:{message['symboltoken']}"
         ltp = float(message['ltp'])
         ltp_cache[symbol_key] = ltp
-        logger.info(f"Ticks: {message}")
+        logger.info(f"Ticks for {message['tradingsymbol']}: {message}")
         cursor.execute("SELECT * FROM open_positions WHERE symbol = ? AND position_active = 1", (message['tradingsymbol'],))
         positions = cursor.fetchall()
         for position in positions:
@@ -157,7 +158,7 @@ def on_data(wsapp, message):
                 smartApi = smart_api_instances[username]
                 check_conditions(smartApi, pos_data, ltp)
     except Exception as e:
-        logger.error(f"Error processing WebSocket message: {e}")
+        logger.error(f"Error processing WebSocket message for {message.get('tradingsymbol', 'unknown')}: {e}")
 
 def on_open(wsapp):
     logger.info("WebSocket opened")
@@ -194,6 +195,14 @@ def check_conditions(smartApi, position_data, ltp):
     highest_price = position_data['highest_price']
     base_price = position_data['base_price']
 
+    # Fetch default_quantity for the user for sell orders
+    cursor.execute("SELECT default_quantity FROM users WHERE username = ?", (username,))
+    user = cursor.fetchone()
+    if not user:
+        default_quantity = 1  # Fallback if user not found
+    else:
+        default_quantity = user[0]
+
     stop_loss_price = None
     if stop_loss_type == "Fixed":
         stop_loss_price = entry_price - stop_loss_value
@@ -222,7 +231,7 @@ def check_conditions(smartApi, position_data, ltp):
             "producttype": "INTRADAY",
             "duration": "DAY",
             "price": "0",
-            "quantity": "1",  # This could also use default_quantity if needed for exit orders
+            "quantity": default_quantity,  # Use user's default quantity for sell orders
             "squareoff": "0",
             "stoploss": "0"
         }
@@ -237,8 +246,11 @@ async def startup_event():
     users = cursor.fetchall()
     for user in users:
         user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "default_quantity"], user))
-        smartApi, auth_token, feed_token = authenticate_user(user_data['username'], user_data['password'], user_data['api_key'], user_data['totp_token'])
-        threading.Thread(target=start_websocket, args=(user_data['username'], user_data['api_key'], auth_token, feed_token), daemon=True).start()
+        try:
+            smartApi, auth_token, feed_token = authenticate_user(user_data['username'], user_data['password'], user_data['api_key'], user_data['totp_token'])
+            threading.Thread(target=start_websocket, args=(user_data['username'], user_data['api_key'], auth_token, feed_token), daemon=True).start()
+        except Exception as e:
+            logger.error(f"Failed to authenticate user {user_data['username']} at startup: {e}")
 
 @app.post("/api/register_user")
 def register_user(user: User):
@@ -290,9 +302,9 @@ def get_trades():
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
     try:
-        username = request.username
+        username = request.username.lower()  # Normalize username to lowercase for consistency
         if username not in smart_api_instances:
-            raise HTTPException(status_code=401, detail="User not authenticated")
+            raise HTTPException(status_code=401, detail=f"User {username} not authenticated")
         
         smartApi = smart_api_instances[username]
         params = request.dict()
@@ -301,7 +313,7 @@ async def initiate_trade(request: TradeRequest):
         cursor.execute("SELECT default_quantity FROM users WHERE username = ?", (username,))
         user = cursor.fetchone()
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"User {username} not found")
         
         default_quantity = user[0]  # Get the default_quantity (e.g., 1 for AG2128571)
 
@@ -309,7 +321,8 @@ async def initiate_trade(request: TradeRequest):
         buy_type = params['buy_type']
         buy_threshold = params['buy_threshold']
         previous_close = params.get('previous_close', strike_price)
-        entry_threshold = buy_threshold if buy_type == "Fixed" else previous_close * (1 + buy_threshold / 100)
+        entry_threshold = (buy_threshold if buy_type == "Fixed" 
+                          else previous_close * (1 + buy_threshold / 100))
         ltp = get_ltp(smartApi, params['exchange'], params['tradingsymbol'], params['symboltoken'])
         if ltp < entry_threshold:
             raise HTTPException(status_code=400, detail=f"Current LTP {ltp} below buy threshold {entry_threshold}")
@@ -350,10 +363,61 @@ async def initiate_trade(request: TradeRequest):
         logger.error(f"Trade initiation error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@app.post("/api/initiate_sell_trade")  # New endpoint for sell orders
+async def initiate_sell_trade(request: TradeRequest):
+    try:
+        username = request.username.lower()  # Normalize username to lowercase for consistency
+        if username not in smart_api_instances:
+            raise HTTPException(status_code=401, detail=f"User {username} not authenticated")
+        
+        smartApi = smart_api_instances[username]
+        params = request.dict()
+
+        # Fetch the default_quantity for the user from the users table
+        cursor.execute("SELECT default_quantity FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail=f"User {username} not found")
+        
+        default_quantity = user[0]  # Get the default_quantity (e.g., 1 for AG2128571)
+
+        strike_price = params['strike_price']
+        sell_type = params['buy_type']  # Reuse buy_type for sell logic ("Fixed" or "Percentage")
+        sell_threshold = params['buy_threshold']  # Threshold price or percentage decrease
+        previous_close = params.get('previous_close', strike_price)
+        exit_threshold = (sell_threshold if sell_type == "Fixed" 
+                         else previous_close * (1 - sell_threshold / 100))
+        ltp = get_ltp(smartApi, params['exchange'], params['tradingsymbol'], params['symboltoken'])
+        if ltp > exit_threshold:
+            raise HTTPException(status_code=400, detail=f"Current LTP {ltp} above sell threshold {exit_threshold}")
+
+        sell_order_params = {
+            "variety": "NORMAL",
+            "tradingsymbol": params['tradingsymbol'],
+            "symboltoken": params['symboltoken'],
+            "transactiontype": "SELL",
+            "exchange": params['exchange'],
+            "ordertype": "MARKET",
+            "producttype": params['producttype'],
+            "duration": "DAY",
+            "price": "0",
+            "quantity": default_quantity,  # Use the user's default quantity
+            "squareoff": "0",
+            "stoploss": "0"
+        }
+        sell_result = place_order(smartApi, sell_order_params, "SHORT")
+        return {"message": f"SHORT trade initiated for {username}", "data": sell_result}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Trade initiation error for {username}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 @app.post("/api/update_trade_conditions")
 async def update_trade_conditions(request: UpdateTradeRequest):
     try:
-        username = request.username
+        username = request.username.lower()  # Normalize username to lowercase for consistency
         position_id = request.position_id
         cursor.execute("SELECT * FROM open_positions WHERE position_id = ? AND position_active = 1", (position_id,))
         position = cursor.fetchone()
