@@ -146,13 +146,20 @@ def full_reauth_user(username: str):
 
 def get_option_chain_data(api_client, exchange: str, tradingsymbol: str, strike_price: float, count: int = 5):
     try:
+        logger.debug(f"Calling get_option_chain with exchange={exchange}, tradingsymbol={tradingsymbol}, strikeprice={strike_price}, count={count}")
         response = api_client.get_option_chain(exchange=exchange, tradingsymbol=tradingsymbol, strikeprice=strike_price, count=count)
-        if response and response.get('stat') == 'Ok' and 'values' in response:
+        if response is None:
+            logger.error(f"Shoonya API returned None for option chain of {tradingsymbol}")
+            raise HTTPException(status_code=500, detail="Shoonya API returned no response for option chain")
+        if response.get('stat') == 'Ok' and 'values' in response:
+            logger.debug(f"Option chain response for {tradingsymbol}: {response}")
             return response['values']
         logger.error(f"Failed to fetch option chain for {tradingsymbol}: {response}")
         raise HTTPException(status_code=400, detail=f"No option chain data available: {response.get('emsg', 'Unknown error')}")
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        logger.error(f"Error fetching option chain for {tradingsymbol}: {e}")
+        logger.error(f"Error fetching option chain for {tradingsymbol}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
 
 def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symboltoken: str):
@@ -510,7 +517,7 @@ def get_option_chain(request: OptionChainRequest):
         option_suffix = "CE" if request.option_type == "Call" else "PE"
         tradingsymbol = f"{request.symbol}{expiry_date}{option_suffix}{int(request.strike_price)}"
         
-        # Fetch option chain data
+        # Fetch option chain data with additional validation
         option_chain = get_option_chain_data(api_client, "NFO", request.symbol, request.strike_price)
         
         # Find the specific option contract
@@ -537,8 +544,8 @@ def get_option_chain(request: OptionChainRequest):
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Error fetching option chain for {username}: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+        logger.error(f"Error fetching option chain for {username}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error fetching option chain: {str(e)}")
 
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
@@ -610,7 +617,7 @@ async def initiate_trade(request: TradeRequest):
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Trade initiation error for {username}: {e}")
+        logger.error(f"Trade initiation error for {username}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.post("/api/update_trade_conditions")
@@ -655,7 +662,7 @@ async def update_trade_conditions(request: UpdateTradeRequest):
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Condition update error for {username}: {e}")
+        logger.error(f"Condition update error for {username}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.websocket("/api/websocket/{username}/{symboltoken}")
@@ -679,8 +686,11 @@ async def websocket_endpoint(websocket, username: str, symboltoken: str):
             elif 'unsubscribe' in data:
                 if websocket_instance:
                     websocket_instance.unsubscribe(f"NFO|{data['unsubscribe']}")
+            # Send real-time market data back to the client
+            if symboltoken in market_data:
+                await websocket.send(json.dumps({"market_data": market_data[symboltoken], "ltp": ltp_cache.get(f"NFO:{symboltoken}", 0.0)}))
     except Exception as e:
-        logger.error(f"WebSocket error for {username}/{symboltoken}: {e}")
+        logger.error(f"WebSocket error for {username}/{symboltoken}: {str(e)}")
     finally:
         if websocket_instance:
             websocket_instance.unsubscribe(f"NFO|{symboltoken}")
