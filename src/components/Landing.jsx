@@ -106,24 +106,43 @@ const Landing = () => {
     }
   };
 
-  const startMarketUpdates = useCallback(async (username, symboltoken) => {
-    const pollMarketData = setInterval(async () => {
-      try {
-        const response = await fetch(`https://mtb-8ra9.onrender.com/api/get_market_data/${username}/${symboltoken}`);
-        if (response.ok) {
-          const data = await response.json();
-          setMarketData({
-            ltp: data.ltp,
-            volume: data.market_data.get('v', 0),
-            timestamp: data.market_data.get('ft', new Date().toISOString())
-          });
+  const startMarketUpdates = useCallback((username, symboltoken) => {
+    const ws = new WebSocket(`wss://mtb-8ra9.onrender.com/api/websocket/${username}/${symboltoken}`);
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setMarketData({
+        ltp: data.ltp,
+        volume: data.market_data.v || 0,
+        timestamp: data.market_data.ft || new Date().toISOString()
+      });
+    };
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      setMessage({ text: "WebSocket connection failed. Falling back to polling.", type: "warning" });
+      // Fallback to polling if WebSocket fails
+      const pollInterval = setInterval(async () => {
+        try {
+          const response = await fetch(`https://mtb-8ra9.onrender.com/api/get_market_data/${username}/${symboltoken}`);
+          if (response.ok) {
+            const data = await response.json();
+            setMarketData({
+              ltp: data.ltp,
+              volume: data.market_data.v || 0,
+              timestamp: data.market_data.ft || new Date().toISOString()
+            });
+          }
+        } catch (error) {
+          console.error("Error polling market data:", error);
+          setMessage({ text: "Failed to fetch real-time market data.", type: "danger" });
         }
-      } catch (error) {
-        console.error("Error polling market data:", error);
-        setMessage({ text: "Failed to fetch real-time market data.", type: "danger" });
-      }
-    }, 1000); // Poll every second for real-time updates
-    return () => clearInterval(pollMarketData);
+      }, 1000);
+      return () => clearInterval(pollInterval);
+    };
+    ws.onclose = () => {
+      console.log("WebSocket closed. Attempting to reconnect...");
+      startMarketUpdates(username, symboltoken); // Attempt to reconnect
+    };
+    return () => ws.close();
   }, []);
 
   const handleRegisterSubmit = async (e) => {

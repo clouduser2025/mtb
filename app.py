@@ -105,6 +105,7 @@ ltp_cache: Dict[str, float] = {}
 auth_tokens: Dict[str, str] = {}
 feed_tokens: Dict[str, Any] = {}
 market_data: Dict[str, Dict] = {}  # Store real-time market data
+websocket_instance = None  # Single WebSocket instance
 
 def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None):
     if broker != "Shoonya":
@@ -134,7 +135,7 @@ def full_reauth_user(username: str):
     auth_tokens[username] = auth_token
     feed_tokens[username] = feed_token
     logger.info(f"Full session re-authenticated for {username} ({broker})")
-    threading.Thread(target=start_websocket, args=(username, broker, api_key, auth_token, feed_token), daemon=True).start()
+    subscribe_user_tokens(username)  # Subscribe to user's tokens
     return api_client
 
 def get_option_chain_data(api_client, exchange: str, tradingsymbol: str, strike_price: float, count: int = 5):
@@ -168,6 +169,14 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
         raise HTTPException(status_code=400, detail="Only Shoonya broker supported")
     orderparams["buy_or_sell"] = "B" if position_type == "LONG" else "S"
     orderparams["price_type"] = "MKT"
+    # Add uid and actid if required by ShoonyaApiPy
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT uid, actid FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+    if user:
+        orderparams["uid"] = user[0]  # Assuming uid is available or fetched from login
+        orderparams["actid"] = user[1]  # Assuming actid is available or fetched from login
     try:
         response = api_client.place_order(**orderparams)
         logger.debug(f"Shoonya {position_type} order response: {response}")
@@ -237,26 +246,71 @@ def process_position_update(tradingsymbol: str, ltp: float):
 
 def on_open_shoonya():
     logger.info("Shoonya WebSocket opened")
-    subscribe_to_tokens(None, None)
+    subscribe_to_all_tokens()
 
-def subscribe_to_tokens(wsapp, exchange_type):
+def subscribe_to_all_tokens():
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE position_active = 1")
         tokens = [row[0] for row in cursor.fetchall()]
-    if tokens:
+    if tokens and websocket_instance:
         for token in tokens:
-            smart_api_instances[list(smart_api_instances.keys())[0]].subscribe(f"NFO|{token}")
+            websocket_instance.subscribe(f"NFO|{token}")
 
-def start_websocket(username: str, broker: str, api_key: str, auth_token: str, feed_token: Optional[str] = None):
-    if broker == "Shoonya":
-        api_client = smart_api_instances[username]
-        api_client.start_websocket(
-            subscribe_callback=on_data_shoonya,
-            order_update_callback=lambda order: logger.info(f"Shoonya order update: {order}"),
-            socket_open_callback=on_open_shoonya,
-            socket_close_callback=lambda: logger.info("Shoonya WebSocket closed")
-        )
+def start_websocket(global_instance: bool = True, max_retries: int = 5):
+    global websocket_instance
+    if global_instance and websocket_instance:
+        logger.info("WebSocket already running as a global instance")
+        return
+
+    def connect_websocket():
+        nonlocal websocket_instance
+        retries = 0
+        while retries < max_retries:
+            try:
+                api_client = ShoonyaApiPy()
+                # Assuming the first user for simplicity; in production, handle multiple users
+                if smart_api_instances:
+                    username = list(smart_api_instances.keys())[0]
+                    api_client = smart_api_instances[username]
+                    api_client.start_websocket(
+                        subscribe_callback=on_data_shoonya,
+                        order_update_callback=lambda order: logger.info(f"Shoonya order update: {order}"),
+                        socket_open_callback=on_open_shoonya,
+                        socket_close_callback=on_close_shoonya
+                    )
+                    websocket_instance = api_client
+                    logger.info("WebSocket connection established successfully")
+                    break
+            except Exception as e:
+                logger.error(f"WebSocket connection failed: {e}")
+                retries += 1
+                logger.info(f"Retrying WebSocket connection (attempt {retries}/{max_retries})...")
+                time.sleep(2)  # Wait before retrying
+        if retries >= max_retries:
+            logger.error("Max retries reached for WebSocket connection")
+
+    def on_close_shoonya():
+        global websocket_instance
+        logger.info("Shoonya WebSocket closed. Attempting reconnection...")
+        websocket_instance = None
+        connect_websocket()
+
+    if not global_instance:
+        # Per-user WebSocket (if needed, though not recommended per documentation)
+        for username in smart_api_instances:
+            api_client = smart_api_instances[username]
+            try:
+                api_client.start_websocket(
+                    subscribe_callback=on_data_shoonya,
+                    order_update_callback=lambda order: logger.info(f"Shoonya order update for {username}: {order}"),
+                    socket_open_callback=lambda: logger.info(f"Shoonya WebSocket opened for {username}"),
+                    socket_close_callback=lambda: logger.info(f"Shoonya WebSocket closed for {username}")
+                )
+            except Exception as e:
+                logger.error(f"WebSocket connection failed for {username}: {e}")
+    else:
+        connect_websocket()
 
 def check_conditions(api_client, position_data: dict, ltp: float, username: str):
     stop_loss_price = None
@@ -294,7 +348,9 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             "quantity": 1,
             "price_type": "MKT",
             "price": 0,
-            "retention": "DAY"
+            "retention": "DAY",
+            "uid": position_data['username'],  # Ensure uid is included
+            "actid": "ACTID_FROM_LOGIN"  # Replace with actual actid from login
         }
         place_order(api_client, "Shoonya", orderparams, "EXIT", username)
         with conn:
@@ -312,14 +368,34 @@ async def startup_event():
     for user in users:
         user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity"], user))
         if user_data['broker'] == "Shoonya":
-            api_client, auth_token, _, feed_token = authenticate_user(
-                user_data['username'], user_data['password'], user_data['broker'], 
-                user_data['api_key'], user_data['totp_token'], user_data['vendor_code']
-            )
-            smart_api_instances[user_data['username']] = api_client
-            auth_tokens[user_data['username']] = auth_token
-            feed_tokens[user_data['username']] = feed_token
-            threading.Thread(target=start_websocket, args=(user_data['username'], user_data['broker'], user_data['api_key'], auth_token, feed_token), daemon=True).start()
+            try:
+                api_client, auth_token, _, feed_token = authenticate_user(
+                    user_data['username'], user_data['password'], user_data['broker'], 
+                    user_data['api_key'], user_data['totp_token'], user_data['vendor_code']
+                )
+                smart_api_instances[user_data['username']] = api_client
+                auth_tokens[user_data['username']] = auth_token
+                feed_tokens[user_data['username']] = feed_token
+                # Start or reuse global WebSocket
+                if not websocket_instance:
+                    start_websocket(global_instance=True)
+                subscribe_user_tokens(user_data['username'])
+            except Exception as e:
+                logger.error(f"Failed to start WebSocket for {user_data['username']}: {e}")
+
+def subscribe_user_tokens(username: str):
+    if username in smart_api_instances and websocket_instance:
+        api_client = smart_api_instances[username]
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE username = ? AND position_active = 1", (username,))
+            tokens = [row[0] for row in cursor.fetchall()]
+        for token in tokens:
+            websocket_instance.subscribe(f"NFO|{token}")
+
+@app.get("/")
+async def root():
+    return {"message": "Welcome to the Shoonya Trading API"}
 
 @app.post("/api/register_user")
 def register_user(user: User):
@@ -335,10 +411,13 @@ def register_user(user: User):
         smart_api_instances[user.username] = api_client
         auth_tokens[user.username] = auth_token
         feed_tokens[user.username] = feed_token
-        threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
+        # Start or reuse global WebSocket
+        if not websocket_instance:
+            start_websocket(global_instance=True)
+        subscribe_user_tokens(user.username)
         return {"message": "User registered and authenticated successfully"}
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="User already exists")
+        raise HTTPException(status_code=409, detail="User already exists")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
@@ -363,6 +442,14 @@ def delete_user(username: str):
         del auth_tokens[username]
     if username in feed_tokens:
         del feed_tokens[username]
+    # Unsubscribe tokens for this user if WebSocket exists
+    if websocket_instance:
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE username = ?", (username,))
+            tokens = [row[0] for row in cursor.fetchall()]
+        for token in tokens:
+            websocket_instance.unsubscribe(f"NFO|{token}")
     return {"message": f"User {username} deleted successfully"}
 
 @app.get("/api/get_trades")
@@ -401,9 +488,11 @@ def get_option_chain(request: OptionChainRequest):
         if not user or user[0] != "Shoonya":
             raise HTTPException(status_code=400, detail="Only Shoonya broker supported for option chain")
 
-        # Parse expiry date (e.g., "25 Feb 2025 W" -> "25-FEB-2025")
+        # Parse expiry date (e.g., "25 Feb 2025 W" -> strip "W" and parse as "25 Feb 2025")
         try:
-            expiry_date = datetime.strptime(request.expiry.split()[0], "%d %b %Y").strftime("%d-%b-%Y").upper()
+            # Remove the "W" if present and parse the date
+            expiry_cleaned = request.expiry.replace(" W", "").strip()
+            expiry_date = datetime.strptime(expiry_cleaned, "%d %b %Y").strftime("%d-%b-%Y").upper()
         except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Invalid expiry format: {str(e)}")
 
@@ -419,8 +508,9 @@ def get_option_chain(request: OptionChainRequest):
         if not target_contract:
             raise HTTPException(status_code=400, detail=f"Option contract not found for {tradingsymbol}")
 
-        # Subscribe to real-time updates for this token
-        api_client.subscribe(f"NFO|{target_contract['token']}")
+        # Subscribe to real-time updates for this token using global WebSocket
+        if websocket_instance:
+            websocket_instance.subscribe(f"NFO|{target_contract['token']}")
 
         return {
             "symbol": request.symbol,
@@ -475,7 +565,9 @@ async def initiate_trade(request: TradeRequest):
             "discloseqty": 0,
             "price_type": "MKT",
             "price": 0,
-            "retention": "DAY"
+            "retention": "DAY",
+            "uid": username,  # Ensure uid is included
+            "actid": "ACTID_FROM_LOGIN"  # Replace with actual actid from login
         }
         buy_result = place_order(api_client, broker, buy_order_params, "LONG", username)
         if buy_result is None:
@@ -497,8 +589,9 @@ async def initiate_trade(request: TradeRequest):
         position_id = f"{username}_{params['tradingsymbol']}_{int(time.time())}"
         update_open_positions(position_id, username, params['tradingsymbol'], entry_price, conditions)
 
-        # Subscribe to real-time updates for the traded symbol
-        api_client.subscribe(f"NFO|{params['symboltoken']}")
+        # Subscribe to real-time updates for the traded symbol using global WebSocket
+        if websocket_instance:
+            websocket_instance.subscribe(f"NFO|{params['symboltoken']}")
 
         return {"message": f"LONG trade initiated for {username}", "data": buy_result, "position_id": position_id}
 
@@ -540,9 +633,8 @@ async def update_trade_conditions(request: UpdateTradeRequest):
             conn.commit()
 
         # Ensure real-time updates are subscribed for this symbol
-        if username in smart_api_instances:
-            api_client = smart_api_instances[username]
-            api_client.subscribe(f"NFO|{pos_data['symboltoken']}")
+        if websocket_instance:
+            websocket_instance.subscribe(f"NFO|{pos_data['symboltoken']}")
 
         return {"message": f"Conditions updated for position {position_id}", 
                 "conditions": {"stop_loss_type": stop_loss_type, "stop_loss_value": stop_loss_value, "points_condition": points_condition}}
