@@ -178,10 +178,11 @@ def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symbolto
         raise HTTPException(status_code=400, detail="No LTP data available")
     elif broker == "Shoonya":
         quotes = api_client.get_quotes(exchange=exchange, token=symboltoken)
-        if quotes.get('stat') == 'Ok' and 'lp' in quotes:
+        if quotes and quotes.get('stat') == 'Ok' and 'lp' in quotes:
             ltp = float(quotes['lp'])
             ltp_cache[symbol_key] = ltp
             return ltp
+        logger.error(f"Shoonya LTP fetch failed for {tradingsymbol}: {quotes}")
         raise HTTPException(status_code=400, detail="No LTP data available")
 
 def place_order(api_client, broker: str, orderparams: dict, position_type: str, username: str):
@@ -190,7 +191,6 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
         try:
             response = api_client.placeOrderFullResponse(orderparams)
             logger.debug(f"AngelOne {position_type} order response: {response}")
-            # Angel One returns 'status': True for success, not 'success'
             if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
                 logger.info(f"AngelOne {position_type} order placed: {response['data']['orderid']}")
                 return {"order_id": response['data']['orderid'], "status": "success"}
@@ -219,6 +219,9 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
         try:
             response = api_client.place_order(**orderparams)
             logger.debug(f"Shoonya {position_type} order response: {response}")
+            if response is None:
+                logger.error(f"Shoonya {position_type} order returned None for {username}")
+                raise HTTPException(status_code=500, detail=f"Shoonya {position_type} order failed: No response from API")
             if response.get('stat') == 'Ok' and 'norenordno' in response:
                 logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
                 return {"order_id": response['norenordno'], "status": "success"}
@@ -226,13 +229,20 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
                 logger.warning(f"Session expired for {username}. Re-authenticating...")
                 api_client = full_reauth_user(username)
                 response = api_client.place_order(**orderparams)
+                if response is None:
+                    logger.error(f"Shoonya {position_type} order returned None after re-auth for {username}")
+                    raise HTTPException(status_code=500, detail=f"Shoonya {position_type} order failed: No response after re-auth")
                 if response.get('stat') == 'Ok' and 'norenordno' in response:
                     logger.info(f"Shoonya {position_type} order placed after re-auth: {response['norenordno']}")
                     return {"order_id": response['norenordno'], "status": "success"}
-            raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {response.get('emsg', 'Unknown error')}")
+            error_msg = response.get('emsg', 'Unknown error')
+            logger.error(f"Shoonya {position_type} order failed for {username}: {error_msg}")
+            raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {error_msg}")
+        except HTTPException as e:
+            raise e
         except Exception as e:
-            logger.error(f"Shoonya {position_type} order error: {e}")
-            raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
+            logger.error(f"Shoonya {position_type} order exception for {username}: {e}")
+            raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
     with conn:
@@ -511,6 +521,9 @@ async def initiate_trade(request: TradeRequest):
             }
         )
         buy_result = place_order(api_client, broker, buy_order_params, "LONG", username)
+        if buy_result is None:
+            logger.error(f"Trade initiation failed for {username}: place_order returned None")
+            raise HTTPException(status_code=500, detail="Order placement failed: No response from broker API")
         entry_price = ltp
 
         conditions = {
