@@ -144,7 +144,8 @@ const Landing = () => {
     };
     return () => ws.close();
   }, []);
-  
+
+
     ws.onclose = () => {
       console.log("WebSocket closed. Attempting to reconnect...");
       startMarketUpdates(username, symboltoken); // Attempt to reconnect
