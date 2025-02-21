@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign } from '@fortawesome/free-solid-svg-icons'; 
+import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign, faChartBar } from '@fortawesome/free-solid-svg-icons'; 
 import './css/landing.css';
 
 const Landing = () => {
@@ -15,7 +15,9 @@ const Landing = () => {
   const [formStep, setFormStep] = useState(1);
   const [activeTradeId, setActiveTradeId] = useState(null);
   const [optionChainData, setOptionChainData] = useState(null);
-  const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, timestamp: "" });
+  const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, oi: 0, timestamp: "" });
+  const [showLiveOIData, setShowLiveOIData] = useState(false);
+  const [liveOIToken, setLiveOIToken] = useState("");
 
   const [formData, setFormData] = useState({
     username: "",
@@ -25,6 +27,7 @@ const Landing = () => {
     totp_token: "",
     vendor_code: "",
     default_quantity: 1,
+    imei: "",  // Add IMEI to formData
     symbol: "NIFTY",
     expiry: "25 Feb 2025 W",
     strike_price: 75000,
@@ -106,14 +109,53 @@ const Landing = () => {
     }
   };
 
+  const fetchLiveOI = async () => {
+    if (!selectedUsers.length || !optionChainData?.token) {
+      setMessage({ text: "Please select a user and fetch option chain data first.", type: "warning" });
+      return;
+    }
+
+    try {
+      const username = selectedUsers[0];
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_live_oi", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          symboltoken: optionChainData.token
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setMarketData({
+          ltp: data.ltp,
+          volume: data.volume,
+          oi: data.oi,
+          timestamp: data.timestamp
+        });
+        setLiveOIToken(optionChainData.token);
+        setShowLiveOIData(true);
+        setMessage({ text: "Live OI data fetched successfully!", type: "success" });
+        startMarketUpdates(username, data.symboltoken); // Start or update real-time updates
+      } else {
+        setMessage({ text: data.detail || "Failed to fetch live OI data", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error fetching live OI:", error);
+      setMessage({ text: "Server error fetching live OI.", type: "danger" });
+    }
+  };
+
   const startMarketUpdates = useCallback((username, symboltoken) => {
     const ws = new WebSocket(`wss://mtb-8ra9.onrender.com/api/websocket/${username}/${symboltoken}`);
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       setMarketData({
         ltp: data.ltp || 0.0,
-        volume: data.market_data?.v || 0,
-        timestamp: data.market_data?.ft || new Date().toISOString()
+        volume: data.volume || 0,
+        oi: data.oi || 0,
+        timestamp: data.timestamp || new Date().toISOString()
       });
     };
     ws.onerror = (error) => {
@@ -128,6 +170,7 @@ const Landing = () => {
             setMarketData({
               ltp: data.ltp,
               volume: data.market_data.v || 0,
+              oi: data.market_data.oi || 0, // Assume OI is in market_data if available
               timestamp: data.market_data.ft || new Date().toISOString()
             });
           }
@@ -145,14 +188,6 @@ const Landing = () => {
     return () => ws.close();
   }, []);
 
-
-    ws.onclose = () => {
-      console.log("WebSocket closed. Attempting to reconnect...");
-      startMarketUpdates(username, symboltoken); // Attempt to reconnect
-    };
-    return () => ws.close();
-  }, []);
-
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -163,10 +198,9 @@ const Landing = () => {
         api_key: formData.api_key,
         totp_token: formData.totp_token,
         default_quantity: parseInt(formData.default_quantity || 1, 10),
+        vendor_code: formData.broker === "Shoonya" ? formData.vendor_code : None,
+        imei: formData.imei  // Include IMEI in the payload
       };
-      if (formData.broker === "Shoonya") {
-        payload.vendor_code = formData.vendor_code;
-      }
       const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -176,7 +210,7 @@ const Landing = () => {
       if (response.ok) {
         setMessage({ text: `User ${formData.username} registered successfully (${formData.broker})!`, type: "success" });
         fetchUsers();
-        setFormData({ ...formData, username: "", password: "", api_key: "", totp_token: "", vendor_code: "" });
+        setFormData({ ...formData, username: "", password: "", api_key: "", totp_token: "", vendor_code: "", imei: "" });
         setShowRegisterModal(false);
       } else {
         setMessage({ text: data.detail || "Registration failed", type: "danger" });
@@ -339,6 +373,7 @@ const Landing = () => {
                 <th>Broker</th>
                 <th>Default Quantity</th>
                 <th>Vendor Code</th>
+                <th>IMEI</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -351,11 +386,12 @@ const Landing = () => {
                     <td>{user.broker}</td>
                     <td>{user.default_quantity}</td>
                     <td>{user.broker === "Shoonya" ? user.vendor_code || "N/A" : "N/A"}</td>
+                    <td>{user.imei || "N/A"}</td>
                     <td><Button variant="danger" size="sm" onClick={() => handleDeleteUser(user.username)}>Delete</Button></td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="6" className="text-muted text-center">No registered users found.</td></tr>
+                <tr><td colSpan="7" className="text-muted text-center">No registered users found.</td></tr>
               )}
             </tbody>
           </Table>
@@ -410,6 +446,7 @@ const Landing = () => {
         <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/watchlist/chart', '_blank')}>Chart</Button></Col>
         <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/watchlist/option-chain', '_blank')}>Option Chain</Button></Col>
         <Col xs="auto"><Button onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }}>Trades Dashboard</Button></Col>
+        <Col xs="auto"><Button onClick={fetchLiveOI}><FontAwesomeIcon icon={faChartBar} className="me-2" /> Live OI Data</Button></Col>
       </Row>
 
       <Container className="mt-4 p-3 border rounded shadow-sm">
@@ -500,7 +537,7 @@ const Landing = () => {
         {formStep === 6 && optionChainData && (
           <>
             <h4 className="text-success"><FontAwesomeIcon icon={faShoppingCart} /> Step 6: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)</h4>
-            <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
+            <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
             <Form>
               <Row className="mb-3">
                 <Col md={4}>
@@ -572,7 +609,7 @@ const Landing = () => {
       {activeTradeId && (
         <Container className="mt-4 p-3 border rounded shadow-sm">
           <h4 className="text-warning"><FontAwesomeIcon icon={faExchangeAlt} /> Update Sell Conditions (Live Market Data)</h4>
-          <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
+          <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
           <Form>
             <Row className="mb-3">
               <Col md={4}><Form.Group><Form.Label>Stop-Loss Type</Form.Label><Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}>
@@ -585,6 +622,14 @@ const Landing = () => {
             </Row>
             <Button variant="warning" onClick={handleUpdateConditions}>Update Conditions</Button>
           </Form>
+        </Container>
+      )}
+
+      {showLiveOIData && liveOIToken && (
+        <Container className="mt-4 p-3 border rounded shadow-sm">
+          <h4 className="text-info"><FontAwesomeIcon icon={faChartBar} /> Live OI Data</h4>
+          <p><strong>Live Option Data:</strong> Token: {liveOIToken}, OI: {marketData.oi}, LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
+          <Button variant="secondary" onClick={() => { setShowLiveOIData(false); setLiveOIToken(""); }}>Close Live OI</Button>
         </Container>
       )}
 
@@ -601,7 +646,10 @@ const Landing = () => {
             <Form.Group><Form.Label>API Key</Form.Label><Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required /></Form.Group>
             <Form.Group><Form.Label>TOTP Token</Form.Label><Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required /></Form.Group>
             {formData.broker === "Shoonya" && (
-              <Form.Group><Form.Label>Vendor Code</Form.Label><Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required /></Form.Group>
+              <>
+                <Form.Group><Form.Label>Vendor Code</Form.Label><Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required /></Form.Group>
+                <Form.Group><Form.Label>IMEI</Form.Label><Form.Control type="text" value={formData.imei} onChange={(e) => setFormData({ ...formData, imei: e.target.value })} required placeholder="Enter device IMEI (e.g., abc1234)" /></Form.Group>
+              </>
             )}
             <Form.Group><Form.Label>Default Quantity</Form.Label><Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required /></Form.Group>
             <Button variant="primary" type="submit" className="mt-3">Register</Button>

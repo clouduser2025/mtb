@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from api_helper import ShoonyaApiPy
 import pyotp
 import threading
@@ -35,7 +35,8 @@ def init_db():
             totp_token TEXT,
             vendor_code TEXT,
             default_quantity INTEGER,
-            actid TEXT  -- Add actid to store from login response
+            actid TEXT,  -- Add actid to store from login response
+            imei TEXT    -- Add IMEI to store device identifier
         )
         """)
         conn.execute("""
@@ -58,6 +59,16 @@ def init_db():
             previous_close REAL
         )
         """)
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS live_option_data (
+            symboltoken TEXT PRIMARY KEY,
+            username TEXT,
+            oi REAL,
+            ltp REAL,
+            volume REAL,
+            timestamp TEXT
+        )
+        """)
     conn.commit()
 
 init_db()
@@ -70,6 +81,7 @@ class User(BaseModel):
     totp_token: str
     vendor_code: Optional[str] = None
     default_quantity: int
+    imei: str  # Add IMEI field to the User model
 
 class OptionChainRequest(BaseModel):
     username: str
@@ -101,20 +113,25 @@ class UpdateTradeRequest(BaseModel):
     stop_loss_value: Optional[float] = 5.0
     points_condition: Optional[float] = 0
 
+class LiveOptionDataRequest(BaseModel):
+    username: str
+    symboltoken: str
+
 smart_api_instances: Dict[str, ShoonyaApiPy] = {}
 ltp_cache: Dict[str, float] = {}
 auth_tokens: Dict[str, str] = {}
 feed_tokens: Dict[str, Any] = {}
 market_data: Dict[str, Dict] = {}  # Store real-time market data
 websocket_instance = None  # Single WebSocket instance
+live_option_subscriptions: Dict[str, List[WebSocket]] = {}  # Track WebSocket clients for live option data
 
-def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None):
+def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None, imei: str = "trading_app"):
     if broker != "Shoonya":
         raise HTTPException(status_code=400, detail="Only Shoonya broker supported")
     smart_api = ShoonyaApiPy()
     try:
         totp = pyotp.TOTP(totp_token).now()
-        ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei="trading_app")
+        ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei=imei)
         if ret.get('stat') != 'Ok':
             logger.error(f"Shoonya Authentication failed for {username}: {ret}")
             raise Exception(f"Authentication failed: {ret.get('emsg')}")
@@ -127,12 +144,12 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
 def full_reauth_user(username: str):
     with conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT password, broker, api_key, totp_token, vendor_code FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT password, broker, api_key, totp_token, vendor_code, imei FROM users WHERE username = ?", (username,))
         user = cursor.fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    password, broker, api_key, totp_token, vendor_code = user
-    api_client, auth_token, actid, feed_token = authenticate_user(username, password, broker, api_key, totp_token, vendor_code)
+    password, broker, api_key, totp_token, vendor_code, imei = user
+    api_client, auth_token, actid, feed_token = authenticate_user(username, password, broker, api_key, totp_token, vendor_code, imei)
     smart_api_instances[username] = api_client
     auth_tokens[username] = auth_token
     feed_tokens[username] = feed_token
@@ -172,10 +189,39 @@ def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symbolto
             ltp = float(quotes['lp'])
             ltp_cache[symbol_key] = ltp
             market_data[symbol_key] = quotes  # Store for real-time updates
+            update_live_option_data(symboltoken, quotes)
             return ltp
         logger.error(f"Shoonya LTP fetch failed for {tradingsymbol}: {quotes}")
         raise HTTPException(status_code=400, detail="No LTP data available")
     raise HTTPException(status_code=400, detail="Unsupported broker")
+
+def update_live_option_data(symboltoken: str, quotes: Dict):
+    oi = float(quotes.get('oi', 0))
+    ltp = float(quotes.get('lp', 0))
+    volume = float(quotes.get('v', 0))
+    timestamp = datetime.now().isoformat()
+    
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO live_option_data (symboltoken, username, oi, ltp, volume, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (symboltoken, list(smart_api_instances.keys())[0] if smart_api_instances else "default", oi, ltp, volume, timestamp))
+        conn.commit()
+    
+    # Broadcast to WebSocket clients
+    if symboltoken in live_option_subscriptions:
+        for websocket in live_option_subscriptions[symboltoken]:
+            try:
+                websocket.send_json({
+                    "symboltoken": symboltoken,
+                    "oi": oi,
+                    "ltp": ltp,
+                    "volume": volume,
+                    "timestamp": timestamp
+                })
+            except WebSocketDisconnect:
+                live_option_subscriptions[symboltoken].remove(websocket)
 
 def place_order(api_client, broker: str, orderparams: dict, position_type: str, username: str):
     if broker != "Shoonya":
@@ -238,6 +284,7 @@ def on_data_shoonya(tick_data: Dict):
             ltp = float(tick_data['lp'])
             ltp_cache[symbol_key] = ltp
             market_data[symbol_key] = tick_data  # Update real-time market data
+            update_live_option_data(tick_data['tk'], tick_data)
             process_position_update(tick_data['ts'], ltp)
     except Exception as e:
         logger.error(f"Shoonya WebSocket data error: {e}")
@@ -376,12 +423,12 @@ async def startup_event():
         cursor.execute("SELECT * FROM users LIMIT 3")
         users = cursor.fetchall()
     for user in users:
-        user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity", "actid"], user))
+        user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity", "actid", "imei"], user))
         if user_data['broker'] == "Shoonya":
             try:
                 api_client, auth_token, actid, feed_token = authenticate_user(
                     user_data['username'], user_data['password'], user_data['broker'], 
-                    user_data['api_key'], user_data['totp_token'], user_data['vendor_code']
+                    user_data['api_key'], user_data['totp_token'], user_data['vendor_code'], user_data['imei']
                 )
                 smart_api_instances[user_data['username']] = api_client
                 auth_tokens[user_data['username']] = auth_token
@@ -417,12 +464,12 @@ async def root():
 def register_user(user: User):
     try:
         api_client, auth_token, actid, feed_token = authenticate_user(
-            user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code
+            user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.imei
         )
         with conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                           (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity, actid))
+            cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                           (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity, actid, user.imei))
             conn.commit()
         smart_api_instances[user.username] = api_client
         auth_tokens[user.username] = auth_token
@@ -443,7 +490,7 @@ def get_users():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users")
         users = cursor.fetchall()
-    return {"users": [dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity", "actid"], row)) for row in users]}
+    return {"users": [dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity", "actid", "imei"], row)) for row in users]}
 
 @app.delete("/api/delete_user/{username}")
 def delete_user(username: str):
@@ -451,6 +498,7 @@ def delete_user(username: str):
         cursor = conn.cursor()
         cursor.execute("DELETE FROM users WHERE username = ?", (username,))
         cursor.execute("DELETE FROM open_positions WHERE username = ?", (username,))
+        cursor.execute("DELETE FROM live_option_data WHERE username = ?", (username,))
         conn.commit()
     if username in smart_api_instances:
         del smart_api_instances[username]
@@ -539,7 +587,8 @@ def get_option_chain(request: OptionChainRequest):
             "token": target_contract['token'],
             "call_ltp": target_contract.get('call_ltp', 0.0) if request.option_type == "Call" else None,
             "put_ltp": target_contract.get('put_ltp', 0.0) if request.option_type == "Put" else None,
-            "volume": target_contract.get('volume', 0)
+            "volume": target_contract.get('volume', 0),
+            "oi": target_contract.get('oi', 0)  # Include OI in the response
         }
     except HTTPException as e:
         raise e
@@ -665,9 +714,50 @@ async def update_trade_conditions(request: UpdateTradeRequest):
         logger.error(f"Condition update error for {username}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@app.post("/api/get_live_oi")
+def get_live_oi(request: LiveOptionDataRequest):
+    try:
+        username = request.username
+        if username not in smart_api_instances:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        
+        api_client = smart_api_instances[username]
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
+            user = cursor.fetchone()
+        if not user or user[0] != "Shoonya":
+            raise HTTPException(status_code=400, detail="Only Shoonya broker supported for live OI data")
+
+        symboltoken = request.symboltoken
+        quotes = api_client.get_quotes(exchange="NFO", token=symboltoken)
+        if quotes and quotes.get('stat') == 'Ok':
+            oi = float(quotes.get('oi', 0))
+            ltp = float(quotes.get('lp', 0))
+            volume = float(quotes.get('v', 0))
+            timestamp = datetime.now().isoformat()
+            
+            update_live_option_data(symboltoken, quotes)
+            
+            return {
+                "symboltoken": symboltoken,
+                "oi": oi,
+                "ltp": ltp,
+                "volume": volume,
+                "timestamp": timestamp
+            }
+        logger.error(f"Shoonya live OI fetch failed for symboltoken {symboltoken}: {quotes}")
+        raise HTTPException(status_code=400, detail="No live OI data available")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error fetching live OI for {username}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error fetching live OI: {str(e)}")
+
 @app.websocket("/api/websocket/{username}/{symboltoken}")
-async def websocket_endpoint(websocket, username: str, symboltoken: str):
-    global websocket_instance
+async def websocket_endpoint(websocket: WebSocket, username: str, symboltoken: str):
+    global websocket_instance, live_option_subscriptions
+    await websocket.accept()
     if username not in smart_api_instances:
         await websocket.close(code=1008, reason="User not authenticated")
         return
@@ -675,26 +765,37 @@ async def websocket_endpoint(websocket, username: str, symboltoken: str):
     # Subscribe to the token using the global WebSocket instance
     if websocket_instance:
         websocket_instance.subscribe(f"NFO|{symboltoken}")
+
+    # Add WebSocket to subscriptions for this symboltoken
+    if symboltoken not in live_option_subscriptions:
+        live_option_subscriptions[symboltoken] = []
+    live_option_subscriptions[symboltoken].append(websocket)
     
     try:
-        async for message in websocket:
-            # Echo or handle messages (optional, depending on your needs)
-            data = json.loads(message)
-            if 'subscribe' in data:
-                if websocket_instance:
-                    websocket_instance.subscribe(f"NFO|{data['subscribe']}")
-            elif 'unsubscribe' in data:
-                if websocket_instance:
-                    websocket_instance.unsubscribe(f"NFO|{data['unsubscribe']}")
-            # Send real-time market data back to the client
+        while True:
+            # Send periodic updates (e.g., every 1 second) or wait for WebSocket messages
             if symboltoken in market_data:
-                await websocket.send(json.dumps({"market_data": market_data[symboltoken], "ltp": ltp_cache.get(f"NFO:{symboltoken}", 0.0)}))
+                await websocket.send_json({
+                    "market_data": market_data[f"NFO:{symboltoken}"],
+                    "ltp": ltp_cache.get(f"NFO:{symboltoken}", 0.0),
+                    "oi": market_data[f"NFO:{symboltoken}"].get('oi', 0),
+                    "volume": market_data[f"NFO:{symboltoken}"].get('v', 0),
+                    "timestamp": datetime.now().isoformat()
+                })
+            await asyncio.sleep(1)  # Adjust interval as needed
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for {username}/{symboltoken}")
+        if symboltoken in live_option_subscriptions:
+            live_option_subscriptions[symboltoken].remove(websocket)
     except Exception as e:
         logger.error(f"WebSocket error for {username}/{symboltoken}: {str(e)}")
     finally:
-        if websocket_instance:
+        if websocket_instance and symboltoken in live_option_subscriptions:
             websocket_instance.unsubscribe(f"NFO|{symboltoken}")
+        if symboltoken in live_option_subscriptions:
+            live_option_subscriptions[symboltoken].remove(websocket)
         await websocket.close()
 
 if __name__ == "__main__":
+    import asyncio
     uvicorn.run(app, host="0.0.0.0", port=8000)
