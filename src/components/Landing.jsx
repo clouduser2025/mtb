@@ -111,15 +111,15 @@ const Landing = () => {
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       setMarketData({
-        ltp: data.ltp,
-        volume: data.market_data.v || 0,
-        timestamp: data.market_data.ft || new Date().toISOString()
+        ltp: data.ltp || 0.0,
+        volume: data.market_data?.v || 0,
+        timestamp: data.market_data?.ft || new Date().toISOString()
       });
     };
     ws.onerror = (error) => {
       console.error("WebSocket error:", error);
       setMessage({ text: "WebSocket connection failed. Falling back to polling.", type: "warning" });
-      // Fallback to polling if WebSocket fails
+      // Fallback to polling
       const pollInterval = setInterval(async () => {
         try {
           const response = await fetch(`https://mtb-8ra9.onrender.com/api/get_market_data/${username}/${symboltoken}`);
@@ -138,6 +138,13 @@ const Landing = () => {
       }, 1000);
       return () => clearInterval(pollInterval);
     };
+    ws.onclose = () => {
+      console.log("WebSocket closed. Attempting to reconnect...");
+      startMarketUpdates(username, symboltoken); // Attempt to reconnect
+    };
+    return () => ws.close();
+  }, []);
+  
     ws.onclose = () => {
       console.log("WebSocket closed. Attempting to reconnect...");
       startMarketUpdates(username, symboltoken); // Attempt to reconnect
