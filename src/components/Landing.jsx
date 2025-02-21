@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faDollarSign } from '@fortawesome/free-solid-svg-icons'; 
+import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign } from '@fortawesome/free-solid-svg-icons'; 
 import './css/landing.css';
 
 const Landing = () => {
@@ -14,28 +14,33 @@ const Landing = () => {
   const [showTradesDashboard, setShowTradesDashboard] = useState(false);
   const [formStep, setFormStep] = useState(1);
   const [activeTradeId, setActiveTradeId] = useState(null);
+  const [optionChainData, setOptionChainData] = useState(null);
+  const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, timestamp: "" });
 
   const [formData, setFormData] = useState({
     username: "",
     password: "",
-    broker: "AngelOne",
+    broker: "Shoonya",
     api_key: "",
     totp_token: "",
     vendor_code: "",
     default_quantity: 1,
+    symbol: "NIFTY",
+    expiry: "25 Feb 2025 W",
+    strike_price: 75000,
+    option_type: "Call",
     tradingsymbol: "",
-    symboltoken: "3045",
-    exchange: "NSE",
-    strike_price: 100,
+    symboltoken: "",
+    exchange: "NFO",
     buy_type: "Fixed",
-    buy_threshold: 110,
-    previous_close: 100,
+    buy_threshold: 110,  // Default: Buy if LTP ≥ ₹110 above current
+    previous_close: 0,
     producttype: "INTRADAY",
     stop_loss_type: "Fixed",
-    stop_loss_value: 5,
+    stop_loss_value: 5.0,  // Default: Sell if LTP ≤ ₹5 below entry
     points_condition: 0,
     sell_type: "Fixed",
-    sell_threshold: 90
+    sell_threshold: 90   // Default: Sell if LTP ≤ ₹90 below entry
   });
 
   const fetchUsers = async () => {
@@ -60,12 +65,83 @@ const Landing = () => {
     }
   };
 
+  const fetchOptionChain = async () => {
+    if (!selectedUsers.length) {
+      setMessage({ text: "Please select at least one user.", type: "warning" });
+      return;
+    }
+
+    try {
+      const username = selectedUsers[0]; // Assuming single user for option chain
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_option_chain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          symbol: formData.symbol,
+          expiry: formData.expiry,
+          strike_price: formData.strike_price,
+          option_type: formData.option_type
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setOptionChainData(data);
+        setFormData({
+          ...formData,
+          tradingsymbol: data.tradingsymbol,
+          symboltoken: data.token,
+          previous_close: data.call_ltp || data.put_ltp || 0
+        });
+        setMessage({ text: "Option chain data fetched successfully!", type: "success" });
+        setFormStep(6); // Move to trading conditions step
+        startMarketUpdates(username, data.token); // Start real-time updates
+      } else {
+        setMessage({ text: data.detail || "Failed to fetch option chain", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error fetching option chain:", error);
+      setMessage({ text: "Server error fetching option chain.", type: "danger" });
+    }
+  };
+
+  const startMarketUpdates = useCallback(async (username, symboltoken) => {
+    const pollMarketData = setInterval(async () => {
+      try {
+        const response = await fetch(`https://mtb-8ra9.onrender.com/api/get_market_data/${username}/${symboltoken}`);
+        if (response.ok) {
+          const data = await response.json();
+          setMarketData({
+            ltp: data.ltp,
+            volume: data.market_data.get('v', 0),
+            timestamp: data.market_data.get('ft', new Date().toISOString())
+          });
+        }
+      } catch (error) {
+        console.error("Error polling market data:", error);
+        setMessage({ text: "Failed to fetch real-time market data.", type: "danger" });
+      }
+    }, 1000); // Poll every second for real-time updates
+    return () => clearInterval(pollMarketData);
+  }, []);
+
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = { /* ... */ };
+      const payload = {
+        username: formData.username,
+        password: formData.password,
+        broker: formData.broker,
+        api_key: formData.api_key,
+        totp_token: formData.totp_token,
+        default_quantity: parseInt(formData.default_quantity || 1, 10),
+      };
+      if (formData.broker === "Shoonya") {
+        payload.vendor_code = formData.vendor_code;
+      }
       const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
-        método: "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -75,7 +151,6 @@ const Landing = () => {
         fetchUsers();
         setFormData({ ...formData, username: "", password: "", api_key: "", totp_token: "", vendor_code: "" });
         setShowRegisterModal(false);
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds for WebSocket to initialize
       } else {
         setMessage({ text: data.detail || "Registration failed", type: "danger" });
       }
@@ -125,7 +200,7 @@ const Landing = () => {
             strike_price: formData.strike_price,
             buy_type: formData.buy_type,
             buy_threshold: formData.buy_threshold,
-            previous_close: formData.buy_type === "Percentage" || formData.sell_type === "Percentage" ? formData.previous_close : undefined,
+            previous_close: formData.previous_close,
             producttype: adjustedProductType,
             stop_loss_type: formData.stop_loss_type,
             stop_loss_value: formData.stop_loss_value,
@@ -199,9 +274,6 @@ const Landing = () => {
         </Dropdown.Item>
         <Dropdown.Item onClick={() => { setShowUsers(!showUsers); fetchUsers(); }}>
           <FontAwesomeIcon icon={faUsers} className="me-2" /> View Users
-        </Dropdown.Item>
-        <Dropdown.Item onClick={() => window.open('https://www.angelone.in/login/?redirectUrl=account', '_blank')}>
-          <FontAwesomeIcon icon={faSignInAlt} className="me-2" /> AngelOne Login
         </Dropdown.Item>
         <Dropdown.Item onClick={() => window.open('https://www.shoonya.com/login', '_blank')}>
           <FontAwesomeIcon icon={faSignInAlt} className="me-2" /> Shoonya Login
@@ -306,17 +378,17 @@ const Landing = () => {
       )}
 
       <Row className="justify-content-center mb-3">
-        <Col xs="auto"><Button onClick={() => window.open('https://www.angelone.in/trade/markets/equity/overview', '_blank')}>Market Overview</Button></Col>
-        <Col xs="auto"><Button onClick={() => window.open('https://www.angelone.in/trade/indices/indian', '_blank')}>Indices</Button></Col>
-        <Col xs="auto"><Button onClick={() => window.open('https://www.angelone.in/trade/watchlist/chart', '_blank')}>Chart</Button></Col>
-        <Col xs="auto"><Button onClick={() => window.open('https://www.angelone.in/trade/watchlist/option-chain', '_blank')}>Option Chain</Button></Col>
+        <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/equity/overview', '_blank')}>Market Overview</Button></Col>
+        <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/indices/indian', '_blank')}>Indices</Button></Col>
+        <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/watchlist/chart', '_blank')}>Chart</Button></Col>
+        <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/watchlist/option-chain', '_blank')}>Option Chain</Button></Col>
         <Col xs="auto"><Button onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }}>Trades Dashboard</Button></Col>
       </Row>
 
       <Container className="mt-4 p-3 border rounded shadow-sm">
         {formStep === 1 && (
           <>
-            <h4 className="text-primary"><FontAwesomeIcon icon={faUsers} /> Step 1: Select Users (1 to 3)</h4>
+            <h4 className="text-primary"><FontAwesomeIcon icon={faUsers} /> Step 1: Select User (1 only)</h4>
             <Form>
               <Row className="mb-3">
                 <Col>
@@ -328,29 +400,27 @@ const Landing = () => {
                       checked={selectedUsers.includes(user.username)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          if (selectedUsers.length < 3) setSelectedUsers([...selectedUsers, user.username]);
-                          else alert("⚠ You can only select up to 3 users.");
+                          if (selectedUsers.length < 1) setSelectedUsers([user.username]); // Limit to 1 user
+                          else alert("⚠ You can only select 1 user for option trading.");
                         } else {
-                          setSelectedUsers(selectedUsers.filter(u => u !== user.username));
+                          setSelectedUsers([]);
                         }
                       }}
                     />
                   ))}
                 </Col>
               </Row>
-              <Button variant="primary" onClick={() => { if (selectedUsers.length) setFormStep(2); else alert("Select at least 1 user."); }}>Next</Button>
+              <Button variant="primary" onClick={() => { if (selectedUsers.length) setFormStep(2); else alert("Select 1 user."); }}>Next</Button>
             </Form>
           </>
         )}
 
         {formStep === 2 && (
           <>
-            <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Select Symbol and Strike Price</h4>
+            <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Select Symbol</h4>
             <Form>
               <Row className="mb-3">
-                <Col md={4}><Form.Group><Form.Label>Trading Symbol</Form.Label><Form.Control type="text" value={formData.tradingsymbol} onChange={(e) => setFormData({ ...formData, tradingsymbol: e.target.value })} required /></Form.Group></Col>
-                <Col md={4}><Form.Group><Form.Label>Symbol Token</Form.Label><Form.Control type="text" value={formData.symboltoken} onChange={(e) => setFormData({ ...formData, symboltoken: e.target.value })} required /></Form.Group></Col>
-                <Col md={4}><Form.Group><Form.Label>Strike Price</Form.Label><Form.Control type="number" value={formData.strike_price} onChange={(e) => setFormData({ ...formData, strike_price: parseFloat(e.target.value) || 0 })} required /></Form.Group></Col>
+                <Col md={6}><Form.Group><Form.Label>Symbol</Form.Label><Form.Control type="text" value={formData.symbol} onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} required /></Form.Group></Col>
               </Row>
               <Button variant="primary" onClick={() => setFormStep(3)}>Next</Button>
               <Button variant="secondary" onClick={() => { setFormStep(1); setSelectedUsers([]); }} className="ms-2">Back</Button>
@@ -360,12 +430,10 @@ const Landing = () => {
 
         {formStep === 3 && (
           <>
-            <h4 className="text-primary"><FontAwesomeIcon icon={faDollarSign} /> Step 3: Set Stop-Loss Condition</h4>
+            <h4 className="text-primary"><FontAwesomeIcon icon={faCalendarAlt} /> Step 3: Select Expiry</h4>
             <Form>
               <Row className="mb-3">
-                <Col md={4}><Form.Group><Form.Label>Stop-Loss Type</Form.Label><Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}><option value="Fixed">Fixed</option><option value="Percentage">Percentage</option><option value="Points">Points</option></Form.Select></Form.Group></Col>
-                <Col md={4}><Form.Group><Form.Label>Stop-Loss Value</Form.Label><Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} required /></Form.Group></Col>
-                <Col md={4}><Form.Group><Form.Label>Points Condition</Form.Label><Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} /></Form.Group></Col>
+                <Col md={6}><Form.Group><Form.Label>Expiry (e.g., 25 Feb 2025 W)</Form.Label><Form.Control type="text" value={formData.expiry} onChange={(e) => setFormData({ ...formData, expiry: e.target.value })} required /></Form.Group></Col>
               </Row>
               <Button variant="primary" onClick={() => setFormStep(4)}>Next</Button>
               <Button variant="secondary" onClick={() => setFormStep(2)} className="ms-2">Back</Button>
@@ -375,7 +443,37 @@ const Landing = () => {
 
         {formStep === 4 && (
           <>
-            <h4 className="text-primary"><FontAwesomeIcon icon={faShoppingCart} /> Step 4: Set Buy Condition</h4>
+            <h4 className="text-primary"><FontAwesomeIcon icon={faDollarSign} /> Step 4: Select Strike Price</h4>
+            <Form>
+              <Row className="mb-3">
+                <Col md={6}><Form.Group><Form.Label>Strike Price</Form.Label><Form.Control type="number" value={formData.strike_price} onChange={(e) => setFormData({ ...formData, strike_price: parseFloat(e.target.value) || 0 })} required /></Form.Group></Col>
+              </Row>
+              <Button variant="primary" onClick={() => setFormStep(5)}>Next</Button>
+              <Button variant="secondary" onClick={() => setFormStep(3)} className="ms-2">Back</Button>
+            </Form>
+          </>
+        )}
+
+        {formStep === 5 && (
+          <>
+            <h4 className="text-primary"><FontAwesomeIcon icon={faExchangeAlt} /> Step 5: Select Option Type</h4>
+            <Form>
+              <Row className="mb-3">
+                <Col md={6}><Form.Group><Form.Label>Option Type</Form.Label><Form.Select value={formData.option_type} onChange={(e) => setFormData({ ...formData, option_type: e.target.value })}>
+                  <option value="Call">Call</option>
+                  <option value="Put">Put</option>
+                </Form.Select></Form.Group></Col>
+              </Row>
+              <Button variant="primary" onClick={fetchOptionChain}>Fetch Option Chain</Button>
+              <Button variant="secondary" onClick={() => setFormStep(4)} className="ms-2">Back</Button>
+            </Form>
+          </>
+        )}
+
+        {formStep === 6 && optionChainData && (
+          <>
+            <h4 className="text-success"><FontAwesomeIcon icon={faShoppingCart} /> Step 6: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)</h4>
+            <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
             <Form>
               <Row className="mb-3">
                 <Col md={4}>
@@ -392,42 +490,23 @@ const Landing = () => {
                 )}
                 <Col md={4}><Form.Group><Form.Label>Product Type</Form.Label>
                   <Form.Select value={formData.producttype} onChange={(e) => setFormData({ ...formData, producttype: e.target.value })}>
-                    {selectedUsers.length === 1 && users.find(u => u.username === selectedUsers[0])?.broker === "AngelOne" ? (
-                      <>
-                        <option value="INTRADAY">Intraday</option>
-                        <option value="DELIVERY">Delivery</option>
-                      </>
-                    ) : selectedUsers.length === 1 && users.find(u => u.username === selectedUsers[0])?.broker === "Shoonya" ? (
-                      <>
-                        <option value="I">MIS (Intraday)</option>
-                        <option value="C">CNC (Cash and Carry)</option>
-                        <option value="M">NRML (Normal)</option>
-                        <option value="B">Bracket Order</option>
-                        <option value="H">Cover Order</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="INTRADAY">Intraday (AngelOne) / MIS (Shoonya)</option>
-                        <option value="DELIVERY">Delivery (AngelOne)</option>
-                        <option value="C">CNC (Shoonya)</option>
-                        <option value="M">NRML (Shoonya)</option>
-                        <option value="B">Bracket Order (Shoonya)</option>
-                        <option value="H">Cover Order (Shoonya)</option>
-                      </>
-                    )}
+                    <option value="INTRADAY">MIS (Intraday)</option>
+                    <option value="C">CNC (Cash and Carry)</option>
+                    <option value="M">NRML (Normal)</option>
+                    <option value="B">Bracket Order</option>
+                    <option value="H">Cover Order</option>
                   </Form.Select>
                 </Form.Group></Col>
               </Row>
-              <Button variant="primary" onClick={() => setFormStep(5)}>Next</Button>
-              <Button variant="secondary" onClick={() => setFormStep(3)} className="ms-2">Back</Button>
-            </Form>
-          </>
-        )}
-
-        {formStep === 5 && (
-          <>
-            <h4 className="text-success"><FontAwesomeIcon icon={faExchangeAlt} /> Step 5: Confirm Sell Condition and Execute Trade</h4>
-            <Form>
+              <Row className="mb-3">
+                <Col md={4}><Form.Group><Form.Label>Stop-Loss Type</Form.Label><Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}>
+                  <option value="Fixed">Fixed</option>
+                  <option value="Percentage">Percentage</option>
+                  <option value="Points">Points</option>
+                </Form.Select></Form.Group></Col>
+                <Col md={4}><Form.Group><Form.Label>Stop-Loss Value</Form.Label><Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} required /></Form.Group></Col>
+                <Col md={4}><Form.Group><Form.Label>Points Condition</Form.Label><Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} /></Form.Group></Col>
+              </Row>
               <Row className="mb-3">
                 <Col md={4}>
                   <Form.Group><Form.Label>Sell Condition Type</Form.Label>
@@ -437,29 +516,27 @@ const Landing = () => {
                     </Form.Select>
                   </Form.Group>
                 </Col>
-                <Col md={4}>
-                  <Form.Group><Form.Label>{formData.sell_type === "Fixed" ? "Sell Threshold" : "Sell % Decrease"}</Form.Label>
-                    <Form.Control type="number" value={formData.sell_threshold} onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })} required />
-                  </Form.Group>
-                </Col>
+                <Col md={4}><Form.Group><Form.Label>{formData.sell_type === "Fixed" ? "Sell Threshold" : "Sell % Decrease"}</Form.Label><Form.Control type="number" value={formData.sell_threshold} onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })} required /></Form.Group></Col>
                 {formData.sell_type === "Percentage" && (
                   <Col md={4}><Form.Group><Form.Label>Previous Close</Form.Label><Form.Control type="number" value={formData.previous_close} onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })} required /></Form.Group></Col>
                 )}
               </Row>
               <Row className="mb-3">
                 <Col>
-                  <p><strong>Selected Users:</strong> {selectedUsers.join(", ")}</p>
-                  <p><strong>Symbol:</strong> {formData.tradingsymbol}</p>
+                  <p><strong>Selected User:</strong> {selectedUsers.join(", ")}</p>
+                  <p><strong>Symbol:</strong> {formData.symbol}</p>
+                  <p><strong>Expiry:</strong> {formData.expiry}</p>
                   <p><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
+                  <p><strong>Option Type:</strong> {formData.option_type}</p>
                   <p style={{ color: "green" }}><strong>Buy Condition:</strong> {formData.buy_type === "Fixed" ? `≥ ₹${formData.buy_threshold}` : `≥ ₹${(formData.previous_close * (1 + formData.buy_threshold / 100)).toFixed(2)} (${formData.buy_threshold}%)`}</p>
                   <p style={{ color: "red" }}><strong>Stop-Loss:</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
                   <p style={{ color: "red" }}><strong>Sell Condition:</strong> {formData.sell_type === "Fixed" ? `≤ ₹${formData.sell_threshold}` : `≤ ₹${(formData.previous_close * (1 - formData.sell_threshold / 100)).toFixed(2)} (${formData.sell_threshold}%)`}</p>
                   <p><strong>Product Type:</strong> {formData.producttype}</p>
-                  <p><strong>Brokers:</strong> {selectedUsers.map(u => users.find(user => user.username === u)?.broker).join(", ")}</p>
+                  <p><strong>Broker:</strong> {users.find(u => u.username === selectedUsers[0])?.broker || "Unknown"}</p>
                 </Col>
               </Row>
               <Button variant="success" onClick={handleInitiateTrade}>Execute Trade</Button>
-              <Button variant="secondary" onClick={() => setFormStep(4)} className="ms-2">Back</Button>
+              <Button variant="secondary" onClick={() => setFormStep(5)} className="ms-2">Back</Button>
             </Form>
           </>
         )}
@@ -467,10 +544,15 @@ const Landing = () => {
 
       {activeTradeId && (
         <Container className="mt-4 p-3 border rounded shadow-sm">
-          <h4 className="text-warning"><FontAwesomeIcon icon={faExchangeAlt} /> Update Sell Conditions</h4>
+          <h4 className="text-warning"><FontAwesomeIcon icon={faExchangeAlt} /> Update Sell Conditions (Live Market Data)</h4>
+          <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
           <Form>
             <Row className="mb-3">
-              <Col md={4}><Form.Group><Form.Label>Stop-Loss Type</Form.Label><Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}><option value="Fixed">Fixed</option><option value="Percentage">Percentage</option><option value="Points">Points</option></Form.Select></Form.Group></Col>
+              <Col md={4}><Form.Group><Form.Label>Stop-Loss Type</Form.Label><Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}>
+                <option value="Fixed">Fixed</option>
+                <option value="Percentage">Percentage</option>
+                <option value="Points">Points</option>
+              </Form.Select></Form.Group></Col>
               <Col md={4}><Form.Group><Form.Label>Stop-Loss Value</Form.Label><Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} /></Form.Group></Col>
               <Col md={4}><Form.Group><Form.Label>Points Condition</Form.Label><Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} /></Form.Group></Col>
             </Row>
@@ -487,7 +569,6 @@ const Landing = () => {
             <Form.Group><Form.Label>Username</Form.Label><Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required /></Form.Group>
             <Form.Group><Form.Label>Password</Form.Label><Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required /></Form.Group>
             <Form.Group><Form.Label>Broker</Form.Label><Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })}>
-              <option value="AngelOne">AngelOne</option>
               <option value="Shoonya">Shoonya</option>
             </Form.Select></Form.Group>
             <Form.Group><Form.Label>API Key</Form.Label><Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required /></Form.Group>
