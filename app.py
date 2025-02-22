@@ -1,6 +1,8 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Optional
+from SmartApi import SmartConnect
+from SmartApi.smartWebSocketV2 import SmartWebSocketV2
 from api_helper import ShoonyaApiPy
 import pyotp
 import threading
@@ -10,7 +12,6 @@ from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import uvicorn
-from datetime import datetime
 
 app = FastAPI()
 
@@ -30,13 +31,11 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
             password TEXT,
-            broker TEXT CHECK(broker IN ('Shoonya')),
+            broker TEXT CHECK(broker IN ('AngelOne', 'Shoonya')),
             api_key TEXT,
             totp_token TEXT,
             vendor_code TEXT,
-            default_quantity INTEGER,
-            actid TEXT,  -- Add actid to store from login response
-            imei TEXT    -- Add IMEI to store device identifier
+            default_quantity INTEGER
         )
         """)
         conn.execute("""
@@ -59,16 +58,6 @@ def init_db():
             previous_close REAL
         )
         """)
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS live_option_data (
-            symboltoken TEXT PRIMARY KEY,
-            username TEXT,
-            oi REAL,
-            ltp REAL,
-            volume REAL,
-            timestamp TEXT
-        )
-        """)
     conn.commit()
 
 init_db()
@@ -81,30 +70,22 @@ class User(BaseModel):
     totp_token: str
     vendor_code: Optional[str] = None
     default_quantity: int
-    imei: str  # Add IMEI field to the User model
-
-class OptionChainRequest(BaseModel):
-    username: str
-    symbol: str
-    expiry: str  # Format: "25 Feb 2025 W"
-    strike_price: float
-    option_type: str  # "Call" or "Put"
 
 class TradeRequest(BaseModel):
     username: str
     tradingsymbol: str
     symboltoken: str
-    exchange: str = "NFO"
+    exchange: str = "NSE"
     strike_price: float
     buy_type: str = "Fixed"
-    buy_threshold: float = 110  # Default: Buy if LTP ≥ ₹110 above current
+    buy_threshold: float = 110
     previous_close: Optional[float] = None
     producttype: str = "INTRADAY"
     stop_loss_type: str = "Fixed"
-    stop_loss_value: float = 5.0  # Default: Sell if LTP ≤ ₹5 below entry
+    stop_loss_value: float = 5.0
     points_condition: float = 0
-    sell_type: str = "Fixed"
-    sell_threshold: float = 90  # Default: Sell if LTP ≤ ₹90 below entry
+    sell_type: Optional[str] = "Fixed"
+    sell_threshold: Optional[float] = 90
 
 class UpdateTradeRequest(BaseModel):
     username: str
@@ -113,155 +94,160 @@ class UpdateTradeRequest(BaseModel):
     stop_loss_value: Optional[float] = 5.0
     points_condition: Optional[float] = 0
 
-class LiveOptionDataRequest(BaseModel):
+# New class for Option Chain request
+class OptionChainRequest(BaseModel):
     username: str
-    symboltoken: str
+    index_name: str  # "NIFTY" or "BANKNIFTY"
 
-smart_api_instances: Dict[str, ShoonyaApiPy] = {}
-ltp_cache: Dict[str, float] = {}
-auth_tokens: Dict[str, str] = {}
-feed_tokens: Dict[str, Any] = {}
-market_data: Dict[str, Dict] = {}  # Store real-time market data
-websocket_instance = None  # Single WebSocket instance
-live_option_subscriptions: Dict[str, List[WebSocket]] = {}  # Track WebSocket clients for live option data
+smart_api_instances = {}
+ltp_cache = {}
+auth_tokens = {}
+refresh_tokens = {}
+feed_tokens = {}
 
-def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None, imei: str = "trading_app"):
-    if broker != "Shoonya":
-        raise HTTPException(status_code=400, detail="Only Shoonya broker supported")
-    smart_api = ShoonyaApiPy()
+def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None):
+    if broker == "AngelOne":
+        smart_api = SmartConnect(api_key)
+        try:
+            totp = pyotp.TOTP(totp_token).now()
+            data = smart_api.generateSession(username, password, totp)
+            if data['status'] == False:
+                logger.error(f"AngelOne Authentication failed for {username}: {data}")
+                raise Exception(f"Authentication failed: {data.get('message')}")
+            auth_token = data['data']['jwtToken']
+            refresh_token = data['data']['refreshToken']
+            feed_token = smart_api.getfeedToken()
+            return smart_api, auth_token, refresh_token, feed_token
+        except Exception as e:
+            logger.error(f"AngelOne Auth error for {username}: {e}")
+            raise
+    elif broker == "Shoonya":
+        smart_api = ShoonyaApiPy()
+        try:
+            totp = pyotp.TOTP(totp_token).now()
+            ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei="trading_app")
+            if ret.get('stat') != 'Ok':
+                logger.error(f"Shoonya Authentication failed for {username}: {ret}")
+                raise Exception(f"Authentication failed: {ret.get('emsg')}")
+            return smart_api, ret['susertoken'], None, None
+        except Exception as e:
+            logger.error(f"Shoonya Auth error for {username}: {e}")
+            raise
+    raise HTTPException(status_code=400, detail=f"Unsupported broker: {broker}")
+
+def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
+    if username not in refresh_tokens:
+        return False
     try:
-        totp = pyotp.TOTP(totp_token).now()
-        ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei=imei)
-        if ret.get('stat') != 'Ok':
-            logger.error(f"Shoonya Authentication failed for {username}: {ret}")
-            raise Exception(f"Authentication failed: {ret.get('emsg')}")
-        actid = ret.get('actid', None)  # Extract actid from login response
-        return smart_api, ret['susertoken'], actid, None
+        refresh_token = refresh_tokens[username]
+        data = api_client.generateToken(refresh_token)
+        if data['status'] == False:
+            logger.error(f"AngelOne token refresh failed for {username}: {data}")
+            return False
+        auth_tokens[username] = data['data']['jwtToken']
+        feed_tokens[username] = api_client.getfeedToken()
+        logger.info(f"Session refreshed for {username} using refresh token")
+        return True
     except Exception as e:
-        logger.error(f"Shoonya Auth error for {username}: {e}")
-        raise
+        logger.error(f"AngelOne refresh token error for {username}: {e}")
+        return False
 
 def full_reauth_user(username: str):
     with conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT password, broker, api_key, totp_token, vendor_code, imei FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT password, broker, api_key, totp_token, vendor_code FROM users WHERE username = ?", (username,))
         user = cursor.fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    password, broker, api_key, totp_token, vendor_code, imei = user
-    api_client, auth_token, actid, feed_token = authenticate_user(username, password, broker, api_key, totp_token, vendor_code, imei)
+    password, broker, api_key, totp_token, vendor_code = user
+    api_client, auth_token, refresh_token, feed_token = authenticate_user(username, password, broker, api_key, totp_token, vendor_code)
     smart_api_instances[username] = api_client
     auth_tokens[username] = auth_token
+    if broker == "AngelOne":
+        refresh_tokens[username] = refresh_token
     feed_tokens[username] = feed_token
-    with conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET actid = ? WHERE username = ?", (actid, username))
-        conn.commit()
     logger.info(f"Full session re-authenticated for {username} ({broker})")
-    subscribe_user_tokens(username)  # Subscribe to user's tokens
+    threading.Thread(target=start_websocket, args=(username, broker, api_key, auth_token, feed_token), daemon=True).start()
     return api_client
-
-def get_option_chain_data(api_client, exchange: str, tradingsymbol: str, strike_price: float, count: int = 5):
-    try:
-        logger.debug(f"Calling get_option_chain with exchange={exchange}, tradingsymbol={tradingsymbol}, strikeprice={strike_price}, count={count}")
-        response = api_client.get_option_chain(exchange=exchange, tradingsymbol=tradingsymbol, strikeprice=strike_price, count=count)
-        if response is None:
-            logger.error(f"Shoonya API returned None for option chain of {tradingsymbol}")
-            raise HTTPException(status_code=500, detail="Shoonya API returned no response for option chain")
-        if response.get('stat') == 'Ok' and 'values' in response:
-            logger.debug(f"Option chain response for {tradingsymbol}: {response}")
-            return response['values']
-        logger.error(f"Failed to fetch option chain for {tradingsymbol}: {response}")
-        raise HTTPException(status_code=400, detail=f"No option chain data available: {response.get('emsg', 'Unknown error')}")
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Error fetching option chain for {tradingsymbol}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
 
 def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symboltoken: str):
     symbol_key = f"{exchange}:{tradingsymbol}:{symboltoken}"
     if symbol_key in ltp_cache:
         return ltp_cache[symbol_key]
-    if broker == "Shoonya":
+    if broker == "AngelOne":
+        ltp_data = api_client.ltpData(exchange, tradingsymbol, symboltoken)
+        if ltp_data and 'data' in ltp_data and 'ltp' in ltp_data['data']:
+            ltp = float(ltp_data['data']['ltp'])
+            ltp_cache[symbol_key] = ltp
+            return ltp
+        raise HTTPException(status_code=400, detail="No LTP data available")
+    elif broker == "Shoonya":
         quotes = api_client.get_quotes(exchange=exchange, token=symboltoken)
         if quotes and quotes.get('stat') == 'Ok' and 'lp' in quotes:
             ltp = float(quotes['lp'])
             ltp_cache[symbol_key] = ltp
-            market_data[symbol_key] = quotes  # Store for real-time updates
-            update_live_option_data(symboltoken, quotes)
             return ltp
         logger.error(f"Shoonya LTP fetch failed for {tradingsymbol}: {quotes}")
         raise HTTPException(status_code=400, detail="No LTP data available")
-    raise HTTPException(status_code=400, detail="Unsupported broker")
-
-def update_live_option_data(symboltoken: str, quotes: Dict):
-    oi = float(quotes.get('oi', 0))
-    ltp = float(quotes.get('lp', 0))
-    volume = float(quotes.get('v', 0))
-    timestamp = datetime.now().isoformat()
-    
-    with conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO live_option_data (symboltoken, username, oi, ltp, volume, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (symboltoken, list(smart_api_instances.keys())[0] if smart_api_instances else "default", oi, ltp, volume, timestamp))
-        conn.commit()
-    
-    # Broadcast to WebSocket clients
-    if symboltoken in live_option_subscriptions:
-        for websocket in live_option_subscriptions[symboltoken]:
-            try:
-                websocket.send_json({
-                    "symboltoken": symboltoken,
-                    "oi": oi,
-                    "ltp": ltp,
-                    "volume": volume,
-                    "timestamp": timestamp
-                })
-            except WebSocketDisconnect:
-                live_option_subscriptions[symboltoken].remove(websocket)
 
 def place_order(api_client, broker: str, orderparams: dict, position_type: str, username: str):
-    if broker != "Shoonya":
-        raise HTTPException(status_code=400, detail="Only Shoonya broker supported")
-    orderparams["buy_or_sell"] = "B" if position_type == "LONG" else "S"
-    orderparams["price_type"] = "MKT"
-    with conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT actid FROM users WHERE username = ?", (username,))
-        user = cursor.fetchone()
-    if user:
-        orderparams["uid"] = username  # Use username as uid
-        orderparams["actid"] = user[0]  # Use actid from database
-    try:
-        response = api_client.place_order(**orderparams)
-        logger.debug(f"Shoonya {position_type} order response: {response}")
-        if response is None:
-            logger.error(f"Shoonya {position_type} order returned None for {username}")
-            raise HTTPException(status_code=500, detail=f"Shoonya {position_type} order failed: No response from API")
-        if response.get('stat') == 'Ok' and 'norenordno' in response:
-            logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
-            return {"order_id": response['norenordno'], "status": "success"}
-        if response.get('emsg', '').startswith("Session Expired"):
-            logger.warning(f"Session expired for {username}. Re-authenticating...")
-            api_client = full_reauth_user(username)
+    if broker == "AngelOne":
+        orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
+        try:
+            response = api_client.placeOrderFullResponse(orderparams)
+            logger.debug(f"AngelOne {position_type} order response: {response}")
+            if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
+                logger.info(f"AngelOne {position_type} order placed: {response['data']['orderid']}")
+                return {"order_id": response['data']['orderid'], "status": "success"}
+            elif response.get('errorcode') == 'AB1010':
+                logger.warning(f"Session expired for {username}. Attempting refresh...")
+                if refresh_angelone_session(username, api_client):
+                    response = api_client.placeOrderFullResponse(orderparams)
+                    if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
+                        logger.info(f"AngelOne {position_type} order placed after refresh: {response['data']['orderid']}")
+                        return {"order_id": response['data']['orderid'], "status": "success"}
+                logger.warning(f"Refresh failed. Performing full re-authentication for {username}")
+                api_client = full_reauth_user(username)
+                response = api_client.placeOrderFullResponse(orderparams)
+                if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
+                    logger.info(f"AngelOne {position_type} order placed after re-auth: {response['data']['orderid']}")
+                    return {"order_id": response['data']['orderid'], "status": "success"}
+            raise HTTPException(status_code=400, detail=f"AngelOne {position_type} order failed: {response.get('message', 'Unknown error')}")
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            logger.error(f"AngelOne {position_type} order error: {e}")
+            raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
+    elif broker == "Shoonya":
+        orderparams["buy_or_sell"] = "B" if position_type == "LONG" else "S"
+        orderparams["price_type"] = "MKT"
+        try:
             response = api_client.place_order(**orderparams)
+            logger.debug(f"Shoonya {position_type} order response: {response}")
             if response is None:
-                logger.error(f"Shoonya {position_type} order returned None after re-auth for {username}")
-                raise HTTPException(status_code=500, detail=f"Shoonya {position_type} order failed: No response after re-auth")
+                logger.error(f"Shoonya {position_type} order returned None for {username}")
+                raise HTTPException(status_code=500, detail=f"Shoonya {position_type} order failed: No response from API")
             if response.get('stat') == 'Ok' and 'norenordno' in response:
-                logger.info(f"Shoonya {position_type} order placed after re-auth: {response['norenordno']}")
+                logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
                 return {"order_id": response['norenordno'], "status": "success"}
-        error_msg = response.get('emsg', 'Unknown error')
-        logger.error(f"Shoonya {position_type} order failed for {username}: {error_msg}")
-        raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {error_msg}")
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Shoonya {position_type} order exception for {username}: {e}")
-        raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
+            if response.get('emsg', '').startswith("Session Expired"):
+                logger.warning(f"Session expired for {username}. Re-authenticating...")
+                api_client = full_reauth_user(username)
+                response = api_client.place_order(**orderparams)
+                if response is None:
+                    logger.error(f"Shoonya {position_type} order returned None after re-auth for {username}")
+                    raise HTTPException(status_code=500, detail=f"Shoonya {position_type} order failed: No response after re-auth")
+                if response.get('stat') == 'Ok' and 'norenordno' in response:
+                    logger.info(f"Shoonya {position_type} order placed after re-auth: {response['norenordno']}")
+                    return {"order_id": response['norenordno'], "status": "success"}
+            error_msg = response.get('emsg', 'Unknown error')
+            logger.error(f"Shoonya {position_type} order failed for {username}: {error_msg}")
+            raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {error_msg}")
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            logger.error(f"Shoonya {position_type} order exception for {username}: {e}")
+            raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
     with conn:
@@ -276,16 +262,23 @@ def update_open_positions(position_id: str, username: str, symbol: str, entry_pr
               entry_price, entry_price, conditions.get('sell_type'), conditions.get('sell_threshold'), conditions.get('previous_close')))
         conn.commit()
 
-def on_data_shoonya(tick_data: Dict):
-    global ltp_cache, market_data
+def on_data_angel(wsapp, message):
+    global ltp_cache
+    try:
+        symbol_key = f"{message['exchange']}:{message['tradingsymbol']}:{message['symboltoken']}"
+        ltp = float(message['ltp'])
+        ltp_cache[symbol_key] = ltp
+        process_position_update(message['tradingsymbol'], ltp)
+    except Exception as e:
+        logger.error(f"AngelOne WebSocket data error: {e}")
+
+def on_data_shoonya(tick_data):
+    global ltp_cache
     try:
         symbol_key = f"{tick_data['e']}:{tick_data['ts']}:{tick_data['tk']}"
-        if 'lp' in tick_data:
-            ltp = float(tick_data['lp'])
-            ltp_cache[symbol_key] = ltp
-            market_data[symbol_key] = tick_data  # Update real-time market data
-            update_live_option_data(tick_data['tk'], tick_data)
-            process_position_update(tick_data['ts'], ltp)
+        ltp = float(tick_data['lp'])
+        ltp_cache[symbol_key] = ltp
+        process_position_update(tick_data['ts'], ltp)
     except Exception as e:
         logger.error(f"Shoonya WebSocket data error: {e}")
 
@@ -303,71 +296,43 @@ def process_position_update(tradingsymbol: str, ltp: float):
             api_client = smart_api_instances[username]
             check_conditions(api_client, pos_data, ltp, username)
 
+def on_open_angel(wsapp):
+    logger.info("AngelOne WebSocket opened")
+    subscribe_to_tokens(wsapp, 1)
+
 def on_open_shoonya():
     logger.info("Shoonya WebSocket opened")
-    subscribe_to_all_tokens()
+    subscribe_to_tokens(None, None)
 
-def subscribe_to_all_tokens():
+def subscribe_to_tokens(wsapp, exchange_type):
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE position_active = 1")
         tokens = [row[0] for row in cursor.fetchall()]
-    if tokens and websocket_instance:
-        for token in tokens:
-            websocket_instance.subscribe(f"NFO|{token}")
+    if tokens:
+        if wsapp:  # AngelOne
+            token_list = [{"exchangeType": exchange_type, "tokens": tokens}]
+            wsapp.subscribe("abc123", 1, token_list)
+        else:  # Shoonya
+            for token in tokens:
+                smart_api_instances[list(smart_api_instances.keys())[0]].subscribe(f"NSE|{token}")
 
-def start_websocket(global_instance: bool = True, max_retries: int = 5):
-    global websocket_instance
-    if global_instance and websocket_instance:
-        logger.info("WebSocket already running as a global instance")
-        return
-
-    def connect_websocket():
-        retries = 0
-        while retries < max_retries:
-            try:
-                # Use the first user's API client for simplicity; in production, manage users dynamically
-                if smart_api_instances:
-                    username = list(smart_api_instances.keys())[0]
-                    api_client = smart_api_instances[username]
-                    api_client.start_websocket(
-                        subscribe_callback=on_data_shoonya,
-                        order_update_callback=lambda order: logger.info(f"Shoonya order update: {order}"),
-                        socket_open_callback=on_open_shoonya,
-                        socket_close_callback=on_close_shoonya
-                    )
-                    websocket_instance = api_client
-                    logger.info("WebSocket connection established successfully")
-                    break
-            except Exception as e:
-                logger.error(f"WebSocket connection failed: {e}")
-                retries += 1
-                logger.info(f"Retrying WebSocket connection (attempt {retries}/{max_retries})...")
-                time.sleep(2)  # Wait before retrying
-        if retries >= max_retries:
-            logger.error("Max retries reached for WebSocket connection")
-
-    def on_close_shoonya():
-        global websocket_instance
-        logger.info("Shoonya WebSocket closed. Attempting reconnection...")
-        websocket_instance = None
-        connect_websocket()
-
-    if not global_instance:
-        # Per-user WebSocket (not recommended per Shoonya documentation, but included for flexibility)
-        for username in smart_api_instances:
-            api_client = smart_api_instances[username]
-            try:
-                api_client.start_websocket(
-                    subscribe_callback=on_data_shoonya,
-                    order_update_callback=lambda order: logger.info(f"Shoonya order update for {username}: {order}"),
-                    socket_open_callback=lambda: logger.info(f"Shoonya WebSocket opened for {username}"),
-                    socket_close_callback=lambda: logger.info(f"Shoonya WebSocket closed for {username}")
-                )
-            except Exception as e:
-                logger.error(f"WebSocket connection failed for {username}: {e}")
-    else:
-        connect_websocket()
+def start_websocket(username: str, broker: str, api_key: str, auth_token: str, feed_token: Optional[str] = None):
+    if broker == "AngelOne":
+        sws = SmartWebSocketV2(auth_token, api_key, username, feed_token)
+        sws.on_open = on_open_angel
+        sws.on_data = on_data_angel
+        sws.on_error = lambda wsapp, error: logger.error(f"AngelOne WebSocket error: {error}")
+        sws.on_close = lambda wsapp: logger.info("AngelOne WebSocket closed")
+        sws.connect()
+    elif broker == "Shoonya":
+        api_client = smart_api_instances[username]
+        api_client.start_websocket(
+            subscribe_callback=on_data_shoonya,
+            order_update_callback=lambda order: logger.info(f"Shoonya order update: {order}"),
+            socket_open_callback=on_open_shoonya,
+            socket_close_callback=lambda: logger.info("Shoonya WebSocket closed")
+        )
 
 def check_conditions(api_client, position_data: dict, ltp: float, username: str):
     stop_loss_price = None
@@ -397,24 +362,92 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
         conn.commit()
 
     if (stop_loss_price and ltp <= stop_loss_price) or (sell_price and ltp <= sell_price):
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
+            broker = cursor.fetchone()[0]
         orderparams = {
+            "variety": "NORMAL",
+            "tradingsymbol": position_data['symbol'],
+            "symboltoken": position_data['symboltoken'],
+            "transactiontype": "SELL" if broker == "AngelOne" else "S",
+            "exchange": "NSE",
+            "ordertype": "MARKET" if broker == "AngelOne" else "MKT",
+            "producttype": "INTRADAY",
+            "duration": "DAY",
+            "price": "0",
+            "quantity": "1",
+            "squareoff": "0",
+            "stoploss": "0"
+        } if broker == "AngelOne" else {
             "buy_or_sell": "S",
             "product_type": "I",
-            "exchange": "NFO",
+            "exchange": "NSE",
             "tradingsymbol": position_data['symbol'],
             "quantity": 1,
             "price_type": "MKT",
             "price": 0,
-            "retention": "DAY",
-            "uid": username,
-            "actid": position_data.get('actid', "ACTID_FROM_LOGIN")  # Use stored actid or default
+            "retention": "DAY"
         }
-        place_order(api_client, "Shoonya", orderparams, "EXIT", username)
+        place_order(api_client, broker, orderparams, "EXIT", username)
         with conn:
             cursor = conn.cursor()
             cursor.execute("UPDATE open_positions SET position_active = 0 WHERE position_id = ?", (position_data['position_id'],))
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
+
+# New function for fetching Shoonya option chain data
+def get_shoonya_option_chain(api_client, index_name: str):
+    nifty_token = "26000" if index_name == "NIFTY" else "26009"
+    ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
+    if not ret or 'lp' not in ret:
+        raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
+    
+    ltp = int(float(ret["lp"]))
+    incrementor = 50 if index_name == "NIFTY" else 100
+    ltp = ltp - (ltp % incrementor)
+    
+    exch = 'NFO'
+    query = 'nifty' if index_name == "NIFTY" else 'banknifty'
+    ret = api_client.searchscrip(exchange=exch, searchtext=query)
+    if not ret or 'values' not in ret:
+        raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
+    
+    symbols = ret['values']
+    expiry = ""
+    for symbol in symbols:
+        if symbol['tsym'].endswith("0"):
+            expiry = symbol['tsym'][9:16]
+            break
+    if not expiry:
+        raise HTTPException(status_code=400, detail="Could not determine expiry date")
+    
+    strike = f"{index_name}{expiry}P{ltp}"
+    chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=5)
+    if not chain or 'values' not in chain:
+        raise HTTPException(status_code=400, detail="Failed to fetch option chain")
+    
+    chainscrips = []
+    for scrip in chain['values']:
+        scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
+        chainscrips.append(scripdata)
+    
+    option_chain_data = []
+    for i in range(5):
+        ce_data = chainscrips[9 - i]  # CE data (descending order)
+        pe_data = chainscrips[9 + i + 1]  # PE data (ascending order)
+        strike_price = ce_data["tsym"][13:18] if index_name == "NIFTY" else ce_data["tsym"][17:22]
+        option_chain_data.append({
+            "strike": strike_price,
+            "ce_oi": ce_data["oi"],
+            "ce_ltp": ce_data["lp"],
+            "ce_token": ce_data["token"],
+            "pe_oi": pe_data["oi"],
+            "pe_ltp": pe_data["lp"],
+            "pe_token": pe_data["token"]
+        })
+    
+    return option_chain_data
 
 @app.on_event("startup")
 async def startup_event():
@@ -423,64 +456,38 @@ async def startup_event():
         cursor.execute("SELECT * FROM users LIMIT 3")
         users = cursor.fetchall()
     for user in users:
-        user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity", "actid", "imei"], user))
-        if user_data['broker'] == "Shoonya":
-            try:
-                api_client, auth_token, actid, feed_token = authenticate_user(
-                    user_data['username'], user_data['password'], user_data['broker'], 
-                    user_data['api_key'], user_data['totp_token'], user_data['vendor_code'], user_data['imei']
-                )
-                smart_api_instances[user_data['username']] = api_client
-                auth_tokens[user_data['username']] = auth_token
-                feed_tokens[user_data['username']] = feed_token
-                # Store actid in database if not already present
-                if not user_data['actid'] and actid:
-                    with conn:
-                        cursor = conn.cursor()
-                        cursor.execute("UPDATE users SET actid = ? WHERE username = ?", (actid, user_data['username']))
-                        conn.commit()
-                # Start or reuse global WebSocket
-                if not websocket_instance:
-                    start_websocket(global_instance=True)
-                subscribe_user_tokens(user_data['username'])
-            except Exception as e:
-                logger.error(f"Failed to start WebSocket for {user_data['username']}: {e}")
-
-def subscribe_user_tokens(username: str):
-    global websocket_instance
-    if username in smart_api_instances and websocket_instance:
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE username = ? AND position_active = 1", (username,))
-            tokens = [row[0] for row in cursor.fetchall()]
-        for token in tokens:
-            websocket_instance.subscribe(f"NFO|{token}")
-
-@app.get("/")
-async def root():
-    return {"message": "Welcome to the Shoonya Trading API"}
+        user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity"], user))
+        api_client, auth_token, refresh_token, feed_token = authenticate_user(
+            user_data['username'], user_data['password'], user_data['broker'], 
+            user_data['api_key'], user_data['totp_token'], user_data['vendor_code']
+        )
+        smart_api_instances[user_data['username']] = api_client
+        auth_tokens[user_data['username']] = auth_token
+        if user_data['broker'] == "AngelOne":
+            refresh_tokens[user_data['username']] = refresh_token
+        feed_tokens[user_data['username']] = feed_token
+        threading.Thread(target=start_websocket, args=(user_data['username'], user_data['broker'], user_data['api_key'], auth_token, feed_token), daemon=True).start()
 
 @app.post("/api/register_user")
 def register_user(user: User):
     try:
-        api_client, auth_token, actid, feed_token = authenticate_user(
-            user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.imei
+        api_client, auth_token, refresh_token, feed_token = authenticate_user(
+            user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code
         )
         with conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                           (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity, actid, user.imei))
+            cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)",
+                           (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity))
             conn.commit()
         smart_api_instances[user.username] = api_client
         auth_tokens[user.username] = auth_token
+        if user.broker == "AngelOne":
+            refresh_tokens[user.username] = refresh_token
         feed_tokens[user.username] = feed_token
-        # Start or reuse global WebSocket
-        if not websocket_instance:
-            start_websocket(global_instance=True)
-        subscribe_user_tokens(user.username)
+        threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
         return {"message": "User registered and authenticated successfully"}
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=409, detail="User already exists")
+        raise HTTPException(status_code=400, detail="User already exists")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
@@ -490,7 +497,7 @@ def get_users():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users")
         users = cursor.fetchall()
-    return {"users": [dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity", "actid", "imei"], row)) for row in users]}
+    return {"users": [dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity"], row)) for row in users]}
 
 @app.delete("/api/delete_user/{username}")
 def delete_user(username: str):
@@ -498,23 +505,15 @@ def delete_user(username: str):
         cursor = conn.cursor()
         cursor.execute("DELETE FROM users WHERE username = ?", (username,))
         cursor.execute("DELETE FROM open_positions WHERE username = ?", (username,))
-        cursor.execute("DELETE FROM live_option_data WHERE username = ?", (username,))
         conn.commit()
     if username in smart_api_instances:
         del smart_api_instances[username]
     if username in auth_tokens:
         del auth_tokens[username]
+    if username in refresh_tokens:
+        del refresh_tokens[username]
     if username in feed_tokens:
         del feed_tokens[username]
-    # Unsubscribe tokens for this user if WebSocket exists
-    global websocket_instance
-    if websocket_instance:
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE username = ?", (username,))
-            tokens = [row[0] for row in cursor.fetchall()]
-        for token in tokens:
-            websocket_instance.unsubscribe(f"NFO|{token}")
     return {"message": f"User {username} deleted successfully"}
 
 @app.get("/api/get_trades")
@@ -527,75 +526,6 @@ def get_trades():
                                  "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
                                  "sell_type", "sell_threshold", "previous_close"], row)) for row in trades]}
 
-@app.get("/api/get_market_data/{username}/{symboltoken}")
-def get_market_data(username: str, symboltoken: str):
-    if username not in smart_api_instances:
-        raise HTTPException(status_code=401, detail="User not authenticated")
-    
-    exchange = "NFO"  # Assuming NFO for options
-    symbol_key = f"{exchange}:{symboltoken}"
-    if symbol_key in market_data:
-        return {"market_data": market_data[symbol_key], "ltp": ltp_cache.get(symbol_key, 0.0)}
-    raise HTTPException(status_code=404, detail="No market data available")
-
-@app.post("/api/get_option_chain")
-def get_option_chain(request: OptionChainRequest):
-    try:
-        username = request.username
-        if username not in smart_api_instances:
-            raise HTTPException(status_code=401, detail="User not authenticated")
-        
-        api_client = smart_api_instances[username]
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
-            user = cursor.fetchone()
-        if not user or user[0] != "Shoonya":
-            raise HTTPException(status_code=400, detail="Only Shoonya broker supported for option chain")
-
-        # Parse expiry date (e.g., "25 Feb 2025 W" -> strip "W" and parse as "25 Feb 2025")
-        try:
-            # Remove the "W" if present and parse the date
-            expiry_cleaned = request.expiry.replace(" W", "").strip()
-            expiry_date = datetime.strptime(expiry_cleaned, "%d %b %Y").strftime("%d-%b-%Y").upper()
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid expiry format: {str(e)}")
-
-        # Construct trading symbol (e.g., "NIFTY25FEB25CE75000" for Call, "NIFTY25FEB25PE75000" for Put)
-        option_suffix = "CE" if request.option_type == "Call" else "PE"
-        tradingsymbol = f"{request.symbol}{expiry_date}{option_suffix}{int(request.strike_price)}"
-        
-        # Fetch option chain data with additional validation
-        option_chain = get_option_chain_data(api_client, "NFO", request.symbol, request.strike_price)
-        
-        # Find the specific option contract
-        target_contract = next((contract for contract in option_chain if contract['tsym'] == tradingsymbol), None)
-        if not target_contract:
-            raise HTTPException(status_code=400, detail=f"Option contract not found for {tradingsymbol}")
-
-        # Subscribe to real-time updates for this token using global WebSocket
-        global websocket_instance
-        if websocket_instance:
-            websocket_instance.subscribe(f"NFO|{target_contract['token']}")
-
-        return {
-            "symbol": request.symbol,
-            "expiry": request.expiry,
-            "strike_price": request.strike_price,
-            "option_type": request.option_type,
-            "tradingsymbol": tradingsymbol,
-            "token": target_contract['token'],
-            "call_ltp": target_contract.get('call_ltp', 0.0) if request.option_type == "Call" else None,
-            "put_ltp": target_contract.get('put_ltp', 0.0) if request.option_type == "Put" else None,
-            "volume": target_contract.get('volume', 0),
-            "oi": target_contract.get('oi', 0)  # Include OI in the response
-        }
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Error fetching option chain for {username}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error fetching option chain: {str(e)}")
-
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
     try:
@@ -606,36 +536,48 @@ async def initiate_trade(request: TradeRequest):
         api_client = smart_api_instances[username]
         with conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT broker, default_quantity, actid FROM users WHERE username = ?", (username,))
+            cursor.execute("SELECT broker, default_quantity FROM users WHERE username = ?", (username,))
             user = cursor.fetchone()
-        if not user or user[0] != "Shoonya":
-            raise HTTPException(status_code=400, detail="Only Shoonya broker supported for options trading")
-        broker, default_quantity, actid = user
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        broker, default_quantity = user
         
         params = request.dict()
+        strike_price = params['strike_price']
         buy_type = params['buy_type']
         buy_threshold = params['buy_threshold']
-        previous_close = params.get('previous_close', params['strike_price'])
+        previous_close = params.get('previous_close', strike_price)
         entry_threshold = buy_threshold if buy_type == "Fixed" else previous_close * (1 + buy_threshold / 100)
-        
-        # Fetch LTP using the token from option chain
         ltp = get_ltp(api_client, broker, params['exchange'], params['tradingsymbol'], params['symboltoken'])
         if ltp < entry_threshold:
             raise HTTPException(status_code=400, detail=f"Current LTP {ltp} below buy threshold {entry_threshold}")
 
-        buy_order_params = {
-            "buy_or_sell": "B",
-            "product_type": "I" if params['producttype'] == "INTRADAY" else params['producttype'],
-            "exchange": params['exchange'],
-            "tradingsymbol": params['tradingsymbol'],
-            "quantity": default_quantity,
-            "discloseqty": 0,
-            "price_type": "MKT",
-            "price": 0,
-            "retention": "DAY",
-            "uid": username,
-            "actid": actid
-        }
+        buy_order_params = (
+            {
+                "variety": "NORMAL",
+                "tradingsymbol": params['tradingsymbol'],
+                "symboltoken": params['symboltoken'],
+                "transactiontype": "BUY",
+                "exchange": params['exchange'],
+                "ordertype": "MARKET",
+                "producttype": params['producttype'],
+                "duration": "DAY",
+                "price": "0",
+                "quantity": str(default_quantity),
+                "squareoff": "0",
+                "stoploss": "0"
+            } if broker == "AngelOne" else {
+                "buy_or_sell": "B",
+                "product_type": "I" if params['producttype'] == "INTRADAY" else params['producttype'],
+                "exchange": params['exchange'],
+                "tradingsymbol": params['tradingsymbol'],
+                "quantity": default_quantity,
+                "discloseqty": 0,
+                "price_type": "MKT",
+                "price": 0,
+                "retention": "DAY"
+            }
+        )
         buy_result = place_order(api_client, broker, buy_order_params, "LONG", username)
         if buy_result is None:
             logger.error(f"Trade initiation failed for {username}: place_order returned None")
@@ -655,18 +597,12 @@ async def initiate_trade(request: TradeRequest):
 
         position_id = f"{username}_{params['tradingsymbol']}_{int(time.time())}"
         update_open_positions(position_id, username, params['tradingsymbol'], entry_price, conditions)
-
-        # Subscribe to real-time updates for the traded symbol using global WebSocket
-        global websocket_instance
-        if websocket_instance:
-            websocket_instance.subscribe(f"NFO|{params['symboltoken']}")
-
         return {"message": f"LONG trade initiated for {username}", "data": buy_result, "position_id": position_id}
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Trade initiation error for {username}: {str(e)}")
+        logger.error(f"Trade initiation error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.post("/api/update_trade_conditions")
@@ -700,22 +636,18 @@ async def update_trade_conditions(request: UpdateTradeRequest):
             """, (stop_loss_type, stop_loss_value, points_condition, position_id))
             conn.commit()
 
-        # Ensure real-time updates are subscribed for this symbol
-        global websocket_instance
-        if websocket_instance:
-            websocket_instance.subscribe(f"NFO|{pos_data['symboltoken']}")
-
         return {"message": f"Conditions updated for position {position_id}", 
                 "conditions": {"stop_loss_type": stop_loss_type, "stop_loss_value": stop_loss_value, "points_condition": points_condition}}
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Condition update error for {username}: {str(e)}")
+        logger.error(f"Condition update error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@app.post("/api/get_live_oi")
-def get_live_oi(request: LiveOptionDataRequest):
+# New endpoint for fetching Shoonya option chain
+@app.post("/api/get_shoonya_option_chain")
+async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
     try:
         username = request.username
         if username not in smart_api_instances:
@@ -725,77 +657,19 @@ def get_live_oi(request: LiveOptionDataRequest):
         with conn:
             cursor = conn.cursor()
             cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
-            user = cursor.fetchone()
-        if not user or user[0] != "Shoonya":
-            raise HTTPException(status_code=400, detail="Only Shoonya broker supported for live OI data")
-
-        symboltoken = request.symboltoken
-        quotes = api_client.get_quotes(exchange="NFO", token=symboltoken)
-        if quotes and quotes.get('stat') == 'Ok':
-            oi = float(quotes.get('oi', 0))
-            ltp = float(quotes.get('lp', 0))
-            volume = float(quotes.get('v', 0))
-            timestamp = datetime.now().isoformat()
-            
-            update_live_option_data(symboltoken, quotes)
-            
-            return {
-                "symboltoken": symboltoken,
-                "oi": oi,
-                "ltp": ltp,
-                "volume": volume,
-                "timestamp": timestamp
-            }
-        logger.error(f"Shoonya live OI fetch failed for symboltoken {symboltoken}: {quotes}")
-        raise HTTPException(status_code=400, detail="No live OI data available")
+            broker = cursor.fetchone()[0]
+        
+        if broker != "Shoonya":
+            raise HTTPException(status_code=400, detail="Option chain data is only available for Shoonya broker")
+        
+        option_chain_data = get_shoonya_option_chain(api_client, request.index_name)
+        return {"message": f"Option chain data for {request.index_name}", "data": option_chain_data}
+    
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Error fetching live OI for {username}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Internal server error fetching live OI: {str(e)}")
-
-@app.websocket("/api/websocket/{username}/{symboltoken}")
-async def websocket_endpoint(websocket: WebSocket, username: str, symboltoken: str):
-    global websocket_instance, live_option_subscriptions
-    await websocket.accept()
-    if username not in smart_api_instances:
-        await websocket.close(code=1008, reason="User not authenticated")
-        return
-
-    # Subscribe to the token using the global WebSocket instance
-    if websocket_instance:
-        websocket_instance.subscribe(f"NFO|{symboltoken}")
-
-    # Add WebSocket to subscriptions for this symboltoken
-    if symboltoken not in live_option_subscriptions:
-        live_option_subscriptions[symboltoken] = []
-    live_option_subscriptions[symboltoken].append(websocket)
-    
-    try:
-        while True:
-            # Send periodic updates (e.g., every 1 second) or wait for WebSocket messages
-            if symboltoken in market_data:
-                await websocket.send_json({
-                    "market_data": market_data[f"NFO:{symboltoken}"],
-                    "ltp": ltp_cache.get(f"NFO:{symboltoken}", 0.0),
-                    "oi": market_data[f"NFO:{symboltoken}"].get('oi', 0),
-                    "volume": market_data[f"NFO:{symboltoken}"].get('v', 0),
-                    "timestamp": datetime.now().isoformat()
-                })
-            await asyncio.sleep(1)  # Adjust interval as needed
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for {username}/{symboltoken}")
-        if symboltoken in live_option_subscriptions:
-            live_option_subscriptions[symboltoken].remove(websocket)
-    except Exception as e:
-        logger.error(f"WebSocket error for {username}/{symboltoken}: {str(e)}")
-    finally:
-        if websocket_instance and symboltoken in live_option_subscriptions:
-            websocket_instance.unsubscribe(f"NFO|{symboltoken}")
-        if symboltoken in live_option_subscriptions:
-            live_option_subscriptions[symboltoken].remove(websocket)
-        await websocket.close()
+        logger.error(f"Option chain fetch error for {username}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 if __name__ == "__main__":
-    import asyncio
     uvicorn.run(app, host="0.0.0.0", port=8000)
