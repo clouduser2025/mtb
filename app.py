@@ -35,7 +35,8 @@ def init_db():
             api_key TEXT,
             totp_token TEXT,
             vendor_code TEXT,
-            default_quantity INTEGER
+            default_quantity INTEGER,
+            imei TEXT  -- Added imei field
         )
         """)
         conn.execute("""
@@ -70,6 +71,7 @@ class User(BaseModel):
     totp_token: str
     vendor_code: Optional[str] = None
     default_quantity: int
+    imei: str  # Added imei field
 
 class TradeRequest(BaseModel):
     username: str
@@ -94,10 +96,9 @@ class UpdateTradeRequest(BaseModel):
     stop_loss_value: Optional[float] = 5.0
     points_condition: Optional[float] = 0
 
-# New class for Option Chain request
 class OptionChainRequest(BaseModel):
     username: str
-    index_name: str  # "NIFTY" or "BANKNIFTY"
+    index_name: str
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -105,7 +106,7 @@ auth_tokens = {}
 refresh_tokens = {}
 feed_tokens = {}
 
-def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None):
+def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None, imei: str = "trading_app"):
     if broker == "AngelOne":
         smart_api = SmartConnect(api_key)
         try:
@@ -125,7 +126,7 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
         smart_api = ShoonyaApiPy()
         try:
             totp = pyotp.TOTP(totp_token).now()
-            ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei="trading_app")
+            ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei=imei)
             if ret.get('stat') != 'Ok':
                 logger.error(f"Shoonya Authentication failed for {username}: {ret}")
                 raise Exception(f"Authentication failed: {ret.get('emsg')}")
@@ -155,12 +156,12 @@ def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
 def full_reauth_user(username: str):
     with conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT password, broker, api_key, totp_token, vendor_code FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT password, broker, api_key, totp_token, vendor_code, imei FROM users WHERE username = ?", (username,))
         user = cursor.fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    password, broker, api_key, totp_token, vendor_code = user
-    api_client, auth_token, refresh_token, feed_token = authenticate_user(username, password, broker, api_key, totp_token, vendor_code)
+    password, broker, api_key, totp_token, vendor_code, imei = user
+    api_client, auth_token, refresh_token, feed_token = authenticate_user(username, password, broker, api_key, totp_token, vendor_code, imei)
     smart_api_instances[username] = api_client
     auth_tokens[username] = auth_token
     if broker == "AngelOne":
@@ -396,7 +397,6 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
-# New function for fetching Shoonya option chain data
 def get_shoonya_option_chain(api_client, index_name: str):
     nifty_token = "26000" if index_name == "NIFTY" else "26009"
     ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
@@ -404,7 +404,7 @@ def get_shoonya_option_chain(api_client, index_name: str):
         raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
     
     ltp = int(float(ret["lp"]))
-    incrementor = 50 if index_name == "NIFTY" else 100
+    incrementor = 50 if index_name == "NIFTY" else "100"
     ltp = ltp - (ltp % incrementor)
     
     exch = 'NFO'
@@ -456,10 +456,10 @@ async def startup_event():
         cursor.execute("SELECT * FROM users LIMIT 3")
         users = cursor.fetchall()
     for user in users:
-        user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity"], user))
+        user_data = dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity", "imei"], user))
         api_client, auth_token, refresh_token, feed_token = authenticate_user(
             user_data['username'], user_data['password'], user_data['broker'], 
-            user_data['api_key'], user_data['totp_token'], user_data['vendor_code']
+            user_data['api_key'], user_data['totp_token'], user_data['vendor_code'], user_data['imei']
         )
         smart_api_instances[user_data['username']] = api_client
         auth_tokens[user_data['username']] = auth_token
@@ -472,12 +472,12 @@ async def startup_event():
 def register_user(user: User):
     try:
         api_client, auth_token, refresh_token, feed_token = authenticate_user(
-            user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code
+            user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.imei
         )
         with conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?)",
-                           (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity))
+            cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                           (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity, user.imei))
             conn.commit()
         smart_api_instances[user.username] = api_client
         auth_tokens[user.username] = auth_token
@@ -497,7 +497,7 @@ def get_users():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users")
         users = cursor.fetchall()
-    return {"users": [dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity"], row)) for row in users]}
+    return {"users": [dict(zip(["username", "password", "broker", "api_key", "totp_token", "vendor_code", "default_quantity", "imei"], row)) for row in users]}
 
 @app.delete("/api/delete_user/{username}")
 def delete_user(username: str):
@@ -645,7 +645,6 @@ async def update_trade_conditions(request: UpdateTradeRequest):
         logger.error(f"Condition update error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# New endpoint for fetching Shoonya option chain
 @app.post("/api/get_shoonya_option_chain")
 async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
     try:

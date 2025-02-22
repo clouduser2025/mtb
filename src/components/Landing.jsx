@@ -25,10 +25,11 @@ const Landing = () => {
     totp_token: "",
     vendor_code: "",
     default_quantity: 1,
-    symbol: "NIFTY", // Changed to index_name for Shoonya option chain
-    expiry: "25 Feb 2025 W", // Not used in Shoonya option chain directly
-    strike_price: 75000, // Used as initial reference
-    option_type: "Call", // Not directly used in Shoonya chain fetch
+    imei: "", // Added imei field
+    symbol: "NIFTY",
+    expiry: "25 Feb 2025 W",
+    strike_price: 75000,
+    option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
     exchange: "NFO",
@@ -84,15 +85,15 @@ const Landing = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username,
-          index_name: formData.symbol // Using symbol as index_name (NIFTY or BANKNIFTY)
+          index_name: formData.symbol
         }),
       });
 
-      const	data = await response.json();
+      const data = await response.json();
       if (response.ok) {
-        setOptionChainData(data.data); // Array of strikes from Shoonya
+        setOptionChainData(data.data);
         setMessage({ text: `Option chain data fetched for ${formData.symbol}!`, type: "success" });
-        setFormStep(5); // Show option chain table directly
+        setFormStep(5);
       } else {
         setMessage({ text: data.detail || "Failed to fetch option chain", type: "danger" });
       }
@@ -103,7 +104,6 @@ const Landing = () => {
   };
 
   const handleSelectStrike = (strikeData) => {
-    // Populate formData with selected strike data for trading
     const optionType = formData.option_type === "Call" ? "CE" : "PE";
     setFormData({
       ...formData,
@@ -112,7 +112,7 @@ const Landing = () => {
       previous_close: optionType === "CE" ? parseFloat(strikeData.ce_ltp) : parseFloat(strikeData.pe_ltp),
       strike_price: parseFloat(strikeData.strike)
     });
-    setFormStep(6); // Move to trading conditions
+    setFormStep(6);
     startMarketUpdates(selectedUsers[0], optionType === "CE" ? strikeData.ce_token : strikeData.pe_token);
   };
 
@@ -164,8 +164,11 @@ const Landing = () => {
         api_key: formData.api_key,
         totp_token: formData.totp_token,
         default_quantity: parseInt(formData.default_quantity || 1, 10),
-        vendor_code: formData.broker === "Shoonya" ? formData.vendor_code : undefined
+        imei: formData.imei // Added imei to payload
       };
+      if (formData.broker === "Shoonya") {
+        payload.vendor_code = formData.vendor_code;
+      }
       const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -175,7 +178,7 @@ const Landing = () => {
       if (response.ok) {
         setMessage({ text: `User ${formData.username} registered successfully (${formData.broker})!`, type: "success" });
         fetchUsers();
-        setFormData({ ...formData, username: "", password: "", api_key: "", totp_token: "", vendor_code: "" });
+        setFormData({ ...formData, username: "", password: "", api_key: "", totp_token: "", vendor_code: "", imei: "" });
         setShowRegisterModal(false);
       } else {
         setMessage({ text: data.detail || "Registration failed", type: "danger" });
@@ -338,6 +341,7 @@ const Landing = () => {
                 <th>Broker</th>
                 <th>Default Quantity</th>
                 <th>Vendor Code</th>
+                <th>IMEI</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -350,11 +354,12 @@ const Landing = () => {
                     <td>{user.broker}</td>
                     <td>{user.default_quantity}</td>
                     <td>{user.broker === "Shoonya" ? user.vendor_code || "N/A" : "N/A"}</td>
+                    <td>{user.broker === "Shoonya" ? user.imei || "N/A" : "N/A"}</td>
                     <td><Button variant="danger" size="sm" onClick={() => handleDeleteUser(user.username)}>Delete</Button></td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="6" className="text-muted text-center">No registered users found.</td></tr>
+                <tr><td colSpan="7" className="text-muted text-center">No registered users found.</td></tr>
               )}
             </tbody>
           </Table>
@@ -684,7 +689,10 @@ const Landing = () => {
             <Form.Group><Form.Label>API Key</Form.Label><Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required /></Form.Group>
             <Form.Group><Form.Label>TOTP Token</Form.Label><Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required /></Form.Group>
             {formData.broker === "Shoonya" && (
-              <Form.Group><Form.Label>Vendor Code</Form.Label><Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required /></Form.Group>
+              <>
+                <Form.Group><Form.Label>Vendor Code</Form.Label><Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required /></Form.Group>
+                <Form.Group><Form.Label>IMEI</Form.Label><Form.Control type="text" value={formData.imei} onChange={(e) => setFormData({ ...formData, imei: e.target.value })} required /></Form.Group>
+              </>
             )}
             <Form.Group><Form.Label>Default Quantity</Form.Label><Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required /></Form.Group>
             <Button variant="primary" type="submit" className="mt-3">Register</Button>
