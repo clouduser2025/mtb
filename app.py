@@ -36,7 +36,7 @@ def init_db():
             totp_token TEXT,
             vendor_code TEXT,
             default_quantity INTEGER,
-            imei TEXT  -- Added imei field
+            imei TEXT
         )
         """)
         conn.execute("""
@@ -71,7 +71,7 @@ class User(BaseModel):
     totp_token: str
     vendor_code: Optional[str] = None
     default_quantity: int
-    imei: str  # Added imei field
+    imei: str
 
 class TradeRequest(BaseModel):
     username: str
@@ -99,6 +99,7 @@ class UpdateTradeRequest(BaseModel):
 class OptionChainRequest(BaseModel):
     username: str
     index_name: str
+    strike_price: float  # Added strike_price to request
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -397,15 +398,15 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
-def get_shoonya_option_chain(api_client, index_name: str):
+def get_shoonya_option_chain(api_client, index_name: str, strike_price: float):
     nifty_token = "26000" if index_name == "NIFTY" else "26009"
     ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
     if not ret or 'lp' not in ret:
         raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
     
-    ltp = int(float(ret["lp"]))
-    incrementor = 50 if index_name == "NIFTY" else "100"
-    ltp = ltp - (ltp % incrementor)
+    ltp = int(float(ret["lp"]))  # Fetch LTP for reference, but use user-provided strike_price
+    incrementor = 50 if index_name == "NIFTY" else 100
+    strike_price = int(strike_price - (strike_price % incrementor))  # Align strike_price to increment
     
     exch = 'NFO'
     query = 'nifty' if index_name == "NIFTY" else 'banknifty'
@@ -422,8 +423,8 @@ def get_shoonya_option_chain(api_client, index_name: str):
     if not expiry:
         raise HTTPException(status_code=400, detail="Could not determine expiry date")
     
-    strike = f"{index_name}{expiry}P{ltp}"
-    chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=5)
+    strike = f"{index_name}{expiry}P{strike_price}"
+    chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=strike_price, count=5)
     if not chain or 'values' not in chain:
         raise HTTPException(status_code=400, detail="Failed to fetch option chain")
     
@@ -436,9 +437,9 @@ def get_shoonya_option_chain(api_client, index_name: str):
     for i in range(5):
         ce_data = chainscrips[9 - i]  # CE data (descending order)
         pe_data = chainscrips[9 + i + 1]  # PE data (ascending order)
-        strike_price = ce_data["tsym"][13:18] if index_name == "NIFTY" else ce_data["tsym"][17:22]
+        strike_price_extracted = ce_data["tsym"][13:18] if index_name == "NIFTY" else ce_data["tsym"][17:22]
         option_chain_data.append({
-            "strike": strike_price,
+            "strike": strike_price_extracted,
             "ce_oi": ce_data["oi"],
             "ce_ltp": ce_data["lp"],
             "ce_token": ce_data["token"],
@@ -661,8 +662,8 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         if broker != "Shoonya":
             raise HTTPException(status_code=400, detail="Option chain data is only available for Shoonya broker")
         
-        option_chain_data = get_shoonya_option_chain(api_client, request.index_name)
-        return {"message": f"Option chain data for {request.index_name}", "data": option_chain_data}
+        option_chain_data = get_shoonya_option_chain(api_client, request.index_name, request.strike_price)
+        return {"message": f"Option chain data for {request.index_name} around strike {request.strike_price}", "data": option_chain_data}
     
     except HTTPException as e:
         raise e
