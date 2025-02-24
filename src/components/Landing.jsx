@@ -28,7 +28,7 @@ const Landing = () => {
     imei: "",
     symbol: "NIFTY",
     expiry: "25 Feb 2025 W",
-    strike_price: 0, // Initialized as 0, user will input in Step 3
+    strike_price: 0, // No longer user-input in Step 3; derived from LTP
     option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
@@ -79,29 +79,23 @@ const Landing = () => {
       return;
     }
 
-    if (!formData.strike_price || formData.strike_price <= 0) {
-      setMessage({ text: "Please enter a valid strike price.", type: "warning" });
-      return;
-    }
-
     try {
       const response = await fetch("https://mtb-8ra9.onrender.com/api/get_shoonya_option_chain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username,
-          index_name: formData.symbol,
-          strike_price: formData.strike_price
-        }),
+          index_name: formData.symbol
+        }), // Removed strike_price as backend now uses LTP
       });
 
       const data = await response.json();
       if (response.ok) {
         setOptionChainData(data.data);
-        setMessage({ text: `Option chain data fetched for ${formData.symbol} around strike ${formData.strike_price}!`, type: "success" });
-        setFormStep(4); // Changed to Step 4 to display option chain
+        setMessage({ text: `Option chain data fetched for ${formData.symbol} based on current LTP!`, type: "success" });
+        setFormStep(3); // Move to Step 3 to display option chain
       } else {
-        setMessage({ text: data.detail || "Failed to fetch option chain", type: "danger" });
+        setMessage({ text: data.message || data.detail || "Failed to fetch option chain", type: "danger" });
       }
     } catch (error) {
       console.error("Error fetching option chain:", error);
@@ -109,16 +103,17 @@ const Landing = () => {
     }
   };
 
-  const handleSelectStrike = (strikeData) => {
-    const optionType = formData.option_type === "Call" ? "CE" : "PE";
+  const handleSelectStrike = (strikeData, optionType) => {
+    const selectedTs = `${formData.symbol}${strikeData.strike}${optionType}`;
     setFormData({
       ...formData,
-      tradingsymbol: `${formData.symbol}${strikeData.strike}${optionType}`,
+      tradingsymbol: selectedTs,
       symboltoken: optionType === "CE" ? strikeData.ce_token : strikeData.pe_token,
       previous_close: optionType === "CE" ? parseFloat(strikeData.ce_ltp) : parseFloat(strikeData.pe_ltp),
-      strike_price: parseFloat(strikeData.strike)
+      strike_price: parseFloat(strikeData.strike),
+      option_type: optionType === "CE" ? "Call" : "Put"
     });
-    setFormStep(5); // Changed to Step 5 for trading conditions
+    setFormStep(4); // Move to Step 4 for trading conditions
     startMarketUpdates(selectedUsers[0], optionType === "CE" ? strikeData.ce_token : strikeData.pe_token);
   };
 
@@ -467,48 +462,15 @@ const Landing = () => {
                   </Form.Group>
                 </Col>
               </Row>
-              <Button variant="primary" onClick={() => setFormStep(3)}>Next</Button>
+              <Button variant="primary" onClick={fetchOptionChain}>Fetch Option Chain</Button>
               <Button variant="secondary" onClick={() => { setFormStep(1); setSelectedUsers([]); }} className="ms-2">Back</Button>
             </Form>
           </>
         )}
 
-        {formStep === 3 && (
+        {formStep === 3 && optionChainData && (
           <>
-            <h4 className="text-primary"><FontAwesomeIcon icon={faDollarSign} /> Step 3: Enter Strike Price to Monitor</h4>
-            <Form>
-              <Row className="mb-3">
-                <Col md={6}>
-                  <Form.Group>
-                    <Form.Label>Strike Price</Form.Label>
-                    <Form.Control
-                      type="number"
-                      value={formData.strike_price || ""}
-                      onChange={(e) => setFormData({ ...formData, strike_price: parseFloat(e.target.value) || 0 })}
-                      placeholder="Enter strike price (e.g., 24600)"
-                      required
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group>
-                    <Form.Label>Option Type</Form.Label>
-                    <Form.Select value={formData.option_type} onChange={(e) => setFormData({ ...formData, option_type: e.target.value })}>
-                      <option value="Call">Call</option>
-                      <option value="Put">Put</option>
-                    </Form.Select>
-                  </Form.Group>
-                </Col>
-              </Row>
-              <Button variant="primary" onClick={fetchOptionChain}>Fetch Option Chain</Button>
-              <Button variant="secondary" onClick={() => setFormStep(2)} className="ms-2">Back</Button>
-            </Form>
-          </>
-        )}
-
-        {formStep === 4 && optionChainData && (
-          <>
-            <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 4: Option Chain Data</h4>
+            <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data</h4>
             <Table striped bordered hover>
               <thead>
                 <tr>
@@ -529,21 +491,26 @@ const Landing = () => {
                     <td>{strikeData.pe_ltp}</td>
                     <td>{strikeData.pe_oi}</td>
                     <td>
-                      <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData)}>
-                        Select
-                      </Button>
+                      <ButtonGroup>
+                        <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData, "CE")}>
+                          Call
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => handleSelectStrike(strikeData, "PE")}>
+                          Put
+                        </Button>
+                      </ButtonGroup>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </Table>
-            <Button variant="secondary" onClick={() => setFormStep(3)} className="mt-2">Back</Button>
+            <Button variant="secondary" onClick={() => setFormStep(2)} className="mt-2">Back</Button>
           </>
         )}
 
-        {formStep === 5 && (
+        {formStep === 4 && (
           <>
-            <h4 className="text-success"><FontAwesomeIcon icon={faShoppingCart} /> Step 5: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)</h4>
+            <h4 className="text-success"><FontAwesomeIcon icon={faShoppingCart} /> Step 4: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)</h4>
             <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
             <Form>
               <Row className="mb-3">
@@ -646,7 +613,7 @@ const Landing = () => {
                 </Col>
               </Row>
               <Button variant="success" onClick={handleInitiateTrade}>Execute Trade</Button>
-              <Button variant="secondary" onClick={() => setFormStep(4)} className="ms-2">Back</Button>
+              <Button variant="secondary" onClick={() => setFormStep(3)} className="ms-2">Back</Button>
             </Form>
           </>
         )}

@@ -98,8 +98,7 @@ class UpdateTradeRequest(BaseModel):
 
 class OptionChainRequest(BaseModel):
     username: str
-    index_name: str
-    strike_price: float  # Added strike_price to request
+    index_name: str  # No strike_price; we'll use LTP like oiData.py
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -398,57 +397,81 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
-def get_shoonya_option_chain(api_client, index_name: str, strike_price: float):
-    nifty_token = "26000" if index_name == "NIFTY" else "26009"
-    ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
-    if not ret or 'lp' not in ret:
-        raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
+def get_shoonya_option_chain(api_client, index_name: str):
+    try:
+        # Set index token and incrementor like oiData.py
+        nifty_token = "26000" if index_name == "NIFTY" else "26009"
+        incrementor = 50 if index_name == "NIFTY" else 100
+        start_index = 13 if index_name == "NIFTY" else 17
+
+        # Fetch LTP
+        ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
+        logger.info(f"Index quotes response: {ret}")
+        if not ret or 'lp' not in ret:
+            logger.error(f"Failed to fetch index LTP: {ret}")
+            raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
+        ltp = int(float(ret["lp"]))
+        ltp = ltp - (ltp % incrementor)
+
+        # Search for expiry
+        exch = 'NFO'
+        query = 'nifty' if index_name == "NIFTY" else 'banknifty'
+        ret = api_client.searchscrip(exchange=exch, searchtext=query)
+        logger.info(f"Searchscrip response: {ret}")
+        if not ret or 'values' not in ret:
+            logger.error(f"Failed to fetch scrip data: {ret}")
+            raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
+        
+        symbols = ret['values']
+        expiry = ""
+        for symbol in symbols:
+            if symbol['tsym'].endswith("0"):
+                expiry = symbol['tsym'][9:16]
+                break
+        if not expiry:
+            logger.error("Could not determine expiry date")
+            raise HTTPException(status_code=400, detail="Could not determine expiry date")
+        
+        # Fetch option chain using LTP
+        strike = f"{index_name}{expiry}P{ltp}"
+        logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
+        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=5)
+        logger.info(f"Option chain response: {chain}")
+        if not chain or 'values' not in chain:
+            error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
+            logger.error(f"Failed to fetch option chain: {error_msg}")
+            if "market" in error_msg.lower() or "closed" in error_msg.lower():
+                logger.warning("Market is closed, no live option chain data available")
+                return {"message": "Market is closed, no live option chain data available", "data": []}
+            raise HTTPException(status_code=400, detail=f"Failed to fetch option chain: {error_msg}")
+        
+        chainscrips = []
+        for scrip in chain['values']:
+            scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
+            logger.info(f"Quote for {scrip['tsym']}: {scripdata}")
+            chainscrips.append(scripdata)
+        
+        # Format response like oiData.py
+        option_chain_data = []
+        for i in range(5):
+            ce_data = chainscrips[9 - i]  # CE strikes in descending order
+            pe_data = chainscrips[9 + i + 1]  # PE strikes in ascending order
+            strike_price_extracted = ce_data["tsym"][start_index:start_index + 5]
+            option_chain_data.append({
+                "strike": strike_price_extracted,
+                "ce_oi": ce_data["oi"],
+                "ce_ltp": ce_data["lp"],
+                "ce_token": ce_data["token"],
+                "pe_oi": pe_data["oi"],
+                "pe_ltp": pe_data["lp"],
+                "pe_token": pe_data["token"]
+            })
+        
+        return option_chain_data
     
-    ltp = int(float(ret["lp"]))  # Fetch LTP for reference, but use user-provided strike_price
-    incrementor = 50 if index_name == "NIFTY" else 100
-    strike_price = int(strike_price - (strike_price % incrementor))  # Align strike_price to increment
-    
-    exch = 'NFO'
-    query = 'nifty' if index_name == "NIFTY" else 'banknifty'
-    ret = api_client.searchscrip(exchange=exch, searchtext=query)
-    if not ret or 'values' not in ret:
-        raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
-    
-    symbols = ret['values']
-    expiry = ""
-    for symbol in symbols:
-        if symbol['tsym'].endswith("0"):
-            expiry = symbol['tsym'][9:16]
-            break
-    if not expiry:
-        raise HTTPException(status_code=400, detail="Could not determine expiry date")
-    
-    strike = f"{index_name}{expiry}P{strike_price}"
-    chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=strike_price, count=5)
-    if not chain or 'values' not in chain:
-        raise HTTPException(status_code=400, detail="Failed to fetch option chain")
-    
-    chainscrips = []
-    for scrip in chain['values']:
-        scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
-        chainscrips.append(scripdata)
-    
-    option_chain_data = []
-    for i in range(5):
-        ce_data = chainscrips[9 - i]  # CE data (descending order)
-        pe_data = chainscrips[9 + i + 1]  # PE data (ascending order)
-        strike_price_extracted = ce_data["tsym"][13:18] if index_name == "NIFTY" else ce_data["tsym"][17:22]
-        option_chain_data.append({
-            "strike": strike_price_extracted,
-            "ce_oi": ce_data["oi"],
-            "ce_ltp": ce_data["lp"],
-            "ce_token": ce_data["token"],
-            "pe_oi": pe_data["oi"],
-            "pe_ltp": pe_data["lp"],
-            "pe_token": pe_data["token"]
-        })
-    
-    return option_chain_data
+    except Exception as e:
+        logger.error(f"Error in get_shoonya_option_chain: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -662,8 +685,10 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         if broker != "Shoonya":
             raise HTTPException(status_code=400, detail="Option chain data is only available for Shoonya broker")
         
-        option_chain_data = get_shoonya_option_chain(api_client, request.index_name, request.strike_price)
-        return {"message": f"Option chain data for {request.index_name} around strike {request.strike_price}", "data": option_chain_data}
+        option_chain_data = get_shoonya_option_chain(api_client, request.index_name)
+        if isinstance(option_chain_data, dict) and "message" in option_chain_data:
+            return option_chain_data  # Handle market closed case
+        return {"message": f"Option chain data for {request.index_name} based on current LTP", "data": option_chain_data}
     
     except HTTPException as e:
         raise e
