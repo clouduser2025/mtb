@@ -36,7 +36,7 @@ def init_db():
             totp_token TEXT,
             vendor_code TEXT,
             default_quantity INTEGER,
-            imei TEXT  -- Added imei field
+            imei TEXT
         )
         """)
         conn.execute("""
@@ -71,13 +71,13 @@ class User(BaseModel):
     totp_token: str
     vendor_code: Optional[str] = None
     default_quantity: int
-    imei: str  # Added imei field
+    imei: str
 
 class TradeRequest(BaseModel):
     username: str
     tradingsymbol: str
     symboltoken: str
-    exchange: str = "NSE"
+    exchange: str = "NFO"  # Updated to NFO for options
     strike_price: float
     buy_type: str = "Fixed"
     buy_threshold: float = 110
@@ -111,10 +111,11 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
         smart_api = SmartConnect(api_key)
         try:
             totp = pyotp.TOTP(totp_token).now()
+            logger.info(f"Generated TOTP for {username} (AngelOne): {totp}")
             data = smart_api.generateSession(username, password, totp)
             if data['status'] == False:
                 logger.error(f"AngelOne Authentication failed for {username}: {data}")
-                raise Exception(f"Authentication failed: {data.get('message')}")
+                raise Exception(f"Authentication failed: {data.get('message', 'Unknown error')}")
             auth_token = data['data']['jwtToken']
             refresh_token = data['data']['refreshToken']
             feed_token = smart_api.getfeedToken()
@@ -126,14 +127,19 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
         smart_api = ShoonyaApiPy()
         try:
             totp = pyotp.TOTP(totp_token).now()
+            logger.info(f"Attempting Shoonya login for {username} with: username={username}, password={password[:3]}..., twoFA={totp}, vendor_code={vendor_code}, api_secret={api_key[:5]}..., imei={imei}")
             ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei=imei)
+            logger.info(f"Shoonya login response for {username}: {ret}")
+            if ret is None:
+                logger.error(f"Shoonya login returned None for {username}")
+                raise Exception("Authentication failed: No response from Shoonya API")
             if ret.get('stat') != 'Ok':
                 logger.error(f"Shoonya Authentication failed for {username}: {ret}")
-                raise Exception(f"Authentication failed: {ret.get('emsg')}")
+                raise Exception(f"Authentication failed: {ret.get('emsg', 'Unknown error')}")
             return smart_api, ret['susertoken'], None, None
         except Exception as e:
             logger.error(f"Shoonya Auth error for {username}: {e}")
-            raise
+            raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
     raise HTTPException(status_code=400, detail=f"Unsupported broker: {broker}")
 
 def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
@@ -398,56 +404,79 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
 def get_shoonya_option_chain(api_client, index_name: str):
-    nifty_token = "26000" if index_name == "NIFTY" else "26009"
-    ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
-    if not ret or 'lp' not in ret:
-        raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
+    try:
+        # Fetch LTP for the index
+        nifty_token = "26000" if index_name == "NIFTY" else "26009"
+        incrementor = 50 if index_name == "NIFTY" else 100
+        start_index = 13 if index_name == "NIFTY" else 17
+
+        ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
+        logger.info(f"Index quotes response: {ret}")
+        if not ret or 'lp' not in ret:
+            logger.error(f"Failed to fetch index LTP: {ret}")
+            raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
+        ltp = int(float(ret["lp"]))
+        ltp = ltp - (ltp % incrementor)
+
+        # Fetch expiry
+        exch = 'NFO'
+        query = 'nifty' if index_name == "NIFTY" else 'banknifty'
+        ret = api_client.searchscrip(exchange=exch, searchtext=query)
+        logger.info(f"Searchscrip response: {ret}")
+        if not ret or 'values' not in ret:
+            logger.error(f"Failed to fetch scrip data: {ret}")
+            raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
+        
+        symbols = ret['values']
+        expiry = ""
+        for symbol in symbols:
+            if symbol['tsym'].endswith("0"):  # Assuming '0' indicates futures for expiry
+                expiry = symbol['tsym'][9:16]
+                break
+        if not expiry:
+            logger.error("Could not determine expiry date")
+            raise HTTPException(status_code=400, detail="Could not determine expiry date")
+        
+        # Fetch option chain using LTP
+        strike = f"{index_name}{expiry}P{ltp}"
+        logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
+        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=5)
+        logger.info(f"Option chain response: {chain}")
+        if not chain or 'values' not in chain:
+            error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
+            logger.error(f"Failed to fetch option chain: {error_msg}")
+            if "market" in error_msg.lower() or "closed" in error_msg.lower():
+                logger.warning("Market is closed, no live option chain data available")
+                return {"message": "Market is closed, no live option chain data available", "data": []}
+            raise HTTPException(status_code=400, detail=f"Failed to fetch option chain: {error_msg}")
+        
+        chainscrips = []
+        for scrip in chain['values']:
+            scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
+            logger.info(f"Quote for {scrip['tsym']}: {scripdata}")
+            chainscrips.append(scripdata)
+        
+        option_chain_data = []
+        for i in range(5):
+            ce_data = chainscrips[9 - i]  # CE in descending order
+            pe_data = chainscrips[9 + i + 1]  # PE in ascending order
+            strike_price_extracted = ce_data["tsym"][start_index:start_index + 5]
+            option_chain_data.append({
+                "strike": strike_price_extracted,
+                "ce_oi": ce_data["oi"],
+                "ce_ltp": ce_data["lp"],
+                "ce_token": ce_data["token"],
+                "pe_oi": pe_data["oi"],
+                "pe_ltp": pe_data["lp"],
+                "pe_token": pe_data["token"],
+                "expiry": expiry  # Include expiry in response
+            })
+        
+        return option_chain_data
     
-    ltp = int(float(ret["lp"]))
-    incrementor = 50 if index_name == "NIFTY" else "100"
-    ltp = ltp - (ltp % incrementor)
-    
-    exch = 'NFO'
-    query = 'nifty' if index_name == "NIFTY" else 'banknifty'
-    ret = api_client.searchscrip(exchange=exch, searchtext=query)
-    if not ret or 'values' not in ret:
-        raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
-    
-    symbols = ret['values']
-    expiry = ""
-    for symbol in symbols:
-        if symbol['tsym'].endswith("0"):
-            expiry = symbol['tsym'][9:16]
-            break
-    if not expiry:
-        raise HTTPException(status_code=400, detail="Could not determine expiry date")
-    
-    strike = f"{index_name}{expiry}P{ltp}"
-    chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=5)
-    if not chain or 'values' not in chain:
-        raise HTTPException(status_code=400, detail="Failed to fetch option chain")
-    
-    chainscrips = []
-    for scrip in chain['values']:
-        scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
-        chainscrips.append(scripdata)
-    
-    option_chain_data = []
-    for i in range(5):
-        ce_data = chainscrips[9 - i]  # CE data (descending order)
-        pe_data = chainscrips[9 + i + 1]  # PE data (ascending order)
-        strike_price = ce_data["tsym"][13:18] if index_name == "NIFTY" else ce_data["tsym"][17:22]
-        option_chain_data.append({
-            "strike": strike_price,
-            "ce_oi": ce_data["oi"],
-            "ce_ltp": ce_data["lp"],
-            "ce_token": ce_data["token"],
-            "pe_oi": pe_data["oi"],
-            "pe_ltp": pe_data["lp"],
-            "pe_token": pe_data["token"]
-        })
-    
-    return option_chain_data
+    except Exception as e:
+        logger.error(f"Error in get_shoonya_option_chain: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -662,7 +691,9 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
             raise HTTPException(status_code=400, detail="Option chain data is only available for Shoonya broker")
         
         option_chain_data = get_shoonya_option_chain(api_client, request.index_name)
-        return {"message": f"Option chain data for {request.index_name}", "data": option_chain_data}
+        if isinstance(option_chain_data, dict) and "message" in option_chain_data:
+            return option_chain_data
+        return {"message": f"Option chain data for {request.index_name} based on current LTP", "data": option_chain_data}
     
     except HTTPException as e:
         raise e
