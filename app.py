@@ -77,7 +77,7 @@ class TradeRequest(BaseModel):
     username: str
     tradingsymbol: str
     symboltoken: str
-    exchange: str = "NFO"  # Updated to NFO for options
+    exchange: str = "NFO"
     strike_price: float
     buy_type: str = "Fixed"
     buy_threshold: float = 110
@@ -405,7 +405,6 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
 
 def get_shoonya_option_chain(api_client, index_name: str):
     try:
-        # Fetch LTP for the index
         nifty_token = "26000" if index_name == "NIFTY" else "26009"
         incrementor = 50 if index_name == "NIFTY" else 100
         start_index = 13 if index_name == "NIFTY" else 17
@@ -414,11 +413,10 @@ def get_shoonya_option_chain(api_client, index_name: str):
         logger.info(f"Index quotes response: {ret}")
         if not ret or 'lp' not in ret:
             logger.error(f"Failed to fetch index LTP: {ret}")
-            raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
+            raise HTTPException(status_code=400, detail="Failed to fetch index LTP - possible session expiration")
         ltp = int(float(ret["lp"]))
         ltp = ltp - (ltp % incrementor)
 
-        # Fetch expiry
         exch = 'NFO'
         query = 'nifty' if index_name == "NIFTY" else 'banknifty'
         ret = api_client.searchscrip(exchange=exch, searchtext=query)
@@ -430,14 +428,13 @@ def get_shoonya_option_chain(api_client, index_name: str):
         symbols = ret['values']
         expiry = ""
         for symbol in symbols:
-            if symbol['tsym'].endswith("0"):  # Assuming '0' indicates futures for expiry
+            if symbol['tsym'].endswith("0"):
                 expiry = symbol['tsym'][9:16]
                 break
         if not expiry:
             logger.error("Could not determine expiry date")
             raise HTTPException(status_code=400, detail="Could not determine expiry date")
         
-        # Fetch option chain using LTP
         strike = f"{index_name}{expiry}P{ltp}"
         logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
         chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=5)
@@ -458,8 +455,8 @@ def get_shoonya_option_chain(api_client, index_name: str):
         
         option_chain_data = []
         for i in range(5):
-            ce_data = chainscrips[9 - i]  # CE in descending order
-            pe_data = chainscrips[9 + i + 1]  # PE in ascending order
+            ce_data = chainscrips[9 - i]
+            pe_data = chainscrips[9 + i + 1]
             strike_price_extracted = ce_data["tsym"][start_index:start_index + 5]
             option_chain_data.append({
                 "strike": strike_price_extracted,
@@ -469,7 +466,7 @@ def get_shoonya_option_chain(api_client, index_name: str):
                 "pe_oi": pe_data["oi"],
                 "pe_ltp": pe_data["lp"],
                 "pe_token": pe_data["token"],
-                "expiry": expiry  # Include expiry in response
+                "expiry": expiry
             })
         
         return option_chain_data
@@ -500,24 +497,34 @@ async def startup_event():
 @app.post("/api/register_user")
 def register_user(user: User):
     try:
+        logger.info(f"Attempting to register user: {user.username}")
         api_client, auth_token, refresh_token, feed_token = authenticate_user(
             user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.imei
         )
+        logger.info(f"Authentication successful for {user.username}. Storing in database...")
         with conn:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                            (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity, user.imei))
             conn.commit()
+        logger.info(f"User {user.username} inserted into database. Starting WebSocket...")
         smart_api_instances[user.username] = api_client
         auth_tokens[user.username] = auth_token
         if user.broker == "AngelOne":
             refresh_tokens[user.username] = refresh_token
         feed_tokens[user.username] = feed_token
-        threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
+        try:
+            threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
+            logger.info(f"WebSocket thread started for {user.username}")
+        except Exception as e:
+            logger.error(f"Failed to start WebSocket for {user.username}: {e}")
+            # Continue despite WebSocket failure; registration is still valid
         return {"message": "User registered and authenticated successfully"}
     except sqlite3.IntegrityError:
+        logger.error(f"Database error: User {user.username} already exists")
         raise HTTPException(status_code=400, detail="User already exists")
     except Exception as e:
+        logger.error(f"Registration failed for {user.username}: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
 @app.get("/api/get_users")
@@ -679,7 +686,8 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
     try:
         username = request.username
         if username not in smart_api_instances:
-            raise HTTPException(status_code=401, detail="User not authenticated")
+            logger.warning(f"User {username} not authenticated. Attempting full re-authentication.")
+            full_reauth_user(username)
         
         api_client = smart_api_instances[username]
         with conn:
