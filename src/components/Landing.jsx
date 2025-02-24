@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign } from '@fortawesome/free-solid-svg-icons';
+import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign, faChartBar } from '@fortawesome/free-solid-svg-icons';
 import './css/landing.css';
 
 const Landing = () => {
@@ -319,12 +319,22 @@ const Landing = () => {
   }, []);
 
   return (
-    <Container className="mt-4">
+    <Container className="mt-4 position-relative">
       {message.text && (
         <Alert variant={message.type === "success" ? "success" : "danger"} className="mt-3 mb-3" style={{ backgroundColor: message.type === "success" ? "#d4edda" : "#f8d7da", color: message.type === "success" ? "#155724" : "#721c24" }}>
           {message.text}
         </Alert>
       )}
+
+      {/* Trades Dashboard Icon at top-left (0%, 0%) */}
+      <Button 
+        variant="link" 
+        className="position-absolute top-0 start-0 p-2" 
+        onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }}
+        style={{ zIndex: 1000 }}
+      >
+        <FontAwesomeIcon icon={faChartBar} size="lg" color="blue" />
+      </Button>
 
       <Row className="justify-content-end mb-3" style={{ position: "absolute", top: "9%", right: "10px", zIndex: "1000" }}>
         <Col xs="auto">
