@@ -26,7 +26,7 @@ const Landing = () => {
     vendor_code: "",
     default_quantity: 1,
     imei: "",
-    symbol: "NIFTY",
+    symbol: "BANKNIFTY", // Default to BANKNIFTY
     expiry: "", // Will be populated from option chain
     strike_price: 0,
     option_type: "Call",
@@ -455,8 +455,8 @@ const Landing = () => {
                   <Form.Group>
                     <Form.Label>Index</Form.Label>
                     <Form.Select value={formData.symbol} onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} required>
-                      <option value="NIFTY">NIFTY</option>
                       <option value="BANKNIFTY">BANKNIFTY</option>
+                      <option value="NIFTY">NIFTY</option>
                     </Form.Select>
                   </Form.Group>
                 </Col>
