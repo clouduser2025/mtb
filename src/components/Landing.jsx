@@ -26,7 +26,7 @@ const Landing = () => {
     vendor_code: "",
     default_quantity: 1,
     imei: "",
-    symbol: "BANKNIFTY", // Default to BANKNIFTY
+    symbol: "BANKNIFTY", // Default to BANKNIFTY, no NIFTY option
     expiry: "", // Will be populated from option chain
     strike_price: 0,
     option_type: "Call",
@@ -448,16 +448,13 @@ const Landing = () => {
 
         {formStep === 2 && (
           <>
-            <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Select Index</h4>
+            <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Confirm Index</h4>
             <Form>
               <Row className="mb-3">
                 <Col md={6}>
                   <Form.Group>
                     <Form.Label>Index</Form.Label>
-                    <Form.Select value={formData.symbol} onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} required>
-                      <option value="BANKNIFTY">BANKNIFTY</option>
-                      <option value="NIFTY">NIFTY</option>
-                    </Form.Select>
+                    <Form.Control type="text" value={formData.symbol} readOnly />
                   </Form.Group>
                 </Col>
               </Row>
