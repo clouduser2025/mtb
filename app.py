@@ -12,7 +12,6 @@ from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import uvicorn
-import requests
 
 app = FastAPI()
 
@@ -107,15 +106,6 @@ auth_tokens = {}
 refresh_tokens = {}
 feed_tokens = {}
 
-# Hardcoded index configurations (fallback if API doesn't provide enough info)
-INDEX_CONFIG = {
-    "NIFTY": {"token": "26000", "incrementor": 50, "start_index": 13, "query": "nifty"},
-    "BANKNIFTY": {"token": "26009", "incrementor": 100, "start_index": 17, "query": "banknifty"},
-    "NIFTY IT": {"token": "26008", "incrementor": 100, "start_index": 13, "query": "niftyit"},
-    "NIFTY MIDCAP 50": {"token": "26014", "incrementor": 50, "start_index": 13, "query": "niftymidcap"},
-    # Add more indices as needed based on Shoonya API documentation or testing
-}
-
 def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None, imei: str = "trading_app"):
     if broker == "AngelOne":
         smart_api = SmartConnect(api_key)
@@ -153,7 +143,6 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
     raise HTTPException(status_code=400, detail=f"Unsupported broker: {broker}")
 
 def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
-    # [Existing implementation unchanged]
     if username not in refresh_tokens:
         return False
     try:
@@ -171,7 +160,6 @@ def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
         return False
 
 def full_reauth_user(username: str):
-    # [Existing implementation unchanged]
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT password, broker, api_key, totp_token, vendor_code, imei FROM users WHERE username = ?", (username,))
@@ -190,7 +178,6 @@ def full_reauth_user(username: str):
     return api_client
 
 def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symboltoken: str):
-    # [Existing implementation unchanged]
     symbol_key = f"{exchange}:{tradingsymbol}:{symboltoken}"
     if symbol_key in ltp_cache:
         return ltp_cache[symbol_key]
@@ -211,7 +198,6 @@ def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symbolto
         raise HTTPException(status_code=400, detail="No LTP data available")
 
 def place_order(api_client, broker: str, orderparams: dict, position_type: str, username: str):
-    # [Existing implementation unchanged]
     if broker == "AngelOne":
         orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
         try:
@@ -271,7 +257,6 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
             raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
-    # [Existing implementation unchanged]
     with conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -285,7 +270,6 @@ def update_open_positions(position_id: str, username: str, symbol: str, entry_pr
         conn.commit()
 
 def on_data_angel(wsapp, message):
-    # [Existing implementation unchanged]
     global ltp_cache
     try:
         symbol_key = f"{message['exchange']}:{message['tradingsymbol']}:{message['symboltoken']}"
@@ -296,7 +280,6 @@ def on_data_angel(wsapp, message):
         logger.error(f"AngelOne WebSocket data error: {e}")
 
 def on_data_shoonya(tick_data):
-    # [Existing implementation unchanged]
     global ltp_cache
     try:
         symbol_key = f"{tick_data['e']}:{tick_data['ts']}:{tick_data['tk']}"
@@ -307,7 +290,6 @@ def on_data_shoonya(tick_data):
         logger.error(f"Shoonya WebSocket data error: {e}")
 
 def process_position_update(tradingsymbol: str, ltp: float):
-    # [Existing implementation unchanged]
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM open_positions WHERE symbol = ? AND position_active = 1", (tradingsymbol,))
@@ -322,17 +304,14 @@ def process_position_update(tradingsymbol: str, ltp: float):
             check_conditions(api_client, pos_data, ltp, username)
 
 def on_open_angel(wsapp):
-    # [Existing implementation unchanged]
     logger.info("AngelOne WebSocket opened")
     subscribe_to_tokens(wsapp, 1)
 
 def on_open_shoonya():
-    # [Existing implementation unchanged]
     logger.info("Shoonya WebSocket opened")
     subscribe_to_tokens(None, None)
 
 def subscribe_to_tokens(wsapp, exchange_type):
-    # [Existing implementation unchanged]
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT symboltoken FROM open_positions WHERE position_active = 1")
@@ -346,7 +325,6 @@ def subscribe_to_tokens(wsapp, exchange_type):
                 smart_api_instances[list(smart_api_instances.keys())[0]].subscribe(f"NSE|{token}")
 
 def start_websocket(username: str, broker: str, api_key: str, auth_token: str, feed_token: Optional[str] = None):
-    # [Existing implementation unchanged]
     if broker == "AngelOne":
         sws = SmartWebSocketV2(auth_token, api_key, username, feed_token)
         sws.on_open = on_open_angel
@@ -364,7 +342,6 @@ def start_websocket(username: str, broker: str, api_key: str, auth_token: str, f
         )
 
 def check_conditions(api_client, position_data: dict, ltp: float, username: str):
-    # [Existing implementation unchanged]
     stop_loss_price = None
     highest_price = max(ltp, position_data['highest_price'])
     base_price = position_data['base_price']
@@ -426,134 +403,82 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
-def get_shoonya_index_list(api_client, username: str, exchange: str = "NSE"):
-    """
-    Fetch the list of available indices from Shoonya API's /NorenWClientTP/GetIndexList endpoint.
-    """
+def get_shoonya_option_chain(api_client, index_name: str):
     try:
-        jdata = {"uid": username, "exch": exchange}
-        jkey = auth_tokens[username]  # Shoonya session token
-        url = "https://api.shoonya.com/NorenWClientTP/GetIndexList"  # Adjust base URL as per Shoonya API docs
-        payload = f"jData={json.dumps(jdata)}&jKey={jkey}"
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        response = requests.post(url, data=payload, headers=headers)
-        response.raise_for_status()
+        nifty_token = "26000" if index_name == "NIFTY" else "26009"
+        incrementor = 50 if index_name == "NIFTY" else 100
+        start_index = 13 if index_name == "NIFTY" else 17
 
-        result = response.json()
-        logger.info(f"Index list response for {username}: {result}")
-
-        if result.get("stat") != "Ok":
-            error_msg = result.get("emsg", "Unknown error")
-            logger.error(f"Failed to fetch index list: {error_msg}")
-            raise HTTPException(status_code=400, detail=f"Failed to fetch index list: {error_msg}")
-
-        indices = {item["idxname"].upper(): {"token": item["token"]} for item in result.get("values", [])}
-        return indices
-
-    except requests.RequestException as e:
-        logger.error(f"HTTP error fetching index list for {username}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error fetching index list: {str(e)}")
-    except Exception as e:
-        logger.error(f"Error in get_shoonya_index_list for {username}: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-def get_shoonya_option_chain(api_client, index_name: str, username: str):
-    try:
-        # Fetch available indices dynamically
-        indices = get_shoonya_index_list(api_client, username)
-        index_name_upper = index_name.upper()
-        
-        # Check if the index exists in the fetched list or fallback to hardcoded config
-        if index_name_upper in indices:
-            index_token = indices[index_name_upper]["token"]
-            # Fallback to hardcoded config if API doesn't provide enough info
-            config = INDEX_CONFIG.get(index_name_upper, {"incrementor": 50, "start_index": 13, "query": index_name_upper.lower().replace(" ", "")})
-            incrementor = config["incrementor"]
-            start_index = config["start_index"]
-            query = config["query"]
-        elif index_name_upper in INDEX_CONFIG:
-            index_token = INDEX_CONFIG[index_name_upper]["token"]
-            incrementor = INDEX_CONFIG[index_name_upper]["incrementor"]
-            start_index = INDEX_CONFIG[index_name_upper]["start_index"]
-            query = INDEX_CONFIG[index_name_upper]["query"]
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported index: {index_name}")
-
-        # Fetch LTP of the index
-        ret = api_client.get_quotes(exchange="NSE", token=index_token)
-        logger.info(f"Index quotes response for {index_name}: {ret}")
+        ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
+        logger.info(f"Index quotes response: {ret}")
         if not ret or 'lp' not in ret:
             logger.error(f"Failed to fetch index LTP: {ret}")
             raise HTTPException(status_code=400, detail="Failed to fetch index LTP - possible session expiration")
         ltp = int(float(ret["lp"]))
         ltp = ltp - (ltp % incrementor)
 
-        # Search for option chain symbols
-        exch = "NFO"
+        exch = 'NFO'
+        query = 'nifty' if index_name == "NIFTY" else 'banknifty'
         ret = api_client.searchscrip(exchange=exch, searchtext=query)
-        logger.info(f"Searchscrip response for {index_name}: {ret}")
-        if not ret or "values" not in ret:
+        logger.info(f"Searchscrip response: {ret}")
+        if not ret or 'values' not in ret:
             logger.error(f"Failed to fetch scrip data: {ret}")
             raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
-
-        symbols = ret["values"]
+        
+        symbols = ret['values']
         expiry = ""
         for symbol in symbols:
-            if symbol["tsym"].endswith("0"):  # Assuming this identifies the nearest expiry
-                expiry = symbol["tsym"][len(query):len(query) + 7]  # Adjust slicing based on symbol format
+            if symbol['tsym'].endswith("0"):
+                expiry = symbol['tsym'][9:16]
                 break
         if not expiry:
             logger.error("Could not determine expiry date")
             raise HTTPException(status_code=400, detail="Could not determine expiry date")
-
-        # Construct strike symbol
-        strike = f"{index_name_upper.replace(' ', '')}{expiry}P{ltp}"
+        
+        strike = f"{index_name}{expiry}P{ltp}"
         logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
-        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)
+        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)  # Changed from 5 to 50
         logger.info(f"Option chain response: {chain}")
-        if not chain or "values" not in chain:
-            error_msg = chain.get("emsg", "Unknown error") if chain else "No response"
+        if not chain or 'values' not in chain:
+            error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
             logger.error(f"Failed to fetch option chain: {error_msg}")
             if "market" in error_msg.lower() or "closed" in error_msg.lower():
                 logger.warning("Market is closed, no live option chain data available")
                 return {"message": "Market is closed, no live option chain data available", "data": []}
             raise HTTPException(status_code=400, detail=f"Failed to fetch option chain: {error_msg}")
-
+        
         chainscrips = []
-        for scrip in chain["values"]:
-            scripdata = api_client.get_quotes(exchange=scrip["exch"], token=scrip["token"])
+        for scrip in chain['values']:
+            scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
             logger.info(f"Quote for {scrip['tsym']}: {scripdata}")
             chainscrips.append(scripdata)
-
+        
         option_chain_data = []
-        mid_point = len(chainscrips) // 2
-        for i in range(50):  # 25 strikes above and below LTP
-            idx = mid_point - 25 + i
+        mid_point = len(chainscrips) // 2  # Find the middle of the returned data
+        for i in range(50):  # Iterate over 50 strikes (25 above and 25 below LTP)
+            idx = mid_point - 25 + i  # Adjust index to get 25 strikes below and 25 above
             if 0 <= idx < len(chainscrips):
                 scrip_data = chainscrips[idx]
                 strike_price_extracted = scrip_data["tsym"][start_index:start_index + 5]
                 option_chain_data.append({
                     "strike": strike_price_extracted,
-                    "ce_oi": scrip_data.get("oi", "N/A"),
+                    "ce_oi": scrip_data.get("oi", "N/A"),  # CE and PE might not be separable here; adjust as per API response
                     "ce_ltp": scrip_data.get("lp", "N/A"),
                     "ce_token": scrip_data.get("token", "N/A"),
-                    "pe_oi": scrip_data.get("oi", "N/A"),  # Adjust if separate CE/PE data is available
+                    "pe_oi": scrip_data.get("oi", "N/A"),  # Assuming same OI for simplicity; adjust if separate CE/PE data is available
                     "pe_ltp": scrip_data.get("lp", "N/A"),
                     "pe_token": scrip_data.get("token", "N/A"),
                     "expiry": expiry
                 })
-
+        
         return option_chain_data
-
-    except HTTPException as e:
-        raise e
+    
     except Exception as e:
-        logger.error(f"Error in get_shoonya_option_chain for {index_name}: {str(e)}")
+        logger.error(f"Error in get_shoonya_option_chain: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():
-    # [Existing implementation unchanged]
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users LIMIT 3")
@@ -573,7 +498,6 @@ async def startup_event():
 
 @app.post("/api/register_user")
 def register_user(user: User):
-    # [Existing implementation unchanged]
     try:
         logger.info(f"Attempting to register user: {user.username}")
         api_client, auth_token, refresh_token, feed_token = authenticate_user(
@@ -596,6 +520,7 @@ def register_user(user: User):
             logger.info(f"WebSocket thread started for {user.username}")
         except Exception as e:
             logger.error(f"Failed to start WebSocket for {user.username}: {e}")
+            # Continue despite WebSocket failure; registration is still valid
         return {"message": "User registered and authenticated successfully"}
     except sqlite3.IntegrityError:
         logger.error(f"Database error: User {user.username} already exists")
@@ -606,7 +531,6 @@ def register_user(user: User):
 
 @app.get("/api/get_users")
 def get_users():
-    # [Existing implementation unchanged]
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users")
@@ -615,7 +539,6 @@ def get_users():
 
 @app.delete("/api/delete_user/{username}")
 def delete_user(username: str):
-    # [Existing implementation unchanged]
     with conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM users WHERE username = ?", (username,))
@@ -633,7 +556,6 @@ def delete_user(username: str):
 
 @app.get("/api/get_trades")
 def get_trades():
-    # [Existing implementation unchanged]
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM open_positions WHERE position_active = 1")
@@ -644,7 +566,6 @@ def get_trades():
 
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
-    # [Existing implementation unchanged]
     try:
         username = request.username
         if username not in smart_api_instances:
@@ -724,7 +645,6 @@ async def initiate_trade(request: TradeRequest):
 
 @app.post("/api/update_trade_conditions")
 async def update_trade_conditions(request: UpdateTradeRequest):
-    # [Existing implementation unchanged]
     try:
         username = request.username
         position_id = request.position_id
@@ -780,7 +700,7 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         if broker != "Shoonya":
             raise HTTPException(status_code=400, detail="Option chain data is only available for Shoonya broker")
         
-        option_chain_data = get_shoonya_option_chain(api_client, request.index_name, username)
+        option_chain_data = get_shoonya_option_chain(api_client, request.index_name)
         if isinstance(option_chain_data, dict) and "message" in option_chain_data:
             return option_chain_data
         return {"message": f"Option chain data for {request.index_name} based on current LTP", "data": option_chain_data}
@@ -789,32 +709,6 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         raise e
     except Exception as e:
         logger.error(f"Option chain fetch error for {username}: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-@app.post("/api/get_shoonya_index_list")
-async def get_shoonya_index_list_endpoint(request: OptionChainRequest):
-    try:
-        username = request.username
-        if username not in smart_api_instances:
-            logger.warning(f"User {username} not authenticated. Attempting full re-authentication.")
-            full_reauth_user(username)
-        
-        api_client = smart_api_instances[username]
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
-            broker = cursor.fetchone()[0]
-        
-        if broker != "Shoonya":
-            raise HTTPException(status_code=400, detail="Index list is only available for Shoonya broker")
-        
-        indices = get_shoonya_index_list(api_client, username)
-        return {"message": "Available indices fetched successfully", "data": list(indices.keys())}
-    
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Index list fetch error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 if __name__ == "__main__":
