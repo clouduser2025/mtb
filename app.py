@@ -96,9 +96,12 @@ class UpdateTradeRequest(BaseModel):
     stop_loss_value: Optional[float] = 5.0
     points_condition: Optional[float] = 0
 
+# Updated OptionChainRequest model to accept any symbol and exchange
 class OptionChainRequest(BaseModel):
     username: str
-    index_name: str
+    symbol: str  # e.g., "NIFTY", "BANKNIFTY", "RELIANCE", etc.
+    exchange: str  # e.g., "NSE", "NFO", etc.
+    count: Optional[int] = 50  # Default to 50 rows, but allow customization
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -403,41 +406,68 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
-def get_shoonya_option_chain(api_client, index_name: str):
+
+
+# Modified function to fetch option chain data for any symbol and exchange
+def get_shoonya_option_chain(api_client, symbol: str, exchange: str, count: int = 50):
     try:
-        nifty_token = "26000" if index_name == "NIFTY" else "26009"
-        incrementor = 50 if index_name == "NIFTY" else 100
-        start_index = 13 if index_name == "NIFTY" else 17
+        # Step 1: Fetch LTP for the provided symbol and exchange
+        ret = api_client.searchscrip(exchange=exchange, searchtext=symbol)
+        logger.info(f"Searchscrip response for {symbol} on {exchange}: {ret}")
+        if not ret or 'values' not in ret or not ret['values']:
+            logger.error(f"Failed to fetch scrip data for {symbol} on {exchange}: {ret}")
+            raise HTTPException(status_code=400, detail=f"Failed to fetch scrip data for {symbol} on {exchange}")
 
-        ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
-        logger.info(f"Index quotes response: {ret}")
-        if not ret or 'lp' not in ret:
-            logger.error(f"Failed to fetch index LTP: {ret}")
-            raise HTTPException(status_code=400, detail="Failed to fetch index LTP - possible session expiration")
-        ltp = int(float(ret["lp"]))
-        ltp = ltp - (ltp % incrementor)
+        # Assume the first result is the intended symbol (could refine this logic if needed)
+        base_scrip = ret['values'][0]
+        base_token = base_scrip['token']
+        base_tradingsymbol = base_scrip['tsym']
 
-        exch = 'NFO'
-        query = 'nifty' if index_name == "NIFTY" else 'banknifty'
-        ret = api_client.searchscrip(exchange=exch, searchtext=query)
-        logger.info(f"Searchscrip response: {ret}")
+        # Fetch LTP for the base symbol
+        quotes = api_client.get_quotes(exchange=exchange, token=base_token)
+        logger.info(f"Quotes response for {base_tradingsymbol}: {quotes}")
+        if not quotes or 'lp' not in quotes:
+            logger.error(f"Failed to fetch LTP for {base_tradingsymbol}: {quotes}")
+            raise HTTPException(status_code=400, detail="Failed to fetch LTP - possible session expiration")
+        ltp = int(float(quotes["lp"]))
+
+        # Step 2: Determine if this is an optionable symbol (e.g., index or stock options)
+        # For simplicity, assume it's an index or stock traded on NFO for options
+        option_exchange = "NFO" if exchange in ["NSE", "BSE"] else exchange  # Switch to NFO for derivatives
+        incrementor = 50  # Default increment; adjust based on symbol if needed (e.g., 100 for BANKNIFTY)
+        if "BANKNIFTY" in symbol.upper():
+            incrementor = 100
+        elif "NIFTY" in symbol.upper():
+            incrementor = 50
+        # Add more logic here for other symbols if required (e.g., stock options might use 5 or 10)
+
+        ltp = ltp - (ltp % incrementor)  # Round down to nearest strike increment
+
+        # Step 3: Fetch expiry date (assuming options are available)
+        ret = api_client.searchscrip(exchange=option_exchange, searchtext=symbol)
+        logger.info(f"Searchscrip response for options of {symbol} on {option_exchange}: {ret}")
         if not ret or 'values' not in ret:
-            logger.error(f"Failed to fetch scrip data: {ret}")
-            raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
-        
-        symbols = ret['values']
+            logger.error(f"Failed to fetch option scrip data: {ret}")
+            raise HTTPException(status_code=400, detail="Failed to fetch option scrip data")
+
         expiry = ""
-        for symbol in symbols:
-            if symbol['tsym'].endswith("0"):
-                expiry = symbol['tsym'][9:16]
-                break
+        for scrip in ret['values']:
+            tsym = scrip['tsym']
+            if tsym.endswith("PE") or tsym.endswith("CE"):  # Look for PE/CE to infer expiry
+                # Extract expiry (e.g., "25FEB25" from "NIFTY25FEB2512345PE")
+                expiry_start = len(symbol)  # After symbol name
+                expiry_end = expiry_start + 7  # Assuming DDMMMYY format (e.g., 25FEB25)
+                if expiry_end < len(tsym):
+                    expiry = tsym[expiry_start:expiry_end]
+                    break
         if not expiry:
-            logger.error("Could not determine expiry date")
-            raise HTTPException(status_code=400, detail="Could not determine expiry date")
-        
-        strike = f"{index_name}{expiry}P{ltp}"
-        logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
-        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=5)
+            logger.error(f"Could not determine expiry date for {symbol}")
+            raise HTTPException(status_code=400, detail=f"Could not determine expiry date for {symbol}")
+
+        # Step 4: Fetch option chain
+        strike = f"{symbol}{expiry}P{ltp}"  # Construct a put symbol to anchor the chain
+        logger.info(f"Fetching option chain for {strike} with LTP {ltp} and count {count}")
+        chain = api_client.get_option_chain(exchange=option_exchange, tradingsymbol=strike, strikeprice=ltp, count=count)
         logger.info(f"Option chain response: {chain}")
         if not chain or 'values' not in chain:
             error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
@@ -446,34 +476,79 @@ def get_shoonya_option_chain(api_client, index_name: str):
                 logger.warning("Market is closed, no live option chain data available")
                 return {"message": "Market is closed, no live option chain data available", "data": []}
             raise HTTPException(status_code=400, detail=f"Failed to fetch option chain: {error_msg}")
-        
+
+        # Step 5: Fetch quotes for all scrips in the chain
         chainscrips = []
         for scrip in chain['values']:
             scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
             logger.info(f"Quote for {scrip['tsym']}: {scripdata}")
             chainscrips.append(scripdata)
-        
+
+        # Step 6: Process option chain data
         option_chain_data = []
-        for i in range(5):
-            ce_data = chainscrips[9 - i]
-            pe_data = chainscrips[9 + i + 1]
-            strike_price_extracted = ce_data["tsym"][start_index:start_index + 5]
+        total_scrips = len(chainscrips)
+        mid_point = total_scrips // 2  # Assuming symmetric CE and PE around the strike
+
+        # Dynamically determine strike extraction based on symbol length
+        strike_start = len(symbol) + len(expiry)  # Position after symbol and expiry
+        strike_length = 5  # Default strike length (adjust if symbol-specific logic is needed)
+
+        for i in range(min(count, mid_point)):
+            ce_index = mid_point - 1 - i
+            pe_index = mid_point + i
+            if ce_index < 0 or pe_index >= total_scrips:
+                break
+
+            ce_data = chainscrips[ce_index]
+            pe_data = chainscrips[pe_index]
+            strike_price_extracted = ce_data["tsym"][strike_start:strike_start + strike_length]
+
             option_chain_data.append({
                 "strike": strike_price_extracted,
-                "ce_oi": ce_data["oi"],
-                "ce_ltp": ce_data["lp"],
+                "ce_oi": ce_data.get("oi", "N/A"),
+                "ce_ltp": ce_data.get("lp", "N/A"),
                 "ce_token": ce_data["token"],
-                "pe_oi": pe_data["oi"],
-                "pe_ltp": pe_data["lp"],
+                "pe_oi": pe_data.get("oi", "N/A"),
+                "pe_ltp": pe_data.get("lp", "N/A"),
                 "pe_token": pe_data["token"],
                 "expiry": expiry
             })
-        
+
         return option_chain_data
-    
+
     except Exception as e:
         logger.error(f"Error in get_shoonya_option_chain: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
+
+# Updated endpoint
+@app.post("/api/get_shoonya_option_chain")
+async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
+    try:
+        username = request.username
+        if username not in smart_api_instances:
+            logger.warning(f"User {username} not authenticated. Attempting full re-authentication.")
+            full_reauth_user(username)
+        
+        api_client = smart_api_instances[username]
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
+            broker = cursor.fetchone()[0]
+        
+        if broker != "Shoonya":
+            raise HTTPException(status_code=400, detail="Option chain data is only available for Shoonya broker")
+        
+        option_chain_data = get_shoonya_option_chain(api_client, request.symbol, request.exchange, request.count)
+        if isinstance(option_chain_data, dict) and "message" in option_chain_data:
+            return option_chain_data
+        return {"message": f"Option chain data for {request.symbol} on {request.exchange} based on current LTP", 
+                "data": option_chain_data}
+    
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Option chain fetch error for {username}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():
