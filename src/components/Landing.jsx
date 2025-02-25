@@ -26,13 +26,13 @@ const Landing = () => {
     vendor_code: "",
     default_quantity: 1,
     imei: "",
-    symbol: "", // Changed from "NIFTY" to empty string for flexibility
-    expiry: "", 
+    symbol: "NIFTY",
+    expiry: "", // Will be populated from option chain
     strike_price: 0,
     option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
-    exchange: "NFO", // Default to NFO, but user can change
+    exchange: "NFO",
     buy_type: "Fixed",
     buy_threshold: 110,
     previous_close: 0,
@@ -79,19 +79,13 @@ const Landing = () => {
       return;
     }
 
-    if (!formData.symbol || !formData.exchange) {
-      setMessage({ text: "Please enter a symbol and exchange.", type: "warning" });
-      return;
-    }
-
     try {
       const response = await fetch("https://mtb-8ra9.onrender.com/api/get_shoonya_option_chain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username,
-          symbol: formData.symbol,
-          exchange: formData.exchange
+          index_name: formData.symbol
         }),
       });
 
@@ -99,7 +93,7 @@ const Landing = () => {
       if (response.ok) {
         setOptionChainData(data.data);
         setFormData({ ...formData, expiry: data.data[0].expiry }); // Set expiry from response
-        setMessage({ text: `Option chain data fetched for ${formData.symbol} on ${formData.exchange}!`, type: "success" });
+        setMessage({ text: `Option chain data fetched for ${formData.symbol} based on current LTP!`, type: "success" });
         setFormStep(3);
       } else {
         setMessage({ text: data.message || data.detail || "Failed to fetch option chain", type: "danger" });
@@ -454,32 +448,15 @@ const Landing = () => {
 
         {formStep === 2 && (
           <>
-            <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Enter Symbol and Exchange</h4>
+            <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Select Index</h4>
             <Form>
               <Row className="mb-3">
                 <Col md={6}>
                   <Form.Group>
-                    <Form.Label>Symbol</Form.Label>
-                    <Form.Control 
-                      type="text" 
-                      value={formData.symbol} 
-                      onChange={(e) => setFormData({ ...formData, symbol: e.target.value.toUpperCase() })} 
-                      placeholder="e.g., NIFTY, RELIANCE, SBIN" 
-                      required 
-                    />
-                  </Form.Group>
-                </Col>
-                <Col md={6}>
-                  <Form.Group>
-                    <Form.Label>Exchange</Form.Label>
-                    <Form.Select 
-                      value={formData.exchange} 
-                      onChange={(e) => setFormData({ ...formData, exchange: e.target.value })} 
-                      required
-                    >
-                      <option value="NSE">NSE</option>
-                      <option value="NFO">NFO</option>
-                      <option value="BSE">BSE</option>
+                    <Form.Label>Index</Form.Label>
+                    <Form.Select value={formData.symbol} onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} required>
+                      <option value="NIFTY">NIFTY</option>
+                      <option value="BANKNIFTY">BANKNIFTY</option>
                     </Form.Select>
                   </Form.Group>
                 </Col>
@@ -624,8 +601,7 @@ const Landing = () => {
               <Row className="mb-3">
                 <Col>
                   <p><strong>Selected User:</strong> {selectedUsers.join(", ")}</p>
-                  <p><strong>Symbol:</strong> {formData.symbol}</p>
-                  <p><strong>Exchange:</strong> {formData.exchange}</p>
+                  <p><strong>Index:</strong> {formData.symbol}</p>
                   <p><strong>Expiry:</strong> {formData.expiry}</p>
                   <p><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
                   <p><strong>Option Type:</strong> {formData.option_type}</p>
