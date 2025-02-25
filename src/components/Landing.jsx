@@ -26,7 +26,7 @@ const Landing = () => {
     vendor_code: "",
     default_quantity: 1,
     imei: "",
-    symbol: "NIFTY",
+    symbol: "", // Changed to empty string to be populated dynamically
     expiry: "", // Will be populated from option chain
     strike_price: 0,
     option_type: "Call",
@@ -43,6 +43,8 @@ const Landing = () => {
     sell_type: "Fixed",
     sell_threshold: 90
   });
+
+  const [availableIndices, setAvailableIndices] = useState([]); // New state for dynamic indices
 
   const fetchUsers = async () => {
     try {
@@ -63,6 +65,25 @@ const Landing = () => {
     } catch (error) {
       console.error("Error fetching open positions:", error);
       setMessage({ text: "Failed to fetch open positions", type: "danger" });
+    }
+  };
+
+  const fetchAvailableIndices = async (username) => {
+    try {
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/get_shoonya_index_list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setAvailableIndices(data.data || []); // Store the list of index names
+      } else {
+        setMessage({ text: data.message || data.detail || "Failed to fetch indices", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error fetching available indices:", error);
+      setMessage({ text: "Server error fetching indices.", type: "danger" });
     }
   };
 
@@ -105,7 +126,7 @@ const Landing = () => {
   };
 
   const handleSelectStrike = (strikeData, optionType) => {
-    const selectedTs = `${formData.symbol}${formData.expiry}${optionType}${strikeData.strike}`;
+    const selectedTs = `${formData.symbol.replace(' ', '')}${formData.expiry}${optionType === "CE" ? "CE" : "PE"}${strikeData.strike}`;
     setFormData({
       ...formData,
       tradingsymbol: selectedTs,
@@ -316,7 +337,10 @@ const Landing = () => {
   useEffect(() => {
     fetchUsers();
     fetchOpenPositions();
-  }, []);
+    if (selectedUsers.length > 0) {
+      fetchAvailableIndices(selectedUsers[0]); // Fetch indices when a user is selected
+    }
+  }, [selectedUsers]);
 
   return (
     <Container className="mt-4">
@@ -431,10 +455,15 @@ const Landing = () => {
                       checked={selectedUsers.includes(user.username)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          if (selectedUsers.length < 1) setSelectedUsers([user.username]);
-                          else alert("⚠ You can only select 1 Shoonya user for option trading.");
+                          if (selectedUsers.length < 1) {
+                            setSelectedUsers([user.username]);
+                            fetchAvailableIndices(user.username); // Fetch indices when user is selected
+                          } else {
+                            alert("⚠ You can only select 1 Shoonya user for option trading.");
+                          }
                         } else {
                           setSelectedUsers([]);
+                          setAvailableIndices([]); // Clear indices if no user is selected
                         }
                       }}
                     />
@@ -455,14 +484,16 @@ const Landing = () => {
                   <Form.Group>
                     <Form.Label>Index</Form.Label>
                     <Form.Select value={formData.symbol} onChange={(e) => setFormData({ ...formData, symbol: e.target.value })} required>
-                      <option value="NIFTY">NIFTY</option>
-                      <option value="BANKNIFTY">BANKNIFTY</option>
+                      <option value="">Select an Index</option>
+                      {availableIndices.map((index, idx) => (
+                        <option key={idx} value={index}>{index}</option>
+                      ))}
                     </Form.Select>
                   </Form.Group>
                 </Col>
               </Row>
               <Button variant="primary" onClick={fetchOptionChain}>Fetch Option Chain</Button>
-              <Button variant="secondary" onClick={() => { setFormStep(1); setSelectedUsers([]); }} className="ms-2">Back</Button>
+              <Button variant="secondary" onClick={() => { setFormStep(1); setSelectedUsers([]); setFormData({ ...formData, symbol: "" }); }} className="ms-2">Back</Button>
             </Form>
           </>
         )}
