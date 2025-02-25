@@ -411,11 +411,9 @@ const Landing = () => {
       )}
 
       <Row className="justify-content-center mb-3">
-        <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/equity/overview', '_blank')}>Market Overview</Button></Col>
-        <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/indices/indian', '_blank')}>Indices</Button></Col>
-        <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/watchlist/chart', '_blank')}>Chart</Button></Col>
-        <Col xs="auto"><Button onClick={() => window.open('https://www.shoonya.com/markets/watchlist/option-chain', '_blank')}>Option Chain</Button></Col>
-        <Col xs="auto"><Button onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }}>Trades Dashboard</Button></Col>
+        <Col xs="auto">
+          <Button onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }}>Trades Dashboard</Button>
+        </Col>
       </Row>
 
       <Container className="mt-4 p-3 border rounded shadow-sm">
