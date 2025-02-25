@@ -455,55 +455,6 @@ const Landing = () => {
         </Container>
       )}
 
-      {/* Trades Dashboard */}
-      {showTradesDashboard && (
-        <Container className="mt-5 p-4 traders-table-container shadow-lg rounded bg-white wow-section">
-          <h3 className="text-center mb-4 text-dark fw-bold wow-title">
-            <FontAwesomeIcon icon={faExchangeAlt} className="me-2 text-primary" /> Active Trades
-          </h3>
-          <div className="table-responsive">
-            <Table striped bordered hover className="custom-table wow-table">
-              <thead>
-                <tr>
-                  <th className="table-header bg-primary text-white">#</th>
-                  <th className="table-header bg-success text-white">Username</th>
-                  <th className="table-header bg-info text-white">Symbol</th>
-                  <th className="table-header bg-dark text-white">Entry Price</th>
-                  <th className="table-header bg-danger text-white">Buy Threshold</th>
-                  <th className="table-header bg-secondary text-white">Stop-Loss Type</th>
-                  <th className="table-header bg-primary text-white">Stop-Loss Value</th>
-                  <th className="table-header bg-warning text-dark">Sell Threshold</th>
-                  <th className="table-header bg-success text-white">Position</th>
-                  <th className="table-header bg-info text-white">Broker</th>
-                </tr>
-              </thead>
-              <tbody>
-                {openTrades.length > 0 ? (
-                  openTrades.map((trade, index) => (
-                    <tr key={index} className="table-row wow-row align-middle text-center">
-                      <td>{index + 1}</td>
-                      <td className="fw-bold text-warning">{trade.username}</td>
-                      <td className="text-primary">{trade.symbol}</td>
-                      <td className="text-success fw-bold">₹{trade.entry_price || 0}</td>
-                      <td className="text-danger fw-bold">₹{trade.buy_threshold || "N/A"}</td>
-                      <td className="text-warning">{trade.stop_loss_type || "N/A"}</td>
-                      <td className="text-info">{trade.stop_loss_value || "N/A"}</td>
-                      <td className="text-danger fw-bold">₹{trade.sell_threshold || "N/A"}</td>
-                      <td><span className="badge bg-success">Buy</span></td>
-                      <td>{users.find(u => u.username === trade.username)?.broker || "Unknown"}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="10" className="text-muted text-center">No active trades found.</td>
-                  </tr>
-                )}
-              </tbody>
-            </Table>
-          </div>
-        </Container>
-      )}
-
       {/* Multi-Step Trade Form */}
       <Container className="mt-4 p-4 border rounded wow-form">
         {formStep === 1 && (
@@ -562,7 +513,7 @@ const Landing = () => {
               <Row className="mb-4">
                 <Col md={6}>
                   <Form.Group controlId="symbol">
-                    <Form.Label>Index</Form.Label>
+                    <Form.Label className="wow-label">Index</Form.Label>
                     <Form.Select 
                       value={formData.symbol} 
                       onChange={(e) => setFormData({ ...formData, symbol: e.target.value })}
@@ -661,7 +612,7 @@ const Landing = () => {
               <Row className="mb-4">
                 <Col md={4}>
                   <Form.Group controlId="buy_type">
-                    <Form.Label>Buy Condition Type</Form.Label>
+                    <Form.Label className="wow-label">Buy Condition Type</Form.Label>
                     <Form.Select 
                       value={formData.buy_type} 
                       onChange={(e) => setFormData({ ...formData, buy_type: e.target.value })}
@@ -674,7 +625,7 @@ const Landing = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group controlId="buy_threshold">
-                    <Form.Label>{formData.buy_type === "Fixed" ? "Buy Threshold" : "Buy % Increase"}</Form.Label>
+                    <Form.Label className="wow-label">{formData.buy_type === "Fixed" ? "Buy Threshold" : "Buy % Increase"}</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.buy_threshold} 
@@ -687,7 +638,7 @@ const Landing = () => {
                 {formData.buy_type === "Percentage" && (
                   <Col md={4}>
                     <Form.Group controlId="previous_close">
-                      <Form.Label>Previous Close</Form.Label>
+                      <Form.Label className="wow-label">Previous Close</Form.Label>
                       <Form.Control 
                         type="number" 
                         value={formData.previous_close} 
@@ -700,7 +651,7 @@ const Landing = () => {
                 )}
                 <Col md={4}>
                   <Form.Group controlId="producttype">
-                    <Form.Label>Product Type</Form.Label>
+                    <Form.Label className="wow-label">Product Type</Form.Label>
                     <Form.Select 
                       value={formData.producttype} 
                       onChange={(e) => setFormData({ ...formData, producttype: e.target.value })}
@@ -718,7 +669,7 @@ const Landing = () => {
               <Row className="mb-4">
                 <Col md={4}>
                   <Form.Group controlId="stop_loss_type">
-                    <Form.Label>Stop-Loss Type</Form.Label>
+                    <Form.Label className="wow-label">Stop-Loss Type</Form.Label>
                     <Form.Select 
                       value={formData.stop_loss_type} 
                       onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}
@@ -732,7 +683,7 @@ const Landing = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group controlId="stop_loss_value">
-                    <Form.Label>Stop-Loss Value</Form.Label>
+                    <Form.Label className="wow-label">Stop-Loss Value</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.stop_loss_value} 
@@ -744,7 +695,7 @@ const Landing = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group controlId="points_condition">
-                    <Form.Label>Points Condition</Form.Label>
+                    <Form.Label className="wow-label">Points Condition</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.points_condition} 
@@ -757,7 +708,7 @@ const Landing = () => {
               <Row className="mb-4">
                 <Col md={4}>
                   <Form.Group controlId="sell_type">
-                    <Form.Label>Sell Condition Type</Form.Label>
+                    <Form.Label className="wow-label">Sell Condition Type</Form.Label>
                     <Form.Select 
                       value={formData.sell_type} 
                       onChange={(e) => setFormData({ ...formData, sell_type: e.target.value })}
@@ -770,7 +721,7 @@ const Landing = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group controlId="sell_threshold">
-                    <Form.Label>{formData.sell_type === "Fixed" ? "Sell Threshold" : "Sell % Decrease"}</Form.Label>
+                    <Form.Label className="wow-label">{formData.sell_type === "Fixed" ? "Sell Threshold" : "Sell % Decrease"}</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.sell_threshold} 
@@ -783,7 +734,7 @@ const Landing = () => {
                 {formData.sell_type === "Percentage" && (
                   <Col md={4}>
                     <Form.Group controlId="previous_close">
-                      <Form.Label>Previous Close</Form.Label>
+                      <Form.Label className="wow-label">Previous Close</Form.Label>
                       <Form.Control 
                         type="number" 
                         value={formData.previous_close} 
@@ -846,7 +797,7 @@ const Landing = () => {
             <Row className="mb-4">
               <Col md={4}>
                 <Form.Group controlId="stop_loss_type">
-                  <Form.Label>Stop-Loss Type</Form.Label>
+                  <Form.Label className="wow-label">Stop-Loss Type</Form.Label>
                   <Form.Select 
                     value={formData.stop_loss_type} 
                     onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}
@@ -860,7 +811,7 @@ const Landing = () => {
               </Col>
               <Col md={4}>
                 <Form.Group controlId="stop_loss_value">
-                  <Form.Label>Stop-Loss Value</Form.Label>
+                  <Form.Label className="wow-label">Stop-Loss Value</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={formData.stop_loss_value} 
@@ -871,7 +822,7 @@ const Landing = () => {
               </Col>
               <Col md={4}>
                 <Form.Group controlId="points_condition">
-                  <Form.Label>Points Condition</Form.Label>
+                  <Form.Label className="wow-label">Points Condition</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={formData.points_condition} 
