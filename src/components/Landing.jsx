@@ -26,7 +26,7 @@ const Landing = () => {
     vendor_code: "",
     default_quantity: 1,
     imei: "",
-    symbol: "BANKNIFTY", // Default to BANKNIFTY, no NIFTY option
+    symbol: "BANKNIFTY", // Default to BANKNIFTY only
     expiry: "", // Will be populated from option chain
     strike_price: 0,
     option_type: "Call",

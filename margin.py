@@ -98,7 +98,7 @@ class UpdateTradeRequest(BaseModel):
 
 class OptionChainRequest(BaseModel):
     username: str
-    index_name: str
+    index_name: str = "BANKNIFTY"  # Default changed to BANKNIFTY
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -403,13 +403,13 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
-def get_shoonya_option_chain(api_client, index_name: str):
+def get_shoonya_option_chain(api_client, index_name: str = "BANKNIFTY"):  # Default to BANKNIFTY
     try:
-        nifty_token = "26000" if index_name == "NIFTY" else "26009"
-        incrementor = 50 if index_name == "NIFTY" else 100
-        start_index = 13 if index_name == "NIFTY" else 17
+        banknifty_token = "26009"  # BANKNIFTY token
+        incrementor = 100  # BANKNIFTY uses 100-point increments
+        start_index = 17  # BANKNIFTY symbol parsing index
 
-        ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
+        ret = api_client.get_quotes(exchange="NSE", token=banknifty_token)
         logger.info(f"Index quotes response: {ret}")
         if not ret or 'lp' not in ret:
             logger.error(f"Failed to fetch index LTP: {ret}")
@@ -418,7 +418,7 @@ def get_shoonya_option_chain(api_client, index_name: str):
         ltp = ltp - (ltp % incrementor)
 
         exch = 'NFO'
-        query = 'nifty' if index_name == "NIFTY" else 'banknifty'
+        query = 'banknifty'  # Always fetch BANKNIFTY-related data
         ret = api_client.searchscrip(exchange=exch, searchtext=query)
         logger.info(f"Searchscrip response: {ret}")
         if not ret or 'values' not in ret:
@@ -437,7 +437,7 @@ def get_shoonya_option_chain(api_client, index_name: str):
         
         strike = f"{index_name}{expiry}P{ltp}"
         logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
-        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=5)
+        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)
         logger.info(f"Option chain response: {chain}")
         if not chain or 'values' not in chain:
             error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
@@ -454,20 +454,22 @@ def get_shoonya_option_chain(api_client, index_name: str):
             chainscrips.append(scripdata)
         
         option_chain_data = []
-        for i in range(5):
-            ce_data = chainscrips[9 - i]
-            pe_data = chainscrips[9 + i + 1]
-            strike_price_extracted = ce_data["tsym"][start_index:start_index + 5]
-            option_chain_data.append({
-                "strike": strike_price_extracted,
-                "ce_oi": ce_data["oi"],
-                "ce_ltp": ce_data["lp"],
-                "ce_token": ce_data["token"],
-                "pe_oi": pe_data["oi"],
-                "pe_ltp": pe_data["lp"],
-                "pe_token": pe_data["token"],
-                "expiry": expiry
-            })
+        mid_point = len(chainscrips) // 2
+        for i in range(50):
+            idx = mid_point - 25 + i
+            if 0 <= idx < len(chainscrips):
+                scrip_data = chainscrips[idx]
+                strike_price_extracted = scrip_data["tsym"][start_index:start_index + 5]
+                option_chain_data.append({
+                    "strike": strike_price_extracted,
+                    "ce_oi": scrip_data.get("oi", "N/A"),
+                    "ce_ltp": scrip_data.get("lp", "N/A"),
+                    "ce_token": scrip_data.get("token", "N/A"),
+                    "pe_oi": scrip_data.get("oi", "N/A"),
+                    "pe_ltp": scrip_data.get("lp", "N/A"),
+                    "pe_token": scrip_data.get("token", "N/A"),
+                    "expiry": expiry
+                })
         
         return option_chain_data
     
@@ -518,7 +520,6 @@ def register_user(user: User):
             logger.info(f"WebSocket thread started for {user.username}")
         except Exception as e:
             logger.error(f"Failed to start WebSocket for {user.username}: {e}")
-            # Continue despite WebSocket failure; registration is still valid
         return {"message": "User registered and authenticated successfully"}
     except sqlite3.IntegrityError:
         logger.error(f"Database error: User {user.username} already exists")

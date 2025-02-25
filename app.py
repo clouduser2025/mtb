@@ -12,6 +12,10 @@ from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import uvicorn
+import csv
+from datetime import datetime, timedelta
+import asyncio
+import os
 
 app = FastAPI()
 
@@ -24,6 +28,13 @@ app.add_middleware(
 )
 
 conn = sqlite3.connect("trading_multi.db", check_same_thread=False)
+
+# In-memory cache for scrip master data
+scrip_cache = {
+    "indices": {},  # {index_name: {"token": str, "expiries": [str], "increment": int}}
+    "options": {},  # {tsym: {"token": str, "strike": float, "option_type": str}}
+    "last_updated": None
+}
 
 def init_db():
     with conn:
@@ -57,6 +68,18 @@ def init_db():
             sell_type TEXT,
             sell_threshold REAL,
             previous_close REAL
+        )
+        """)
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS scrips (
+            tsym TEXT PRIMARY KEY,
+            token TEXT,
+            symbol TEXT,
+            instrument TEXT,
+            strike REAL,
+            option_type TEXT,
+            expiry TEXT,
+            exchange TEXT
         )
         """)
     conn.commit()
@@ -98,7 +121,7 @@ class UpdateTradeRequest(BaseModel):
 
 class OptionChainRequest(BaseModel):
     username: str
-    index_name: str = "BANKNIFTY"  # Default changed to BANKNIFTY
+    index_name: str = "BANKNIFTY"
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -106,15 +129,96 @@ auth_tokens = {}
 refresh_tokens = {}
 feed_tokens = {}
 
+def parse_scrip_file(filepath, exchange):
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            scrips = {}
+            for row in reader:
+                tsym = row['TradingSymbol']
+                token = row['Token']
+                symbol = row['Symbol']
+                instrument = row['Instrument']
+                strike = float(row['StrikePrice']) if row['StrikePrice'] != "-1" else None
+                option_type = row['OptionType'] if 'OptionType' in row else None
+                expiry = row['Expiry'] if 'Expiry' in row else None
+
+                scrips[tsym] = {
+                    "token": token,
+                    "symbol": symbol,
+                    "instrument": instrument,
+                    "strike": strike,
+                    "option_type": option_type,
+                    "expiry": expiry,
+                    "exchange": exchange
+                }
+            return scrips
+    except Exception as e:
+        logger.error(f"Failed to parse {exchange} scrip master from {filepath}: {str(e)}")
+        return {}
+
+def store_scrip_data(scrips, exchange):
+    with conn:
+        cursor = conn.cursor()
+        for tsym, data in scrips.items():
+            cursor.execute("""
+                INSERT OR REPLACE INTO scrips (tsym, token, symbol, instrument, strike, option_type, expiry, exchange)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (tsym, data["token"], data["symbol"], data["instrument"], data["strike"], data["option_type"], data["expiry"], data["exchange"]))
+        conn.commit()
+
+def load_scrip_cache_from_db():
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM scrips")
+        rows = cursor.fetchall()
+        for row in rows:
+            tsym, token, symbol, instrument, strike, option_type, expiry, exchange = row
+            if instrument == "FUTIDX" and tsym.endswith("F"):
+                index_name = symbol
+                if index_name not in scrip_cache["indices"]:
+                    scrip_cache["indices"][index_name] = {"token": None, "expiries": [], "increment": None}
+                scrip_cache["indices"][index_name]["token"] = token
+                scrip_cache["indices"][index_name]["expiries"].append(expiry)
+                # Calculate increment if not set
+                if scrip_cache["indices"][index_name]["increment"] is None:
+                    strikes = sorted([r[4] for r in rows if r[2] == index_name and r[4] is not None])
+                    if len(strikes) > 1:
+                        scrip_cache["indices"][index_name]["increment"] = int(strikes[1] - strikes[0])
+            if instrument == "OPTIDX" and option_type in ["CE", "PE"]:
+                scrip_cache["options"][tsym] = {
+                    "token": token,
+                    "strike": strike,
+                    "option_type": option_type
+                }
+    scrip_cache["last_updated"] = datetime.now()
+    logger.info("Scrip cache loaded from database")
+
+async def download_and_update_scrip_cache():
+    exchanges = ["NFO", "NSE", "CDS", "MCX", "BSE", "BFO"]  # Include all extracted text files
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for exchange in exchanges:
+        filepath = os.path.join(base_dir, f"{exchange}_symbols.txt")
+        if os.path.exists(filepath):
+            scrips = parse_scrip_file(filepath, exchange)
+            store_scrip_data(scrips, exchange)
+    load_scrip_cache_from_db()
+    logger.info("Scrip master cache updated from local text files successfully")
+
+async def schedule_scrip_update():
+    while True:
+        last_updated = scrip_cache["last_updated"]
+        if not last_updated or (datetime.now() - last_updated) > timedelta(days=1):
+            await download_and_update_scrip_cache()
+        await asyncio.sleep(3600)  # Check every hour
+
 def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None, imei: str = "trading_app"):
     if broker == "AngelOne":
         smart_api = SmartConnect(api_key)
         try:
             totp = pyotp.TOTP(totp_token).now()
-            logger.info(f"Generated TOTP for {username} (AngelOne): {totp}")
             data = smart_api.generateSession(username, password, totp)
             if data['status'] == False:
-                logger.error(f"AngelOne Authentication failed for {username}: {data}")
                 raise Exception(f"Authentication failed: {data.get('message', 'Unknown error')}")
             auth_token = data['data']['jwtToken']
             refresh_token = data['data']['refreshToken']
@@ -127,15 +231,9 @@ def authenticate_user(username: str, password: str, broker: str, api_key: str, t
         smart_api = ShoonyaApiPy()
         try:
             totp = pyotp.TOTP(totp_token).now()
-            logger.info(f"Attempting Shoonya login for {username} with: username={username}, password={password[:3]}..., twoFA={totp}, vendor_code={vendor_code}, api_secret={api_key[:5]}..., imei={imei}")
             ret = smart_api.login(userid=username, password=password, twoFA=totp, vendor_code=vendor_code, api_secret=api_key, imei=imei)
-            logger.info(f"Shoonya login response for {username}: {ret}")
-            if ret is None:
-                logger.error(f"Shoonya login returned None for {username}")
-                raise Exception("Authentication failed: No response from Shoonya API")
-            if ret.get('stat') != 'Ok':
-                logger.error(f"Shoonya Authentication failed for {username}: {ret}")
-                raise Exception(f"Authentication failed: {ret.get('emsg', 'Unknown error')}")
+            if ret is None or ret.get('stat') != 'Ok':
+                raise Exception(f"Authentication failed: {ret.get('emsg', 'Unknown error') if ret else 'No response'}")
             return smart_api, ret['susertoken'], None, None
         except Exception as e:
             logger.error(f"Shoonya Auth error for {username}: {e}")
@@ -149,11 +247,9 @@ def refresh_angelone_session(username: str, api_client: SmartConnect) -> bool:
         refresh_token = refresh_tokens[username]
         data = api_client.generateToken(refresh_token)
         if data['status'] == False:
-            logger.error(f"AngelOne token refresh failed for {username}: {data}")
             return False
         auth_tokens[username] = data['data']['jwtToken']
         feed_tokens[username] = api_client.getfeedToken()
-        logger.info(f"Session refreshed for {username} using refresh token")
         return True
     except Exception as e:
         logger.error(f"AngelOne refresh token error for {username}: {e}")
@@ -173,7 +269,6 @@ def full_reauth_user(username: str):
     if broker == "AngelOne":
         refresh_tokens[username] = refresh_token
     feed_tokens[username] = feed_token
-    logger.info(f"Full session re-authenticated for {username} ({broker})")
     threading.Thread(target=start_websocket, args=(username, broker, api_key, auth_token, feed_token), daemon=True).start()
     return api_client
 
@@ -194,7 +289,6 @@ def get_ltp(api_client, broker: str, exchange: str, tradingsymbol: str, symbolto
             ltp = float(quotes['lp'])
             ltp_cache[symbol_key] = ltp
             return ltp
-        logger.error(f"Shoonya LTP fetch failed for {tradingsymbol}: {quotes}")
         raise HTTPException(status_code=400, detail="No LTP data available")
 
 def place_order(api_client, broker: str, orderparams: dict, position_type: str, username: str):
@@ -202,58 +296,33 @@ def place_order(api_client, broker: str, orderparams: dict, position_type: str, 
         orderparams["transactiontype"] = "BUY" if position_type == "LONG" else "SELL"
         try:
             response = api_client.placeOrderFullResponse(orderparams)
-            logger.debug(f"AngelOne {position_type} order response: {response}")
-            if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
-                logger.info(f"AngelOne {position_type} order placed: {response['data']['orderid']}")
+            if response.get('status') and 'data' in response and 'orderid' in response['data']:
                 return {"order_id": response['data']['orderid'], "status": "success"}
-            elif response.get('errorcode') == 'AB1010':
-                logger.warning(f"Session expired for {username}. Attempting refresh...")
-                if refresh_angelone_session(username, api_client):
-                    response = api_client.placeOrderFullResponse(orderparams)
-                    if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
-                        logger.info(f"AngelOne {position_type} order placed after refresh: {response['data']['orderid']}")
-                        return {"order_id": response['data']['orderid'], "status": "success"}
-                logger.warning(f"Refresh failed. Performing full re-authentication for {username}")
-                api_client = full_reauth_user(username)
+            if response.get('errorcode') == 'AB1010' and refresh_angelone_session(username, api_client):
                 response = api_client.placeOrderFullResponse(orderparams)
-                if response.get('status') is True and 'data' in response and 'orderid' in response['data']:
-                    logger.info(f"AngelOne {position_type} order placed after re-auth: {response['data']['orderid']}")
+                if response.get('status') and 'data' in response and 'orderid' in response['data']:
                     return {"order_id": response['data']['orderid'], "status": "success"}
-            raise HTTPException(status_code=400, detail=f"AngelOne {position_type} order failed: {response.get('message', 'Unknown error')}")
-        except HTTPException as e:
-            raise e
+            api_client = full_reauth_user(username)
+            response = api_client.placeOrderFullResponse(orderparams)
+            if response.get('status') and 'data' in response and 'orderid' in response['data']:
+                return {"order_id": response['data']['orderid'], "status": "success"}
+            raise HTTPException(status_code=400, detail=f"Order failed: {response.get('message', 'Unknown error')}")
         except Exception as e:
-            logger.error(f"AngelOne {position_type} order error: {e}")
             raise HTTPException(status_code=400, detail=f"Order placement failed: {str(e)}")
     elif broker == "Shoonya":
         orderparams["buy_or_sell"] = "B" if position_type == "LONG" else "S"
         orderparams["price_type"] = "MKT"
         try:
             response = api_client.place_order(**orderparams)
-            logger.debug(f"Shoonya {position_type} order response: {response}")
-            if response is None:
-                logger.error(f"Shoonya {position_type} order returned None for {username}")
-                raise HTTPException(status_code=500, detail=f"Shoonya {position_type} order failed: No response from API")
-            if response.get('stat') == 'Ok' and 'norenordno' in response:
-                logger.info(f"Shoonya {position_type} order placed: {response['norenordno']}")
+            if response and response.get('stat') == 'Ok' and 'norenordno' in response:
                 return {"order_id": response['norenordno'], "status": "success"}
-            if response.get('emsg', '').startswith("Session Expired"):
-                logger.warning(f"Session expired for {username}. Re-authenticating...")
+            if response and response.get('emsg', '').startswith("Session Expired"):
                 api_client = full_reauth_user(username)
                 response = api_client.place_order(**orderparams)
-                if response is None:
-                    logger.error(f"Shoonya {position_type} order returned None after re-auth for {username}")
-                    raise HTTPException(status_code=500, detail=f"Shoonya {position_type} order failed: No response after re-auth")
-                if response.get('stat') == 'Ok' and 'norenordno' in response:
-                    logger.info(f"Shoonya {position_type} order placed after re-auth: {response['norenordno']}")
+                if response and response.get('stat') == 'Ok' and 'norenordno' in response:
                     return {"order_id": response['norenordno'], "status": "success"}
-            error_msg = response.get('emsg', 'Unknown error')
-            logger.error(f"Shoonya {position_type} order failed for {username}: {error_msg}")
-            raise HTTPException(status_code=400, detail=f"Shoonya {position_type} order failed: {error_msg}")
-        except HTTPException as e:
-            raise e
+            raise HTTPException(status_code=400, detail=f"Order failed: {response.get('emsg', 'Unknown error') if response else 'No response'}")
         except Exception as e:
-            logger.error(f"Shoonya {position_type} order exception for {username}: {e}")
             raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
 
 def update_open_positions(position_id: str, username: str, symbol: str, entry_price: float, conditions: dict):
@@ -403,82 +472,88 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
-def get_shoonya_option_chain(api_client, index_name: str = "BANKNIFTY"):  # Default to BANKNIFTY
+def get_shoonya_option_chain(api_client, index_name: str = "BANKNIFTY"):
     try:
-        banknifty_token = "26009"  # BANKNIFTY token
-        incrementor = 100  # BANKNIFTY uses 100-point increments
-        start_index = 17  # BANKNIFTY symbol parsing index
+        # Check if scrip cache is up-to-date
+        if not scrip_cache["last_updated"] or (datetime.now() - scrip_cache["last_updated"]) > timedelta(days=1):
+            asyncio.run(download_and_update_scrip_cache())
 
-        ret = api_client.get_quotes(exchange="NSE", token=banknifty_token)
-        logger.info(f"Index quotes response: {ret}")
+        index_name = index_name.upper()
+        if index_name not in scrip_cache["indices"]:
+            raise HTTPException(status_code=400, detail=f"Index {index_name} not found in scrip cache")
+
+        index_data = scrip_cache["indices"][index_name]
+        index_token = index_data["token"]
+        incrementor = index_data["increment"] or 50  # Fallback to 50 if not computed
+        expiries = sorted(index_data["expiries"])
+        expiry = expiries[0]  # Use nearest expiry
+
+        # Fetch LTP (single API call)
+        ret = api_client.get_quotes(exchange="NSE", token=index_token)
         if not ret or 'lp' not in ret:
-            logger.error(f"Failed to fetch index LTP: {ret}")
-            raise HTTPException(status_code=400, detail="Failed to fetch index LTP - possible session expiration")
-        ltp = int(float(ret["lp"]))
-        ltp = ltp - (ltp % incrementor)
+            raise HTTPException(status_code=400, detail="Failed to fetch index LTP")
+        ltp = float(ret["lp"])
+        ltp_adjusted = ltp - (ltp % incrementor)
 
-        exch = 'NFO'
-        query = 'banknifty'  # Always fetch BANKNIFTY-related data
-        ret = api_client.searchscrip(exchange=exch, searchtext=query)
-        logger.info(f"Searchscrip response: {ret}")
-        if not ret or 'values' not in ret:
-            logger.error(f"Failed to fetch scrip data: {ret}")
-            raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
-        
-        symbols = ret['values']
-        expiry = ""
-        for symbol in symbols:
-            if symbol['tsym'].endswith("0"):
-                expiry = symbol['tsym'][9:16]
-                break
-        if not expiry:
-            logger.error("Could not determine expiry date")
-            raise HTTPException(status_code=400, detail="Could not determine expiry date")
-        
-        strike = f"{index_name}{expiry}P{ltp}"
-        logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
-        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)
-        logger.info(f"Option chain response: {chain}")
+        # Fetch option chain using cached options (single API call)
+        strike = f"{index_name}{expiry}P{int(ltp_adjusted)}"
+        chain = api_client.get_option_chain(exchange="NFO", tradingsymbol=strike, strikeprice=int(ltp_adjusted), count=50)
         if not chain or 'values' not in chain:
             error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
-            logger.error(f"Failed to fetch option chain: {error_msg}")
             if "market" in error_msg.lower() or "closed" in error_msg.lower():
-                logger.warning("Market is closed, no live option chain data available")
                 return {"message": "Market is closed, no live option chain data available", "data": []}
             raise HTTPException(status_code=400, detail=f"Failed to fetch option chain: {error_msg}")
-        
+
         chainscrips = []
         for scrip in chain['values']:
             scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
-            logger.info(f"Quote for {scrip['tsym']}: {scripdata}")
             chainscrips.append(scripdata)
-        
+
+        # Build option chain data using cached options
         option_chain_data = []
-        mid_point = len(chainscrips) // 2
-        for i in range(50):
-            idx = mid_point - 25 + i
-            if 0 <= idx < len(chainscrips):
-                scrip_data = chainscrips[idx]
-                strike_price_extracted = scrip_data["tsym"][start_index:start_index + 5]
-                option_chain_data.append({
-                    "strike": strike_price_extracted,
-                    "ce_oi": scrip_data.get("oi", "N/A"),
-                    "ce_ltp": scrip_data.get("lp", "N/A"),
-                    "ce_token": scrip_data.get("token", "N/A"),
-                    "pe_oi": scrip_data.get("oi", "N/A"),
-                    "pe_ltp": scrip_data.get("lp", "N/A"),
-                    "pe_token": scrip_data.get("token", "N/A"),
-                    "expiry": expiry
-                })
-        
-        return option_chain_data
-    
+        for scrip_data in chainscrips:
+            tsym = scrip_data["tsym"]
+            cached_option = scrip_cache["options"].get(tsym, {})
+            strike_price = cached_option.get("strike", float(scrip_data["tsym"].split("P")[-1] if "P" in scrip_data["tsym"] else scrip_data["tsym"].split("C")[-1]))
+            option_type = cached_option.get("option_type", "PE" if "P" in tsym[-6:] else "CE")
+            option_chain_data.append({
+                "strike": str(int(strike_price)),
+                "ce_oi": scrip_data.get("oi", "N/A") if option_type == "CE" else "N/A",
+                "ce_ltp": scrip_data.get("lp", "N/A") if option_type == "CE" else "N/A",
+                "ce_token": scrip_data.get("token", "N/A") if option_type == "CE" else "N/A",
+                "pe_oi": scrip_data.get("oi", "N/A") if option_type == "PE" else "N/A",
+                "pe_ltp": scrip_data.get("lp", "N/A") if option_type == "PE" else "N/A",
+                "pe_token": scrip_data.get("token", "N/A") if option_type == "PE" else "N/A",
+                "expiry": expiry
+            })
+
+        # Combine CE and PE data
+        final_chain_data = []
+        strikes = sorted(set([item["strike"] for item in option_chain_data]))
+        for strike in strikes:
+            ce_data = next((item for item in option_chain_data if item["strike"] == strike and item["ce_ltp"] != "N/A"), None)
+            pe_data = next((item for item in option_chain_data if item["strike"] == strike and item["pe_ltp"] != "N/A"), None)
+            final_chain_data.append({
+                "strike": strike,
+                "ce_oi": ce_data["ce_oi"] if ce_data else "N/A",
+                "ce_ltp": ce_data["ce_ltp"] if ce_data else "N/A",
+                "ce_token": ce_data["ce_token"] if ce_data else "N/A",
+                "pe_oi": pe_data["pe_oi"] if pe_data else "N/A",
+                "pe_ltp": pe_data["pe_ltp"] if pe_data else "N/A",
+                "pe_token": pe_data["pe_token"] if pe_data else "N/A",
+                "expiry": expiry
+            })
+
+        return final_chain_data
+
     except Exception as e:
-        logger.error(f"Error in get_shoonya_option_chain: {str(e)}")
+        logger.error(f"Error in get_shoonya_option_chain for {index_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
 
 @app.on_event("startup")
 async def startup_event():
+    load_scrip_cache_from_db()  # Load initial cache from database
+    asyncio.create_task(schedule_scrip_update())  # Schedule daily updates
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users LIMIT 3")
@@ -499,33 +574,24 @@ async def startup_event():
 @app.post("/api/register_user")
 def register_user(user: User):
     try:
-        logger.info(f"Attempting to register user: {user.username}")
         api_client, auth_token, refresh_token, feed_token = authenticate_user(
             user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.imei
         )
-        logger.info(f"Authentication successful for {user.username}. Storing in database...")
         with conn:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                            (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity, user.imei))
             conn.commit()
-        logger.info(f"User {user.username} inserted into database. Starting WebSocket...")
         smart_api_instances[user.username] = api_client
         auth_tokens[user.username] = auth_token
         if user.broker == "AngelOne":
             refresh_tokens[user.username] = refresh_token
         feed_tokens[user.username] = feed_token
-        try:
-            threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
-            logger.info(f"WebSocket thread started for {user.username}")
-        except Exception as e:
-            logger.error(f"Failed to start WebSocket for {user.username}: {e}")
+        threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
         return {"message": "User registered and authenticated successfully"}
     except sqlite3.IntegrityError:
-        logger.error(f"Database error: User {user.username} already exists")
         raise HTTPException(status_code=400, detail="User already exists")
     except Exception as e:
-        logger.error(f"Registration failed for {user.username}: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
 
 @app.get("/api/get_users")
@@ -617,7 +683,6 @@ async def initiate_trade(request: TradeRequest):
         )
         buy_result = place_order(api_client, broker, buy_order_params, "LONG", username)
         if buy_result is None:
-            logger.error(f"Trade initiation failed for {username}: place_order returned None")
             raise HTTPException(status_code=500, detail="Order placement failed: No response from broker API")
         entry_price = ltp
 
