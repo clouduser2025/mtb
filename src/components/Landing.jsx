@@ -341,8 +341,8 @@ const Landing = () => {
    ********************************************************/
 
   const UserActionsDropdown = ({ setShowRegisterModal, setShowUsers, showUsers }) => (
-    <Dropdown as={ButtonGroup}>
-      <Dropdown.Toggle variant="primary" id="dropdown-basic" className="user-actions-dropdown">
+    <Dropdown as={ButtonGroup} className="user-dropdown">
+      <Dropdown.Toggle variant="primary" id="dropdown-basic">
         <FontAwesomeIcon icon={faUserCog} />
       </Dropdown.Toggle>
       <Dropdown.Menu>
@@ -369,33 +369,53 @@ const Landing = () => {
   }, []);
 
   return (
-    <Container className="mt-4">
+    <Container fluid className="p-0 wow-container">
+      {/* Optional Header - Toggle this based on your needs to avoid duplication with Layout.js */}
+      <header className="header wow-header">
+        <div className="header-content">
+          <span className="header-title">ADPTAI Multi Broker Trading Platform</span>
+          <div className="header-actions">
+            <Button variant="primary" className="header-btn" onClick={() => alert("Admin Panel coming soon!")}>
+              <FontAwesomeIcon icon={faUserCog} /> Admin
+            </Button>
+            <Button variant="primary" className="header-btn ms-2" onClick={() => alert("Logging out...")}>
+              Logout
+            </Button>
+            <UserActionsDropdown setShowRegisterModal={setShowRegisterModal} setShowUsers={setShowUsers} showUsers={showUsers} />
+          </div>
+        </div>
+      </header>
+
       {/* Message Alert at the top */}
       {message.text && (
         <Alert 
           variant={message.type === "success" ? "success" : "danger"} 
-          className="mt-3 mb-3" 
-          style={{ backgroundColor: message.type === "success" ? "#d4edda" : "#f8d7da", color: message.type === "success" ? "#155724" : "#721c24" }}
+          className="mt-3 mb-3 wow-alert" 
         >
           {message.text}
         </Alert>
       )}
 
-      {/* User Actions Dropdown */}
-      <Row className="justify-content-end mb-3" style={{ position: "absolute", top: "9%", right: "10px", zIndex: "1000" }}>
+      {/* Trades Dashboard Button */}
+      <Row className="justify-content-center mb-4">
         <Col xs="auto">
-          <UserActionsDropdown setShowRegisterModal={setShowRegisterModal} setShowUsers={setShowUsers} showUsers={showUsers} />
+          <Button 
+            onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }} 
+            className="dashboard-button btn-trades wow-button"
+          >
+            <FontAwesomeIcon icon={faExchangeAlt} className="me-2" /> Trades Dashboard
+          </Button>
         </Col>
       </Row>
 
       {/* Users Table */}
       {showUsers && (
-        <Container className="users-table-container mb-5">
-          <h3 className="text-center mb-4 text-primary">
+        <Container className="users-table-container mb-5 wow-section">
+          <h3 className="text-center mb-4 text-primary wow-title">
             <FontAwesomeIcon icon={faUsers} className="me-2" /> Registered Users
           </h3>
           <div className="table-responsive">
-            <Table striped bordered hover className="custom-table">
+            <Table striped bordered hover className="custom-table wow-table">
               <thead>
                 <tr>
                   <th className="table-header bg-primary text-white">#</th>
@@ -410,7 +430,7 @@ const Landing = () => {
               <tbody>
                 {users.length > 0 ? (
                   users.map((user, index) => (
-                    <tr key={index} className="table-row">
+                    <tr key={index} className="table-row wow-row">
                       <td>{index + 1}</td>
                       <td>{user.username}</td>
                       <td>{user.broker}</td>
@@ -418,7 +438,7 @@ const Landing = () => {
                       <td>{user.broker === "Shoonya" ? user.vendor_code || "N/A" : "N/A"}</td>
                       <td>{user.broker === "Shoonya" ? user.imei || "N/A" : "N/A"}</td>
                       <td>
-                        <Button variant="danger" size="sm" className="btn-delete" onClick={() => handleDeleteUser(user.username)}>
+                        <Button variant="danger" size="sm" className="btn-delete wow-button" onClick={() => handleDeleteUser(user.username)}>
                           Delete
                         </Button>
                       </td>
@@ -437,12 +457,12 @@ const Landing = () => {
 
       {/* Trades Dashboard */}
       {showTradesDashboard && (
-        <Container className="mt-5 p-4 traders-table-container shadow-lg rounded bg-white">
-          <h3 className="text-center mb-4 text-dark fw-bold">
+        <Container className="mt-5 p-4 traders-table-container shadow-lg rounded bg-white wow-section">
+          <h3 className="text-center mb-4 text-dark fw-bold wow-title">
             <FontAwesomeIcon icon={faExchangeAlt} className="me-2 text-primary" /> Active Trades
           </h3>
           <div className="table-responsive">
-            <Table striped bordered hover className="custom-table">
+            <Table striped bordered hover className="custom-table wow-table">
               <thead>
                 <tr>
                   <th className="table-header bg-primary text-white">#</th>
@@ -460,7 +480,7 @@ const Landing = () => {
               <tbody>
                 {openTrades.length > 0 ? (
                   openTrades.map((trade, index) => (
-                    <tr key={index} className="table-row align-middle text-center">
+                    <tr key={index} className="table-row wow-row align-middle text-center">
                       <td>{index + 1}</td>
                       <td className="fw-bold text-warning">{trade.username}</td>
                       <td className="text-primary">{trade.symbol}</td>
@@ -484,27 +504,15 @@ const Landing = () => {
         </Container>
       )}
 
-      {/* Navigation Buttons (Only Trades Dashboard with Icon) */}
-      <Row className="justify-content-center mb-3 market-buttons">
-        <Col xs="auto">
-          <Button 
-            onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }} 
-            className="dashboard-button btn-trades"
-          >
-            <FontAwesomeIcon icon={faExchangeAlt} className="me-2" /> Trades Dashboard
-          </Button>
-        </Col>
-      </Row>
-
       {/* Multi-Step Trade Form */}
-      <Container className="mt-4 p-3 border rounded shadow-sm">
+      <Container className="mt-4 p-4 border rounded wow-form">
         {formStep === 1 && (
           <>
-            <h4 className="text-primary">
-              <FontAwesomeIcon icon={faUsers} /> Step 1: Select Shoonya User (1 only)
+            <h4 className="text-primary wow-title">
+              <FontAwesomeIcon icon={faUsers} className="me-2" /> Step 1: Select Shoonya User (1 only)
             </h4>
-            <Form>
-              <Row className="mb-3">
+            <Form className="wow-form-content">
+              <Row className="mb-4">
                 <Col>
                   {users.filter(user => user.broker === "Shoonya").map((user, index) => (
                     <Form.Check
@@ -523,6 +531,7 @@ const Landing = () => {
                           setSelectedUsers([]);
                         }
                       }}
+                      className="wow-checkbox"
                     />
                   ))}
                 </Col>
@@ -536,7 +545,7 @@ const Landing = () => {
                     setFormStep(2);
                   }
                 }}
-                className="mt-3"
+                className="wow-button mt-3"
               >
                 Next
               </Button>
@@ -546,18 +555,19 @@ const Landing = () => {
 
         {formStep === 2 && (
           <>
-            <h4 className="text-primary">
-              <FontAwesomeIcon icon={faChartLine} /> Step 2: Select Index
+            <h4 className="text-primary wow-title">
+              <FontAwesomeIcon icon={faChartLine} className="me-2" /> Step 2: Select Index
             </h4>
-            <Form>
-              <Row className="mb-3">
+            <Form className="wow-form-content">
+              <Row className="mb-4">
                 <Col md={6}>
                   <Form.Group controlId="symbol">
-                    <Form.Label>Index</Form.Label>
+                    <Form.Label className="wow-label">Index</Form.Label>
                     <Form.Select 
                       value={formData.symbol} 
                       onChange={(e) => setFormData({ ...formData, symbol: e.target.value })}
                       required
+                      className="wow-input"
                     >
                       <option value="NIFTY">NIFTY</option>
                       <option value="BANKNIFTY">BANKNIFTY</option>
@@ -568,14 +578,14 @@ const Landing = () => {
               <Button 
                 variant="primary" 
                 onClick={fetchOptionChain}
-                className="mt-3"
+                className="wow-button mt-3"
               >
                 Fetch Option Chain
               </Button>
               <Button 
                 variant="secondary" 
                 onClick={() => { setFormStep(1); setSelectedUsers([]); setOptionChainData(null); }}
-                className="mt-3 ms-2"
+                className="wow-button mt-3 ms-2"
               >
                 Back
               </Button>
@@ -585,10 +595,10 @@ const Landing = () => {
 
         {formStep === 3 && optionChainData && (
           <>
-            <h4 className="text-success">
-              <FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data (Expiry: {formData.expiry})
+            <h4 className="text-success wow-title">
+              <FontAwesomeIcon icon={faChartLine} className="me-2" /> Step 3: Option Chain Data (Expiry: {formData.expiry})
             </h4>
-            <Table striped bordered hover className="custom-table">
+            <Table striped bordered hover className="custom-table wow-table">
               <thead>
                 <tr>
                   <th className="table-header bg-primary text-white">CE OI</th>
@@ -601,7 +611,7 @@ const Landing = () => {
               </thead>
               <tbody>
                 {optionChainData.map((strikeData, index) => (
-                  <tr key={index} className="table-row">
+                  <tr key={index} className="table-row wow-row">
                     <td>{strikeData.ce_oi || "N/A"}</td>
                     <td>{strikeData.ce_ltp || "N/A"}</td>
                     <td>{strikeData.strike || "N/A"}</td>
@@ -613,7 +623,7 @@ const Landing = () => {
                           variant="primary" 
                           size="sm" 
                           onClick={() => handleSelectStrike(strikeData, "CE")}
-                          className="me-1"
+                          className="wow-button me-1"
                         >
                           Call
                         </Button>
@@ -621,6 +631,7 @@ const Landing = () => {
                           variant="secondary" 
                           size="sm" 
                           onClick={() => handleSelectStrike(strikeData, "PE")}
+                          className="wow-button"
                         >
                           Put
                         </Button>
@@ -633,7 +644,7 @@ const Landing = () => {
             <Button 
               variant="secondary" 
               onClick={() => setFormStep(2)}
-              className="mt-3"
+              className="wow-button mt-3"
             >
               Back
             </Button>
@@ -642,18 +653,19 @@ const Landing = () => {
 
         {formStep === 4 && (
           <>
-            <h4 className="text-success">
-              <FontAwesomeIcon icon={faShoppingCart} /> Step 4: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)
+            <h4 className="text-success wow-title">
+              <FontAwesomeIcon icon={faShoppingCart} className="me-2" /> Step 4: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)
             </h4>
-            <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {new Date(marketData.timestamp).toLocaleString()}</p>
-            <Form>
-              <Row className="mb-3">
+            <p className="wow-live-data"><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {new Date(marketData.timestamp).toLocaleString()}</p>
+            <Form className="wow-form-content">
+              <Row className="mb-4">
                 <Col md={4}>
                   <Form.Group controlId="buy_type">
-                    <Form.Label>Buy Condition Type</Form.Label>
+                    <Form.Label className="wow-label">Buy Condition Type</Form.Label>
                     <Form.Select 
                       value={formData.buy_type} 
                       onChange={(e) => setFormData({ ...formData, buy_type: e.target.value })}
+                      className="wow-input"
                     >
                       <option value="Fixed">Fixed Price (e.g., ₹110)</option>
                       <option value="Percentage">Percentage Increase (e.g., 5%)</option>
@@ -662,34 +674,37 @@ const Landing = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group controlId="buy_threshold">
-                    <Form.Label>{formData.buy_type === "Fixed" ? "Buy Threshold" : "Buy % Increase"}</Form.Label>
+                    <Form.Label className="wow-label">{formData.buy_type === "Fixed" ? "Buy Threshold" : "Buy % Increase"}</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.buy_threshold} 
                       onChange={(e) => setFormData({ ...formData, buy_threshold: parseFloat(e.target.value) || 0 })}
                       required 
+                      className="wow-input"
                     />
                   </Form.Group>
                 </Col>
                 {formData.buy_type === "Percentage" && (
                   <Col md={4}>
                     <Form.Group controlId="previous_close">
-                      <Form.Label>Previous Close</Form.Label>
+                      <Form.Label className="wow-label">Previous Close</Form.Label>
                       <Form.Control 
                         type="number" 
                         value={formData.previous_close} 
                         onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })}
                         required 
+                        className="wow-input"
                       />
                     </Form.Group>
                   </Col>
                 )}
                 <Col md={4}>
                   <Form.Group controlId="producttype">
-                    <Form.Label>Product Type</Form.Label>
+                    <Form.Label className="wow-label">Product Type</Form.Label>
                     <Form.Select 
                       value={formData.producttype} 
                       onChange={(e) => setFormData({ ...formData, producttype: e.target.value })}
+                      className="wow-input"
                     >
                       <option value="INTRADAY">MIS (Intraday)</option>
                       <option value="C">CNC (Cash and Carry)</option>
@@ -700,13 +715,14 @@ const Landing = () => {
                   </Form.Group>
                 </Col>
               </Row>
-              <Row className="mb-3">
+              <Row className="mb-4">
                 <Col md={4}>
                   <Form.Group controlId="stop_loss_type">
-                    <Form.Label>Stop-Loss Type</Form.Label>
+                    <Form.Label className="wow-label">Stop-Loss Type</Form.Label>
                     <Form.Select 
                       value={formData.stop_loss_type} 
                       onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}
+                      className="wow-input"
                     >
                       <option value="Fixed">Fixed</option>
                       <option value="Percentage">Percentage</option>
@@ -716,33 +732,36 @@ const Landing = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group controlId="stop_loss_value">
-                    <Form.Label>Stop-Loss Value</Form.Label>
+                    <Form.Label className="wow-label">Stop-Loss Value</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.stop_loss_value} 
                       onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })}
                       required 
+                      className="wow-input"
                     />
                   </Form.Group>
                 </Col>
                 <Col md={4}>
                   <Form.Group controlId="points_condition">
-                    <Form.Label>Points Condition</Form.Label>
+                    <Form.Label className="wow-label">Points Condition</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.points_condition} 
                       onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })}
+                      className="wow-input"
                     />
                   </Form.Group>
                 </Col>
               </Row>
-              <Row className="mb-3">
+              <Row className="mb-4">
                 <Col md={4}>
                   <Form.Group controlId="sell_type">
-                    <Form.Label>Sell Condition Type</Form.Label>
+                    <Form.Label className="wow-label">Sell Condition Type</Form.Label>
                     <Form.Select 
                       value={formData.sell_type} 
                       onChange={(e) => setFormData({ ...formData, sell_type: e.target.value })}
+                      className="wow-input"
                     >
                       <option value="Fixed">Fixed Price (e.g., ₹90)</option>
                       <option value="Percentage">Percentage Decrease (e.g., 5%)</option>
@@ -751,60 +770,64 @@ const Landing = () => {
                 </Col>
                 <Col md={4}>
                   <Form.Group controlId="sell_threshold">
-                    <Form.Label>{formData.sell_type === "Fixed" ? "Sell Threshold" : "Sell % Decrease"}</Form.Label>
+                    <Form.Label className="wow-label">{formData.sell_type === "Fixed" ? "Sell Threshold" : "Sell % Decrease"}</Form.Label>
                     <Form.Control 
                       type="number" 
                       value={formData.sell_threshold} 
                       onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })}
                       required 
+                      className="wow-input"
                     />
                   </Form.Group>
                 </Col>
                 {formData.sell_type === "Percentage" && (
                   <Col md={4}>
                     <Form.Group controlId="previous_close">
-                      <Form.Label>Previous Close</Form.Label>
+                      <Form.Label className="wow-label">Previous Close</Form.Label>
                       <Form.Control 
                         type="number" 
                         value={formData.previous_close} 
                         onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })}
                         required 
+                        className="wow-input"
                       />
                     </Form.Group>
                   </Col>
                 )}
               </Row>
-              <Row className="mb-3">
+              <Row className="mb-4">
                 <Col>
-                  <p><strong>Selected User:</strong> {selectedUsers.join(", ") || "N/A"}</p>
-                  <p><strong>Index:</strong> {formData.symbol}</p>
-                  <p><strong>Expiry:</strong> {formData.expiry || "N/A"}</p>
-                  <p><strong>Strike Price:</strong> ₹{formData.strike_price || 0}</p>
-                  <p><strong>Option Type:</strong> {formData.option_type || "N/A"}</p>
-                  <p style={{ color: "green" }}><strong>Buy Condition:</strong> {formData.buy_type === "Fixed" ? 
-                    `≥ ₹${formData.buy_threshold || 0}` : 
-                    `≥ ₹${((formData.previous_close || 0) * (1 + (formData.buy_threshold || 0) / 100)).toFixed(2)} (${formData.buy_threshold || 0}%)`}
-                  </p>
-                  <p style={{ color: "red" }}><strong>Stop-Loss:</strong> {formData.stop_loss_type} at {formData.stop_loss_value || 0} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition || 0})</p>
-                  <p style={{ color: "red" }}><strong>Sell Condition:</strong> {formData.sell_type === "Fixed" ? 
-                    `≤ ₹${formData.sell_threshold || 0}` : 
-                    `≤ ₹${((formData.previous_close || 0) * (1 - (formData.sell_threshold || 0) / 100)).toFixed(2)} (${formData.sell_threshold || 0}%)`}
-                  </p>
-                  <p><strong>Product Type:</strong> {formData.producttype}</p>
-                  <p><strong>Broker:</strong> {users.find(u => u.username === selectedUsers[0])?.broker || "Unknown"}</p>
+                  <div className="wow-summary">
+                    <p><strong>Selected User:</strong> {selectedUsers.join(", ") || "N/A"}</p>
+                    <p><strong>Index:</strong> {formData.symbol}</p>
+                    <p><strong>Expiry:</strong> {formData.expiry || "N/A"}</p>
+                    <p><strong>Strike Price:</strong> ₹{formData.strike_price || 0}</p>
+                    <p><strong>Option Type:</strong> {formData.option_type || "N/A"}</p>
+                    <p style={{ color: "green" }}><strong>Buy Condition:</strong> {formData.buy_type === "Fixed" ? 
+                      `≥ ₹${formData.buy_threshold || 0}` : 
+                      `≥ ₹${((formData.previous_close || 0) * (1 + (formData.buy_threshold || 0) / 100)).toFixed(2)} (${formData.buy_threshold || 0}%)`}
+                    </p>
+                    <p style={{ color: "red" }}><strong>Stop-Loss:</strong> {formData.stop_loss_type} at {formData.stop_loss_value || 0} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition || 0})</p>
+                    <p style={{ color: "red" }}><strong>Sell Condition:</strong> {formData.sell_type === "Fixed" ? 
+                      `≤ ₹${formData.sell_threshold || 0}` : 
+                      `≤ ₹${((formData.previous_close || 0) * (1 - (formData.sell_threshold || 0) / 100)).toFixed(2)} (${formData.sell_threshold || 0}%)`}
+                    </p>
+                    <p><strong>Product Type:</strong> {formData.producttype}</p>
+                    <p><strong>Broker:</strong> {users.find(u => u.username === selectedUsers[0])?.broker || "Unknown"}</p>
+                  </div>
                 </Col>
               </Row>
               <Button 
                 variant="success" 
                 onClick={handleInitiateTrade}
-                className="mt-3"
+                className="wow-button mt-3"
               >
                 Execute Trade
               </Button>
               <Button 
                 variant="secondary" 
                 onClick={() => setFormStep(3)}
-                className="mt-3 ms-2"
+                className="wow-button mt-3 ms-2"
               >
                 Back
               </Button>
@@ -814,19 +837,20 @@ const Landing = () => {
       </Container>
 
       {activeTradeId && (
-        <Container className="mt-4 p-3 border rounded shadow-sm">
-          <h4 className="text-warning">
-            <FontAwesomeIcon icon={faExchangeAlt} /> Update Stop-Loss Conditions (Live Market Data)
+        <Container className="mt-4 p-4 border rounded wow-form">
+          <h4 className="text-warning wow-title">
+            <FontAwesomeIcon icon={faExchangeAlt} className="me-2" /> Update Stop-Loss Conditions (Live Market Data)
           </h4>
-          <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {new Date(marketData.timestamp).toLocaleString()}</p>
-          <Form>
-            <Row className="mb-3">
+          <p className="wow-live-data"><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {new Date(marketData.timestamp).toLocaleString()}</p>
+          <Form className="wow-form-content">
+            <Row className="mb-4">
               <Col md={4}>
                 <Form.Group controlId="stop_loss_type">
-                  <Form.Label>Stop-Loss Type</Form.Label>
+                  <Form.Label className="wow-label">Stop-Loss Type</Form.Label>
                   <Form.Select 
                     value={formData.stop_loss_type} 
                     onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}
+                    className="wow-input"
                   >
                     <option value="Fixed">Fixed</option>
                     <option value="Percentage">Percentage</option>
@@ -836,21 +860,23 @@ const Landing = () => {
               </Col>
               <Col md={4}>
                 <Form.Group controlId="stop_loss_value">
-                  <Form.Label>Stop-Loss Value</Form.Label>
+                  <Form.Label className="wow-label">Stop-Loss Value</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={formData.stop_loss_value} 
                     onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })}
+                    className="wow-input"
                   />
                 </Form.Group>
               </Col>
               <Col md={4}>
                 <Form.Group controlId="points_condition">
-                  <Form.Label>Points Condition</Form.Label>
+                  <Form.Label className="wow-label">Points Condition</Form.Label>
                   <Form.Control 
                     type="number" 
                     value={formData.points_condition} 
                     onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })}
+                    className="wow-input"
                   />
                 </Form.Group>
               </Col>
@@ -858,7 +884,7 @@ const Landing = () => {
             <Button 
               variant="warning" 
               onClick={handleUpdateConditions}
-              className="mt-3"
+              className="wow-button mt-3"
             >
               Update Conditions
             </Button>
@@ -867,61 +893,66 @@ const Landing = () => {
       )}
 
       {/* Registration Modal */}
-      <Modal show={showRegisterModal} onHide={() => setShowRegisterModal(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>Register User</Modal.Title>
+      <Modal show={showRegisterModal} onHide={() => setShowRegisterModal(false)} className="wow-modal">
+        <Modal.Header closeButton className="wow-modal-header">
+          <Modal.Title className="wow-title">Register User</Modal.Title>
         </Modal.Header>
-        <Modal.Body>
+        <Modal.Body className="wow-modal-body">
           {message.text && (
             <Alert 
               variant={message.type === "success" ? "success" : "danger"} 
               style={{ backgroundColor: message.type === "success" ? "#d4edda" : "#f8d7da", color: message.type === "success" ? "#155724" : "#721c24" }}
+              className="wow-alert"
             >
               {message.text}
             </Alert>
           )}
-          <Form onSubmit={handleRegisterSubmit}>
-            <Form.Group controlId="username">
-              <Form.Label>Username</Form.Label>
+          <Form onSubmit={handleRegisterSubmit} className="wow-form-content">
+            <Form.Group controlId="username" className="mb-3">
+              <Form.Label className="wow-label">Username</Form.Label>
               <Form.Control 
                 type="text" 
                 placeholder="Enter username" 
                 value={formData.username} 
                 onChange={(e) => setFormData({ ...formData, username: e.target.value })} 
                 required 
+                className="wow-input"
               />
             </Form.Group>
-            <Form.Group controlId="password">
-              <Form.Label>Password</Form.Label>
+            <Form.Group controlId="password" className="mb-3">
+              <Form.Label className="wow-label">Password</Form.Label>
               <Form.Control 
                 type="password" 
                 placeholder="Enter password" 
                 value={formData.password} 
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })} 
                 required 
+                className="wow-input"
               />
             </Form.Group>
-            <Form.Group controlId="broker">
-              <Form.Label>Broker</Form.Label>
+            <Form.Group controlId="broker" className="mb-3">
+              <Form.Label className="wow-label">Broker</Form.Label>
               <Form.Select 
                 value={formData.broker} 
                 onChange={(e) => setFormData({ ...formData, broker: e.target.value, vendor_code: "", imei: "" })}
+                className="wow-input"
               >
                 <option value="Shoonya">Shoonya</option>
               </Form.Select>
             </Form.Group>
-            <Form.Group controlId="api_key">
-              <Form.Label>API Key</Form.Label>
+            <Form.Group controlId="api_key" className="mb-3">
+              <Form.Label className="wow-label">API Key</Form.Label>
               <Form.Control 
                 type="text" 
                 placeholder="Enter API Key" 
                 value={formData.api_key} 
                 onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} 
                 required 
+                className="wow-input"
               />
             </Form.Group>
-            <Form.Group controlId="totp_token">
-              <Form.Label>TOTP Token</Form.Label>
+            <Form.Group controlId="totp_token" className="mb-3">
+              <Form.Label className="wow-label">TOTP Token</Form.Label>
               <Form.Control 
                 type="text" 
                 placeholder="Enter TOTP Token (Base32, e.g., JBSWY3DPEHPK3PXP)" 
@@ -931,43 +962,47 @@ const Landing = () => {
                   setFormData({ ...formData, totp_token: value });
                 }} 
                 required 
+                className="wow-input"
               />
             </Form.Group>
             {formData.broker === "Shoonya" && (
               <>
-                <Form.Group controlId="vendor_code">
-                  <Form.Label>Vendor Code</Form.Label>
+                <Form.Group controlId="vendor_code" className="mb-3">
+                  <Form.Label className="wow-label">Vendor Code</Form.Label>
                   <Form.Control 
                     type="text" 
                     placeholder="Enter Vendor Code" 
                     value={formData.vendor_code} 
                     onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} 
                     required 
+                    className="wow-input"
                   />
                 </Form.Group>
-                <Form.Group controlId="imei">
-                  <Form.Label>IMEI</Form.Label>
+                <Form.Group controlId="imei" className="mb-3">
+                  <Form.Label className="wow-label">IMEI</Form.Label>
                   <Form.Control 
                     type="text" 
                     placeholder="Enter IMEI" 
                     value={formData.imei} 
                     onChange={(e) => setFormData({ ...formData, imei: e.target.value })} 
                     required 
+                    className="wow-input"
                   />
                 </Form.Group>
               </>
             )}
-            <Form.Group controlId="default_quantity">
-              <Form.Label>Default Quantity</Form.Label>
+            <Form.Group controlId="default_quantity" className="mb-3">
+              <Form.Label className="wow-label">Default Quantity</Form.Label>
               <Form.Control 
                 type="number" 
                 placeholder="Enter Quantity" 
                 value={formData.default_quantity} 
                 onChange={(e) => setFormData({ ...formData, default_quantity: parseInt(e.target.value) || 1 })} 
                 required 
+                className="wow-input"
               />
             </Form.Group>
-            <Button variant="primary" type="submit" className="mt-3">Register</Button>
+            <Button variant="primary" type="submit" className="wow-button mt-3">Register</Button>
           </Form>
         </Modal.Body>
       </Modal>
