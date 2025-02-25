@@ -73,7 +73,7 @@ const Landing = () => {
       const response = await fetch("https://mtb-8ra9.onrender.com/api/get_shoonya_index_list", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ username }), // Simplified payload to match IndexListRequest
       });
       const data = await response.json();
       if (response.ok) {
@@ -341,6 +341,8 @@ const Landing = () => {
       fetchAvailableIndices(selectedUsers[0]); // Fetch indices when a user is selected
     }
   }, [selectedUsers]);
+
+
 
   return (
     <Container className="mt-4">
