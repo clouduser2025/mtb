@@ -443,3 +443,29 @@ h4 {
   background-color: #dc3545 !important;
   border-color: #dc3545 !important;
 }
+.dashboard-button {
+  width: 320px;
+  height: 90px;
+  font-size: 18px;
+  font-weight: bold;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-transform: uppercase;
+  transition: all 0.3s ease-in-out;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+  margin: 10px;
+}
+
+.btn-trades {
+  background: linear-gradient(45deg, #229db0, #e75607); /* Teal to brown gradient */
+}
+
+.dashboard-button:hover {
+  transform: scale(1.07);
+  opacity: 0.85;
+  box-shadow: 0 6px 8px rgba(0, 0, 0, 0.3);
+}
