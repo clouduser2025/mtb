@@ -405,20 +405,35 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
 
 def get_shoonya_option_chain(api_client, index_name: str):
     try:
-        nifty_token = "26000" if index_name == "NIFTY" else "26009"
-        incrementor = 50 if index_name == "NIFTY" else 100
-        start_index = 13 if index_name == "NIFTY" else 17
+        # Default to Bank Nifty if specified
+        if index_name.upper() == "BANKNIFTY" or index_name.upper() == "NIFTY BANK":
+            nifty_token = "26009"
+            incrementor = 100
+            start_index = 17
+        else:
+            # Look up the index in NSE_symbols.txt
+            symbol_info = get_symbol_info_from_txt(index_name)
+            if not symbol_info or symbol_info['Instrument'] != "INDEX":
+                logger.error(f"Invalid or non-index symbol: {index_name}")
+                raise HTTPException(status_code=400, detail=f"'{index_name}' is not a valid index or not found")
+            
+            nifty_token = symbol_info['Token']
+            # Set incrementor based on known indices (customize as needed)
+            incrementor = 50 if symbol_info['Symbol'] == "Nifty 50" else 100  # Default to 100 for others
+            start_index = 13 if symbol_info['Symbol'] == "Nifty 50" else 17  # Adjust based on symbol length
 
+        # Fetch LTP (Last Traded Price)
         ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
-        logger.info(f"Index quotes response: {ret}")
+        logger.info(f"Index quotes response for {index_name}: {ret}")
         if not ret or 'lp' not in ret:
             logger.error(f"Failed to fetch index LTP: {ret}")
             raise HTTPException(status_code=400, detail="Failed to fetch index LTP - possible session expiration")
         ltp = int(float(ret["lp"]))
         ltp = ltp - (ltp % incrementor)
 
+        # Fetch option chain data
         exch = 'NFO'
-        query = 'nifty' if index_name == "NIFTY" else 'banknifty'
+        query = 'nifty' if index_name.upper() in ["NIFTY", "NIFTY 50"] else 'banknifty'  # Adjust query based on index
         ret = api_client.searchscrip(exchange=exch, searchtext=query)
         logger.info(f"Searchscrip response: {ret}")
         if not ret or 'values' not in ret:
@@ -435,9 +450,9 @@ def get_shoonya_option_chain(api_client, index_name: str):
             logger.error("Could not determine expiry date")
             raise HTTPException(status_code=400, detail="Could not determine expiry date")
         
-        strike = f"{index_name}{expiry}P{ltp}"
+        strike = f"{index_name.upper()}{expiry}P{ltp}"
         logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
-        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)  # Changed from 5 to 50
+        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)
         logger.info(f"Option chain response: {chain}")
         if not chain or 'values' not in chain:
             error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
@@ -454,18 +469,18 @@ def get_shoonya_option_chain(api_client, index_name: str):
             chainscrips.append(scripdata)
         
         option_chain_data = []
-        mid_point = len(chainscrips) // 2  # Find the middle of the returned data
-        for i in range(50):  # Iterate over 50 strikes (25 above and 25 below LTP)
-            idx = mid_point - 25 + i  # Adjust index to get 25 strikes below and 25 above
+        mid_point = len(chainscrips) // 2
+        for i in range(50):  # 25 strikes above and below LTP
+            idx = mid_point - 25 + i
             if 0 <= idx < len(chainscrips):
                 scrip_data = chainscrips[idx]
                 strike_price_extracted = scrip_data["tsym"][start_index:start_index + 5]
                 option_chain_data.append({
                     "strike": strike_price_extracted,
-                    "ce_oi": scrip_data.get("oi", "N/A"),  # CE and PE might not be separable here; adjust as per API response
+                    "ce_oi": scrip_data.get("oi", "N/A"),
                     "ce_ltp": scrip_data.get("lp", "N/A"),
                     "ce_token": scrip_data.get("token", "N/A"),
-                    "pe_oi": scrip_data.get("oi", "N/A"),  # Assuming same OI for simplicity; adjust if separate CE/PE data is available
+                    "pe_oi": scrip_data.get("oi", "N/A"),
                     "pe_ltp": scrip_data.get("lp", "N/A"),
                     "pe_token": scrip_data.get("token", "N/A"),
                     "expiry": expiry
@@ -476,7 +491,7 @@ def get_shoonya_option_chain(api_client, index_name: str):
     except Exception as e:
         logger.error(f"Error in get_shoonya_option_chain: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
-
+    
 @app.on_event("startup")
 async def startup_event():
     with conn:
@@ -643,6 +658,23 @@ async def initiate_trade(request: TradeRequest):
         logger.error(f"Trade initiation error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+def get_symbol_info_from_txt(symbol_name: str):
+    try:
+        with open('NSE_symbols.txt', 'r') as file:
+            lines = file.readlines()
+            headers = lines[0].strip().split(',')
+            for line in lines[1:]:
+                data = line.strip().split(',')
+                if data[3].lower() == symbol_name.lower():  # Match 'Symbol' column (case-insensitive)
+                    return dict(zip(headers, data))
+        return None
+    except FileNotFoundError:
+        logger.error("NSE_symbols.txt file not found")
+        raise HTTPException(status_code=500, detail="Symbol data file not found")
+    except Exception as e:
+        logger.error(f"Error reading NSE_symbols.txt: {e}")
+        raise HTTPException(status_code=500, detail=f"Error reading symbol data: {str(e)}")
+    
 @app.post("/api/update_trade_conditions")
 async def update_trade_conditions(request: UpdateTradeRequest):
     try:
