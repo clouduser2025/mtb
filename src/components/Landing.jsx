@@ -1,19 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign } from '@fortawesome/free-solid-svg-icons';
-import TradingViewWidget from './TradingViewWidget'; // Import the TradingView widget
 import './css/landing.css';
-
-// Hardcoded list of indices based on NSE_symbols.txt (you could fetch this from backend if needed)
-const availableIndices = [
-  "Nifty 50",
-  "Nifty Bank",
-  "INDIAVIX",
-  "Nifty Fin Services",
-  "NIFTY MID SELECT",
-  "Nifty Next 50"
-];
 
 const Landing = () => {
   const [users, setUsers] = useState([]);
@@ -27,7 +16,7 @@ const Landing = () => {
   const [activeTradeId, setActiveTradeId] = useState(null);
   const [optionChainData, setOptionChainData] = useState(null);
   const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, timestamp: "" });
-  const [chartSymbol, setChartSymbol] = useState("NSE:NIFTY BANK"); // Default chart symbol
+  const [chartSymbol, setChartSymbol] = useState("NSE:NIFTYBANK"); // Default chart symbol
 
   const [formData, setFormData] = useState({
     username: "",
@@ -38,7 +27,7 @@ const Landing = () => {
     vendor_code: "",
     default_quantity: 1,
     imei: "",
-    symbol: "Nifty Bank", // Default to Nifty Bank, updated from BANKNIFTY
+    symbol: "Nifty Bank", // Default to Nifty Bank
     expiry: "",
     strike_price: 0,
     option_type: "Call",
@@ -97,7 +86,7 @@ const Landing = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username,
-          index_name: formData.symbol // Send the selected index
+          index_name: formData.symbol || "Nifty Bank" // Use Nifty Bank if symbol is empty
         }),
       });
 
@@ -105,8 +94,8 @@ const Landing = () => {
       if (response.ok) {
         setOptionChainData(data.data);
         setFormData({ ...formData, expiry: data.data[0].expiry });
-        setChartSymbol(`NSE:${formData.symbol.replace(" ", "")}`); // Update chart to show selected index
-        setMessage({ text: `Option chain data fetched for ${formData.symbol} based on current LTP!`, type: "success" });
+        setChartSymbol(`NSE:${(formData.symbol || "Nifty Bank").replace(" ", "")}`); // Update chart to show selected index
+        setMessage({ text: `Option chain data fetched for ${formData.symbol || "Nifty Bank"} based on current LTP!`, type: "success" });
         setFormStep(3);
       } else {
         setMessage({ text: data.message || data.detail || "Failed to fetch option chain", type: "danger" });
@@ -473,23 +462,22 @@ const Landing = () => {
 
             {formStep === 2 && (
               <>
-                <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Select Index</h4>
+                <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Enter Index</h4>
                 <Form>
                   <Row className="mb-3">
                     <Col md={6}>
                       <Form.Group>
-                        <Form.Label>Index</Form.Label>
-                        <Form.Select
+                        <Form.Label>Index (Default: Nifty Bank)</Form.Label>
+                        <Form.Control
+                          type="text"
+                          placeholder="Enter index name (e.g., Nifty 50)"
                           value={formData.symbol}
                           onChange={(e) => {
-                            setFormData({ ...formData, symbol: e.target.value });
-                            setChartSymbol(`NSE:${e.target.value.replace(" ", "")}`);
+                            const newSymbol = e.target.value || "Nifty Bank"; // Default to Nifty Bank if empty
+                            setFormData({ ...formData, symbol: newSymbol });
+                            setChartSymbol(`NSE:${newSymbol.replace(" ", "")}`);
                           }}
-                        >
-                          {availableIndices.map((index, idx) => (
-                            <option key={idx} value={index}>{index}</option>
-                          ))}
-                        </Form.Select>
+                        />
                       </Form.Group>
                     </Col>
                   </Row>
@@ -714,7 +702,7 @@ const Landing = () => {
   );
 };
 
-// Updated TradingViewWidget to accept a dynamic symbol prop
+// Define TradingViewWidget component
 const TradingViewWidget = memo(({ symbol }) => {
   const container = useRef();
 
