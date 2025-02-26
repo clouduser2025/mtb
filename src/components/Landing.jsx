@@ -16,7 +16,7 @@ const Landing = () => {
   const [activeTradeId, setActiveTradeId] = useState(null);
   const [optionChainData, setOptionChainData] = useState(null);
   const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, timestamp: "" });
-  const [chartSymbol, setChartSymbol] = useState("NSE:NIFTYBANK"); // Default chart symbol
+  const [chartSymbol, setChartSymbol] = useState("NASDAQ:AAPL"); // Default chart symbol changed to AAPL
 
   const [formData, setFormData] = useState({
     username: "",
@@ -27,7 +27,7 @@ const Landing = () => {
     vendor_code: "",
     default_quantity: 1,
     imei: "",
-    symbol: "Nifty Bank", // Default to Nifty Bank
+    symbol: "Nifty Bank", // Default to Nifty Bank for trading logic
     expiry: "",
     strike_price: 0,
     option_type: "Call",
@@ -713,9 +713,9 @@ const TradingViewWidget = memo(({ symbol }) => {
     script.async = true;
     script.innerHTML = JSON.stringify({
       autosize: true,
-      symbol: symbol || "NSE:NIFTYBANK", // Default to Nifty Bank if no symbol
+      symbol: symbol || "NASDAQ:AAPL", // Default to AAPL if no symbol
       interval: "D",
-      timezone: "Asia/Kolkata", // Updated to India timezone
+      timezone: "America/New_York", // Updated to US timezone for AAPL
       theme: "light",
       style: "1",
       locale: "en",
