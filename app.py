@@ -405,55 +405,58 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
 
 def get_shoonya_option_chain(api_client, index_name: str):
     try:
-        # Default to Bank Nifty if specified
-        if index_name.upper() == "BANKNIFTY" or index_name.upper() == "NIFTY BANK":
-            nifty_token = "26009"
+        # Default to BANKNIFTY
+        if index_name.upper() in ["BANKNIFTY", "NIFTY BANK", ""]:
+            nifty_token = "26009"  # BANKNIFTY token
             incrementor = 100
             start_index = 17
+            index_name_upper = "BANKNIFTY"
         else:
-            # Look up the index in NSE_symbols.txt
             symbol_info = get_symbol_info_from_txt(index_name)
             if not symbol_info or symbol_info['Instrument'] != "INDEX":
                 logger.error(f"Invalid or non-index symbol: {index_name}")
                 raise HTTPException(status_code=400, detail=f"'{index_name}' is not a valid index or not found")
-            
             nifty_token = symbol_info['Token']
-            # Set incrementor based on known indices (customize as needed)
-            incrementor = 50 if symbol_info['Symbol'] == "Nifty 50" else 100  # Default to 100 for others
-            start_index = 13 if symbol_info['Symbol'] == "Nifty 50" else 17  # Adjust based on symbol length
+            incrementor = 50 if symbol_info['Symbol'] == "Nifty 50" else 100
+            start_index = 13 if symbol_info['Symbol'] == "Nifty 50" else 17
+            index_name_upper = symbol_info['Symbol'].upper()
 
-        # Fetch LTP (Last Traded Price)
+        # Fetch LTP
         ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
         logger.info(f"Index quotes response for {index_name}: {ret}")
         if not ret or 'lp' not in ret:
-            logger.error(f"Failed to fetch index LTP: {ret}")
-            raise HTTPException(status_code=400, detail="Failed to fetch index LTP - possible session expiration")
+            logger.warning("Failed to fetch LTP, attempting re-authentication")
+            api_client = full_reauth_user(api_client.username)  # Assumes username is set in api_client
+            ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
+            if not ret or 'lp' not in ret:
+                logger.error(f"Failed to fetch index LTP after re-auth: {ret}")
+                raise HTTPException(status_code=400, detail="Failed to fetch index LTP - possible session issue")
         ltp = int(float(ret["lp"]))
         ltp = ltp - (ltp % incrementor)
 
         # Fetch option chain data
         exch = 'NFO'
-        query = 'nifty' if index_name.upper() in ["NIFTY", "NIFTY 50"] else 'banknifty'  # Adjust query based on index
+        query = 'nifty' if index_name_upper in ["NIFTY", "NIFTY 50"] else 'banknifty'
         ret = api_client.searchscrip(exchange=exch, searchtext=query)
         logger.info(f"Searchscrip response: {ret}")
         if not ret or 'values' not in ret:
             logger.error(f"Failed to fetch scrip data: {ret}")
             raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
-        
+
         symbols = ret['values']
-        expiry = ""
-        for symbol in symbols:
-            if symbol['tsym'].endswith("0"):
-                expiry = symbol['tsym'][9:16]
-                break
+        expiry = next((symbol['tsym'][9:16] for symbol in symbols if symbol['tsym'].endswith("0")), None)
         if not expiry:
             logger.error("Could not determine expiry date")
             raise HTTPException(status_code=400, detail="Could not determine expiry date")
-        
-        strike = f"{index_name.upper()}{expiry}P{ltp}"
+
+        strike = f"{index_name_upper}{expiry}P{ltp}"
         logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
         chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)
-        logger.info(f"Option chain response: {chain}")
+        if chain is None:
+            logger.warning("Option chain fetch returned None, attempting re-authentication")
+            api_client = full_reauth_user(api_client.username)
+            chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)
+
         if not chain or 'values' not in chain:
             error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
             logger.error(f"Failed to fetch option chain: {error_msg}")
@@ -461,16 +464,16 @@ def get_shoonya_option_chain(api_client, index_name: str):
                 logger.warning("Market is closed, no live option chain data available")
                 return {"message": "Market is closed, no live option chain data available", "data": []}
             raise HTTPException(status_code=400, detail=f"Failed to fetch option chain: {error_msg}")
-        
+
         chainscrips = []
         for scrip in chain['values']:
             scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
             logger.info(f"Quote for {scrip['tsym']}: {scripdata}")
             chainscrips.append(scripdata)
-        
+
         option_chain_data = []
         mid_point = len(chainscrips) // 2
-        for i in range(50):  # 25 strikes above and below LTP
+        for i in range(50):
             idx = mid_point - 25 + i
             if 0 <= idx < len(chainscrips):
                 scrip_data = chainscrips[idx]
@@ -485,9 +488,9 @@ def get_shoonya_option_chain(api_client, index_name: str):
                     "pe_token": scrip_data.get("token", "N/A"),
                     "expiry": expiry
                 })
-        
+
         return option_chain_data
-    
+
     except Exception as e:
         logger.error(f"Error in get_shoonya_option_chain: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
@@ -660,19 +663,23 @@ async def initiate_trade(request: TradeRequest):
 
 def get_symbol_info_from_txt(symbol_name: str):
     try:
-        with open('NSE_symbols.txt', 'r') as file:
+        file_path = 'NSE_symbols.txt'  # Adjust if the file is elsewhere, e.g., './data/NSE_symbols.txt'
+        with open(file_path, 'r') as file:
             lines = file.readlines()
             headers = lines[0].strip().split(',')
             for line in lines[1:]:
                 data = line.strip().split(',')
-                if data[3].lower() == symbol_name.lower():  # Match 'Symbol' column (case-insensitive)
+                if data[3].lower() == symbol_name.lower():  # Match 'Symbol' column
                     return dict(zip(headers, data))
         return None
     except FileNotFoundError:
-        logger.error("NSE_symbols.txt file not found")
+        logger.error(f"{file_path} file not found")
         raise HTTPException(status_code=500, detail="Symbol data file not found")
+    except IsADirectoryError:
+        logger.error(f"{file_path} is a directory, expected a file")
+        raise HTTPException(status_code=500, detail="Symbol data path is a directory, expected a file")
     except Exception as e:
-        logger.error(f"Error reading NSE_symbols.txt: {e}")
+        logger.error(f"Error reading {file_path}: {e}")
         raise HTTPException(status_code=500, detail=f"Error reading symbol data: {str(e)}")
     
 @app.post("/api/update_trade_conditions")
