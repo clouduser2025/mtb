@@ -16,7 +16,7 @@ const Landing = () => {
   const [activeTradeId, setActiveTradeId] = useState(null);
   const [optionChainData, setOptionChainData] = useState(null);
   const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, timestamp: "" });
-  const [chartSymbol, setChartSymbol] = useState("NASDAQ:AAPL"); // Default chart symbol changed to AAPL
+  const [chartSymbol, setChartSymbol] = useState("NSE:BANKNIFTY"); // Default to BANKNIFTY
 
   const [formData, setFormData] = useState({
     username: "",
@@ -27,9 +27,10 @@ const Landing = () => {
     vendor_code: "",
     default_quantity: 1,
     imei: "",
-    symbol: "Nifty Bank", // Default to Nifty Bank for trading logic
-    expiry: "",
-    strike_price: 0,
+    symbol: "BANKNIFTY", // Default to BANKNIFTY
+    expiry: "", // DD-MM-YYYY format
+    strike_price: 47800, // Default strike price
+    strike_count: 5, // Default number of strikes
     option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
@@ -86,19 +87,22 @@ const Landing = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username,
-          index_name: formData.symbol || "Nifty Bank" // Use Nifty Bank if symbol is empty
+          exchange: formData.exchange,
+          symbol: formData.symbol,
+          expiry_date: formData.expiry,
+          strike_price: formData.strike_price,
+          strike_count: formData.strike_count
         }),
       });
 
       const data = await response.json();
       if (response.ok) {
         setOptionChainData(data.data);
-        setFormData({ ...formData, expiry: data.data[0].expiry });
-        setChartSymbol(`NSE:${(formData.symbol || "Nifty Bank").replace(" ", "")}`); // Update chart to show selected index
-        setMessage({ text: `Option chain data fetched for ${formData.symbol || "Nifty Bank"} based on current LTP!`, type: "success" });
+        setChartSymbol(`NSE:${formData.symbol.replace(" ", "")}`); // Update chart to show index
+        setMessage({ text: `Option chain data fetched for ${formData.symbol} with expiry ${formData.expiry}!`, type: "success" });
         setFormStep(3);
       } else {
-        setMessage({ text: data.message || data.detail || "Failed to fetch option chain", type: "danger" });
+        setMessage({ text: data.detail || "Failed to fetch option chain", type: "danger" });
       }
     } catch (error) {
       console.error("Error fetching option chain:", error);
@@ -106,19 +110,19 @@ const Landing = () => {
     }
   };
 
-  const handleSelectStrike = (strikeData, optionType) => {
-    const selectedTs = `${formData.symbol.replace(" ", "")}${formData.expiry}${optionType}${strikeData.strike}`;
+  const handleSelectStrike = (strikeData) => {
+    const selectedTs = strikeData.TradingSymbol;
     setFormData({
       ...formData,
       tradingsymbol: selectedTs,
-      symboltoken: optionType === "CE" ? strikeData.ce_token : strikeData.pe_token,
-      previous_close: optionType === "CE" ? parseFloat(strikeData.ce_ltp) : parseFloat(strikeData.pe_ltp),
-      strike_price: parseFloat(strikeData.strike),
-      option_type: optionType === "CE" ? "Call" : "Put"
+      symboltoken: strikeData.Token,
+      previous_close: parseFloat(strikeData.LTP),
+      strike_price: parseFloat(strikeData.StrikePrice),
+      option_type: strikeData.OptionType === "CE" ? "Call" : "Put"
     });
     setChartSymbol(`NSE:${selectedTs}`); // Update chart to show selected option
     setFormStep(4);
-    startMarketUpdates(selectedUsers[0], optionType === "CE" ? strikeData.ce_token : strikeData.pe_token);
+    startMarketUpdates(selectedUsers[0], strikeData.Token);
   };
 
   const startMarketUpdates = useCallback((username, symboltoken) => {
@@ -462,21 +466,58 @@ const Landing = () => {
 
             {formStep === 2 && (
               <>
-                <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Enter Index</h4>
+                <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Enter Option Chain Details</h4>
                 <Form>
                   <Row className="mb-3">
                     <Col md={6}>
                       <Form.Group>
-                        <Form.Label>Index (Default: Nifty Bank)</Form.Label>
+                        <Form.Label>Symbol (Default: BANKNIFTY)</Form.Label>
                         <Form.Control
                           type="text"
-                          placeholder="Enter index name (e.g., Nifty 50)"
+                          placeholder="e.g., BANKNIFTY"
                           value={formData.symbol}
                           onChange={(e) => {
-                            const newSymbol = e.target.value || "Nifty Bank"; // Default to Nifty Bank if empty
+                            const newSymbol = e.target.value || "BANKNIFTY";
                             setFormData({ ...formData, symbol: newSymbol });
                             setChartSymbol(`NSE:${newSymbol.replace(" ", "")}`);
                           }}
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label>Expiry Date (DD-MM-YYYY)</Form.Label>
+                        <Form.Control
+                          type="text"
+                          placeholder="e.g., 27-03-2025"
+                          value={formData.expiry}
+                          onChange={(e) => setFormData({ ...formData, expiry: e.target.value })}
+                          required
+                        />
+                      </Form.Group>
+                    </Col>
+                  </Row>
+                  <Row className="mb-3">
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label>Strike Price</Form.Label>
+                        <Form.Control
+                          type="number"
+                          value={formData.strike_price}
+                          onChange={(e) => setFormData({ ...formData, strike_price: parseFloat(e.target.value) || 0 })}
+                          required
+                        />
+                      </Form.Group>
+                    </Col>
+                    <Col md={6}>
+                      <Form.Group>
+                        <Form.Label>Number of Strikes</Form.Label>
+                        <Form.Control
+                          type="number"
+                          value={formData.strike_count}
+                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 5 })}
+                          min="1"
+                          required
                         />
                       </Form.Group>
                     </Col>
@@ -493,31 +534,26 @@ const Landing = () => {
                 <Table striped bordered hover>
                   <thead>
                     <tr>
-                      <th>CE OI</th>
-                      <th>CE LTP</th>
-                      <th>Strike</th>
-                      <th>PE LTP</th>
-                      <th>PE OI</th>
+                      <th>Trading Symbol</th>
+                      <th>Strike Price</th>
+                      <th>Option Type</th>
+                      <th>LTP</th>
+                      <th>Volume</th>
                       <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {optionChainData.map((strikeData, index) => (
                       <tr key={index}>
-                        <td>{strikeData.ce_oi}</td>
-                        <td>{strikeData.ce_ltp}</td>
-                        <td>{strikeData.strike}</td>
-                        <td>{strikeData.pe_ltp}</td>
-                        <td>{strikeData.pe_oi}</td>
+                        <td>{strikeData.TradingSymbol}</td>
+                        <td>{strikeData.StrikePrice}</td>
+                        <td>{strikeData.OptionType}</td>
+                        <td>{strikeData.LTP}</td>
+                        <td>{strikeData.Volume}</td>
                         <td>
-                          <ButtonGroup>
-                            <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData, "CE")}>
-                              Call
-                            </Button>
-                            <Button variant="secondary" size="sm" onClick={() => handleSelectStrike(strikeData, "PE")}>
-                              Put
-                            </Button>
-                          </ButtonGroup>
+                          <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData)}>
+                            Select
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -621,7 +657,7 @@ const Landing = () => {
                   <Row className="mb-3">
                     <Col>
                       <p><strong>Selected User:</strong> {selectedUsers.join(", ")}</p>
-                      <p><strong>Index:</strong> {formData.symbol}</p>
+                      <p><strong>Symbol:</strong> {formData.symbol}</p>
                       <p><strong>Expiry:</strong> {formData.expiry}</p>
                       <p><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
                       <p><strong>Option Type:</strong> {formData.option_type}</p>
@@ -713,9 +749,9 @@ const TradingViewWidget = memo(({ symbol }) => {
     script.async = true;
     script.innerHTML = JSON.stringify({
       autosize: true,
-      symbol: symbol || "NASDAQ:AAPL", // Default to AAPL if no symbol
+      symbol: symbol || "NSE:BANKNIFTY", // Default to BANKNIFTY
       interval: "D",
-      timezone: "America/New_York", // Updated to US timezone for AAPL
+      timezone: "Asia/Kolkata", // Updated to India timezone
       theme: "light",
       style: "1",
       locale: "en",

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Options Trading Dashboard</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid black; padding: 8px; text-align: left; }
+    </style>
+</head>
+<body>
+    <h1>Bank Nifty Options</h1>
+    <label>Strike Price: <input type="number" id="strikePrice" value="48600"></label>
+    <label>Count: <input type="number" id="count" value="2"></label>
+    <button onclick="fetchOptionChain()">Get Option Chain</button>
+    <div id="result"></div>
+
+    <script>
+        async function fetchOptionChain() {
+            const strikePrice = document.getElementById('strikePrice').value;
+            const count = document.getElementById('count').value;
+            const url = `http://localhost:5000/option_chain?strikeprice=${strikePrice}&count=${count}`;
+            
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                if (data.error) {
+                    document.getElementById('result').innerHTML = `<p>Error: ${data.error}</p>`;
+                } else {
+                    displayOptionChain(data);
+                }
+            } catch (error) {
+                document.getElementById('result').innerHTML = `<p>Fetch error: ${error.message}</p>`;
+            }
+        }
+
+        function displayOptionChain(data) {
+            let html = '<table><tr><th>Symbol</th><th>Last Price</th><th>Open Interest</th></tr>';
+            data.forEach(scrip => {
+                html += `<tr>
+                    <td>${scrip.tsym}</td>
+                    <td>${scrip.lp}</td>
+                    <td>${scrip.oi}</td>
+                </tr>`;
+            });
+            html += '</table>';
+            document.getElementById('result').innerHTML = html;
+        }
+    </script>
+</body>
+</html>

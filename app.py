@@ -12,6 +12,8 @@ from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import uvicorn
+import pandas as pd
+import datetime
 
 app = FastAPI()
 
@@ -98,7 +100,11 @@ class UpdateTradeRequest(BaseModel):
 
 class OptionChainRequest(BaseModel):
     username: str
-    index_name: str
+    exchange: str
+    symbol: str
+    expiry_date: str  # Format: DD-MM-YYYY
+    strike_price: float
+    strike_count: int = 5  # User specifies exact number of strikes
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -403,98 +409,6 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             conn.commit()
         logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
 
-def get_shoonya_option_chain(api_client, index_name: str):
-    try:
-        # Default to BANKNIFTY
-        if index_name.upper() in ["BANKNIFTY", "NIFTY BANK", ""]:
-            nifty_token = "26009"  # BANKNIFTY token
-            incrementor = 100
-            start_index = 17
-            index_name_upper = "BANKNIFTY"
-        else:
-            symbol_info = get_symbol_info_from_txt(index_name)
-            if not symbol_info or symbol_info['Instrument'] != "INDEX":
-                logger.error(f"Invalid or non-index symbol: {index_name}")
-                raise HTTPException(status_code=400, detail=f"'{index_name}' is not a valid index or not found")
-            nifty_token = symbol_info['Token']
-            incrementor = 50 if symbol_info['Symbol'] == "Nifty 50" else 100
-            start_index = 13 if symbol_info['Symbol'] == "Nifty 50" else 17
-            index_name_upper = symbol_info['Symbol'].upper()
-
-        # Fetch LTP
-        ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
-        logger.info(f"Index quotes response for {index_name}: {ret}")
-        if not ret or 'lp' not in ret:
-            logger.warning("Failed to fetch LTP, attempting re-authentication")
-            api_client = full_reauth_user(api_client.username)  # Assumes username is set in api_client
-            ret = api_client.get_quotes(exchange="NSE", token=nifty_token)
-            if not ret or 'lp' not in ret:
-                logger.error(f"Failed to fetch index LTP after re-auth: {ret}")
-                raise HTTPException(status_code=400, detail="Failed to fetch index LTP - possible session issue")
-        ltp = int(float(ret["lp"]))
-        ltp = ltp - (ltp % incrementor)
-
-        # Fetch option chain data
-        exch = 'NFO'
-        query = 'nifty' if index_name_upper in ["NIFTY", "NIFTY 50"] else 'banknifty'
-        ret = api_client.searchscrip(exchange=exch, searchtext=query)
-        logger.info(f"Searchscrip response: {ret}")
-        if not ret or 'values' not in ret:
-            logger.error(f"Failed to fetch scrip data: {ret}")
-            raise HTTPException(status_code=400, detail="Failed to fetch scrip data")
-
-        symbols = ret['values']
-        expiry = next((symbol['tsym'][9:16] for symbol in symbols if symbol['tsym'].endswith("0")), None)
-        if not expiry:
-            logger.error("Could not determine expiry date")
-            raise HTTPException(status_code=400, detail="Could not determine expiry date")
-
-        strike = f"{index_name_upper}{expiry}P{ltp}"
-        logger.info(f"Fetching option chain for {strike} with LTP {ltp}")
-        chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)
-        if chain is None:
-            logger.warning("Option chain fetch returned None, attempting re-authentication")
-            api_client = full_reauth_user(api_client.username)
-            chain = api_client.get_option_chain(exchange=exch, tradingsymbol=strike, strikeprice=ltp, count=50)
-
-        if not chain or 'values' not in chain:
-            error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
-            logger.error(f"Failed to fetch option chain: {error_msg}")
-            if "market" in error_msg.lower() or "closed" in error_msg.lower():
-                logger.warning("Market is closed, no live option chain data available")
-                return {"message": "Market is closed, no live option chain data available", "data": []}
-            raise HTTPException(status_code=400, detail=f"Failed to fetch option chain: {error_msg}")
-
-        chainscrips = []
-        for scrip in chain['values']:
-            scripdata = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
-            logger.info(f"Quote for {scrip['tsym']}: {scripdata}")
-            chainscrips.append(scripdata)
-
-        option_chain_data = []
-        mid_point = len(chainscrips) // 2
-        for i in range(50):
-            idx = mid_point - 25 + i
-            if 0 <= idx < len(chainscrips):
-                scrip_data = chainscrips[idx]
-                strike_price_extracted = scrip_data["tsym"][start_index:start_index + 5]
-                option_chain_data.append({
-                    "strike": strike_price_extracted,
-                    "ce_oi": scrip_data.get("oi", "N/A"),
-                    "ce_ltp": scrip_data.get("lp", "N/A"),
-                    "ce_token": scrip_data.get("token", "N/A"),
-                    "pe_oi": scrip_data.get("oi", "N/A"),
-                    "pe_ltp": scrip_data.get("lp", "N/A"),
-                    "pe_token": scrip_data.get("token", "N/A"),
-                    "expiry": expiry
-                })
-
-        return option_chain_data
-
-    except Exception as e:
-        logger.error(f"Error in get_shoonya_option_chain: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error fetching option chain: {str(e)}")
-    
 @app.on_event("startup")
 async def startup_event():
     with conn:
@@ -538,7 +452,6 @@ def register_user(user: User):
             logger.info(f"WebSocket thread started for {user.username}")
         except Exception as e:
             logger.error(f"Failed to start WebSocket for {user.username}: {e}")
-            # Continue despite WebSocket failure; registration is still valid
         return {"message": "User registered and authenticated successfully"}
     except sqlite3.IntegrityError:
         logger.error(f"Database error: User {user.username} already exists")
@@ -661,27 +574,6 @@ async def initiate_trade(request: TradeRequest):
         logger.error(f"Trade initiation error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-def get_symbol_info_from_txt(symbol_name: str):
-    try:
-        file_path = 'NSE_symbols.txt'  # Adjust if the file is elsewhere, e.g., './data/NSE_symbols.txt'
-        with open(file_path, 'r') as file:
-            lines = file.readlines()
-            headers = lines[0].strip().split(',')
-            for line in lines[1:]:
-                data = line.strip().split(',')
-                if data[3].lower() == symbol_name.lower():  # Match 'Symbol' column
-                    return dict(zip(headers, data))
-        return None
-    except FileNotFoundError:
-        logger.error(f"{file_path} file not found")
-        raise HTTPException(status_code=500, detail="Symbol data file not found")
-    except IsADirectoryError:
-        logger.error(f"{file_path} is a directory, expected a file")
-        raise HTTPException(status_code=500, detail="Symbol data path is a directory, expected a file")
-    except Exception as e:
-        logger.error(f"Error reading {file_path}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error reading symbol data: {str(e)}")
-    
 @app.post("/api/update_trade_conditions")
 async def update_trade_conditions(request: UpdateTradeRequest):
     try:
@@ -738,12 +630,80 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         
         if broker != "Shoonya":
             raise HTTPException(status_code=400, detail="Option chain data is only available for Shoonya broker")
+
+        # Parse expiry date
+        try:
+            expiry_date = datetime.datetime.strptime(request.expiry_date, '%d-%m-%Y')
+        except ValueError:
+            logger.error(f"Invalid expiry date format for {username}: {request.expiry_date}")
+            raise HTTPException(status_code=400, detail="Invalid date format. Please use DD-MM-YYYY")
+
+        # Clean symbol input
+        symbol = request.symbol.strip(',').strip()
+        expiry_str = expiry_date.strftime('%d%b%y').upper()
+        search_query = f"{symbol} {expiry_str}"
+        logger.info(f"Searching for {search_query} for user {username}")
+        search_result = api_client.searchscrip(exchange=request.exchange, searchtext=search_query)
         
-        option_chain_data = get_shoonya_option_chain(api_client, request.index_name)
-        if isinstance(option_chain_data, dict) and "message" in option_chain_data:
-            return option_chain_data
-        return {"message": f"Option chain data for {request.index_name} based on current LTP", "data": option_chain_data}
-    
+        if not search_result or 'values' not in search_result or not search_result['values']:
+            logger.error(f"No symbols found for {search_query} for user {username}")
+            raise HTTPException(status_code=400, detail=f"No symbols found for {search_query}")
+
+        base_symbol = search_result['values'][0]['tsym']
+        logger.info(f"Using base symbol: {base_symbol} for user {username}")
+
+        # Fetch option chain with enough strikes to cover user request
+        chain = api_client.get_option_chain(
+            exchange=request.exchange,
+            tradingsymbol=base_symbol,
+            strikeprice=str(request.strike_price),
+            count=str(max(10, request.strike_count * 2))  # Fetch at least 10 or 2x requested strikes
+        )
+
+        if not chain or 'values' not in chain:
+            error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
+            logger.error(f"No option chain data available for {base_symbol}: {error_msg}")
+            if "market" in error_msg.lower() or "closed" in error_msg.lower():
+                return {"message": "Market is closed, no live option chain data available", "data": []}
+            raise HTTPException(status_code=400, detail=f"No option chain data available: {error_msg}")
+
+        # Collect chain data
+        chain_data = []
+        for scrip in chain['values']:
+            quote = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
+            if quote:
+                chain_data.append({
+                    'TradingSymbol': scrip['tsym'],
+                    'Token': scrip['token'],
+                    'StrikePrice': float(scrip.get('strprc', '0')),  # Convert to float for comparison
+                    'OptionType': scrip.get('optt', 'N/A'),
+                    'LTP': quote.get('lp', 'N/A'),
+                    'Open': quote.get('op', 'N/A'),
+                    'High': quote.get('h', 'N/A'),
+                    'Low': quote.get('l', 'N/A'),
+                    'Close': quote.get('c', 'N/A'),
+                    'Volume': quote.get('v', 'N/A')
+                })
+
+        # Filter to exactly strike_count strikes (split between CE and PE)
+        df = pd.DataFrame(chain_data)
+        df['StrikeDiff'] = abs(df['StrikePrice'] - request.strike_price)
+        
+        # Separate calls and puts
+        ce_df = df[df['OptionType'] == 'CE'].sort_values('StrikeDiff')
+        pe_df = df[df['OptionType'] == 'PE'].sort_values('StrikeDiff')
+        
+        # Take half of strike_count for each (rounded up if odd)
+        half_count = (request.strike_count + 1) // 2  # Ensures at least half for each
+        ce_filtered = ce_df.head(half_count)
+        pe_filtered = pe_df.head(request.strike_count - half_count)  # Remaining for puts
+        
+        # Combine and sort by strike price
+        filtered_df = pd.concat([ce_filtered, pe_filtered]).sort_values('StrikePrice')
+        filtered_data = filtered_df.to_dict('records')
+
+        return {"message": f"Option chain data for {symbol} with expiry {expiry_str}", "data": filtered_data}
+
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -751,4 +711,4 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)  # Using port 8001 as per your setup

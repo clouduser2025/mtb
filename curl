@@ -1,0 +1,58 @@
+  const fetchLtp = async () => {
+    if (!formData.tradingsymbol || !formData.symboltoken) {
+      setMessage({ text: "Please enter a trading symbol and symbol token.", type: "warning" });
+      return;
+    }
+    setLoadingLtp(true);
+    try {
+      const response = await fetch(`https://mtb-2-xk0d.onrender.com/api/fetch_ltp?exchange=${formData.exchange}&symbol=${formData.tradingsymbol}&token=${formData.symboltoken}`);
+      const data = await response.json();
+      if (data.status) {
+        setLtpPrice(data.ltp);
+        setMessage({ text: `LTP fetched successfully: ₹${data.ltp} for ${formData.tradingsymbol}`, type: "success" });
+      } else {
+        setLtpPrice(null);
+        setMessage({ text: "Failed to fetch LTP. Check symbol and token.", type: "danger" });
+      }
+    } catch (error) {
+      console.error("Error fetching LTP:", error);
+      setMessage({ text: "Server error fetching LTP. Try again later.", type: "danger" });
+    } finally {
+      setLoadingLtp(false);
+    }
+  };
+  <Container className="ltp-container">
+  <h4 className="text-primary">🔍 Live Fetch LTP</h4>
+  <Form onSubmit={(e) => { e.preventDefault(); fetchLtp(); }}>
+    <Row className="mb-3">
+      <Col md={3}>
+        <Form.Group controlId="exchange">
+          <Form.Label>Select Exchange</Form.Label>
+          <Form.Select value={formData.exchange} onChange={(e) => setFormData({ ...formData, exchange: e.target.value })}>
+            <option value="NSE">NSE</option>
+            <option value="BSE">BSE</option>
+          </Form.Select>
+        </Form.Group>
+      </Col>
+      <Col md={3}>
+        <Form.Group controlId="tradingsymbol">
+          <Form.Label>Enter Trading Symbol</Form.Label>
+          <Form.Control type="text" placeholder="e.g., SBIN-EQ" value={formData.tradingsymbol} onChange={(e) => setFormData({ ...formData, tradingsymbol: e.target.value })} required />
+        </Form.Group>
+      </Col>
+      <Col md={3}>
+        <Form.Group controlId="symboltoken">
+          <Form.Label>Enter Symbol Token</Form.Label>
+          <Form.Control type="text" placeholder="e.g., 3045" value={formData.symboltoken} onChange={(e) => setFormData({ ...formData, symboltoken: e.target.value })} required />
+        </Form.Group>
+      </Col>
+      <Col md={2}>
+        <Button type="submit" variant="primary" className="mt-4">Fetch LTP</Button>
+      </Col>
+    </Row>
+  </Form>
+  {loadingLtp && <p>Loading...</p>}
+  {ltpPrice !== null && (
+    <Alert variant="success">📈 Latest Price of <strong>{formData.tradingsymbol}</strong>: ₹{ltpPrice}</Alert>
+  )}
+</Container>
