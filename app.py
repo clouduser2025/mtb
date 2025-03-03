@@ -721,7 +721,7 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         filtered_df = pd.concat([ce_filtered, pe_filtered]).sort_values('StrikePrice')
         filtered_data = filtered_df.to_dict('records')
 
-        return {"message": f"Option chain data for {symbol} with expiry {expiry_str}", "data": filtered_data}
+        return {"message": f"Option chain data for {symbol} with expiry {expiry_str} (Limited to 20 strikes max)", "data": filtered_data}
 
     except HTTPException as e:
         raise e
@@ -757,6 +757,39 @@ async def websocket_option_chain(websocket: WebSocket, username: str, token: str
         logger.error(f"WebSocket error for user {username}, token {token}: {e}")
         await websocket.close()
 
+@app.get("/api/get_market_data/{username}/{token}")
+async def get_market_data(username: str, token: str):
+    try:
+        if username not in smart_api_instances:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+
+        api_client = smart_api_instances[username]
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
+            broker = cursor.fetchone()[0]
+
+        if broker != "Shoonya":
+            raise HTTPException(status_code=400, detail="Market data is only available for Shoonya broker")
+
+        # Fetch real-time market data for the token
+        quotes = api_client.get_quotes(exchange="NFO", token=token)  # Adjust exchange as needed
+        if quotes and quotes.get('stat') == 'Ok':
+            return {
+                "ltp": float(quotes.get('lp', 0)),
+                "oi": quotes.get('oi', 0),
+                "market_data": {
+                    "v": quotes.get('v', 0),  # Volume
+                    "ft": time.strftime('%Y-%m-%d %H:%M:%S')  # Fetch time
+                }
+            }
+        raise HTTPException(status_code=400, detail="No market data available for this token")
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Market data fetch error for {username}, token {token}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))  # Use Render's PORT or default to 8001 locally
+    port = int(os.getenv("PORT", 8001))  # Use Render's PORT or default to 8001 locally
     uvicorn.run(app, host="0.0.0.0", port=port)
