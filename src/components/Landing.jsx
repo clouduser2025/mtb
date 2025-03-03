@@ -114,10 +114,12 @@ const Landing = () => {
   };
 
   const startWebSocket = (username, tokens) => {
-    if (ws) ws.close(); // Close existing connection
+    if (ws) ws.forEach(w => w.close()); // Close existing connections
+    const newWs = [];
     tokens.forEach(token => {
       const wsUrl = new URL(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${token}`);
       const tokenWs = new WebSocket(wsUrl.href);
+      newWs.push(tokenWs);
       tokenWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
         setOptionChainData(prevData => {
@@ -144,6 +146,7 @@ const Landing = () => {
         startWebSocket(username, tokens);
       };
     });
+    setWs(newWs);
   };
 
   const pollMarketData = (username, token) => {
@@ -189,8 +192,10 @@ const Landing = () => {
   };
 
   const startMarketUpdates = useCallback((username, symboltoken) => {
-    const ws = new WebSocket(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${symboltoken}`);
-    ws.onmessage = (event) => {
+    if (ws) ws.forEach(w => w.close()); // Close existing connections
+    const newWs = new WebSocket(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${symboltoken}`);
+    setWs([newWs]); // Store new WebSocket connection
+    newWs.onmessage = (event) => {
       const data = JSON.parse(event.data);
       setMarketData({
         ltp: data.ltp || 0.0,
@@ -199,16 +204,16 @@ const Landing = () => {
         timestamp: data.timestamp || new Date().toISOString()
       });
     };
-    ws.onerror = (error) => {
+    newWs.onerror = (error) => {
       console.error("WebSocket error for market updates:", error);
       setMessage({ text: "WebSocket connection failed for market updates. Falling back to polling.", type: "warning" });
       pollMarketData(username, symboltoken);
     };
-    ws.onclose = () => {
+    newWs.onclose = () => {
       console.log("WebSocket closed for market updates. Attempting to reconnect...");
       startMarketUpdates(username, symboltoken);
     };
-    return () => ws.close();
+    return () => newWs.close();
   }, []);
 
   const handleRegisterSubmit = async (e) => {
@@ -372,7 +377,7 @@ const Landing = () => {
     fetchUsers();
     fetchOpenPositions();
     return () => {
-      if (ws) ws.close();
+      if (ws) ws.forEach(w => w.close());
     };
   }, []);
 
@@ -594,67 +599,76 @@ const Landing = () => {
               </>
             )}
 
-          {formStep === 3 && optionChainData && (
-            <>
-              <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: {formData.symbol} Option Chain</h4>
-              <Table striped bordered hover className="option-chain-table">
-                <thead>
-                  <tr>
-                    <th>Strike Price</th>
-                    <th>Call LTP</th>
-                    <th>Call OI</th>
-                    <th>Call Volume</th>
-                    <th>Put LTP</th>
-                    <th>Put OI</th>
-                    <th>Put Volume</th>
-                    <th>Last Update</th>
-                    <th>Action (Call/Put)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    // Group data by strike price and sort by strike price
-                    const strikes = [...new Set(optionChainData.map(d => d.StrikePrice))].sort((a, b) => a - b);
-                    return strikes.map(strike => {
-                      const call = optionChainData.find(d => d.StrikePrice === strike && d.OptionType === "CE") || {};
-                      const put = optionChainData.find(d => d.StrikePrice === strike && d.OptionType === "PE") || {};
-                      const lastUpdate = (call.timestamp || put.timestamp) || "N/A";
+            {formStep === 3 && optionChainData && (
+              <>
+                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: {formData.symbol} Option Chain</h4>
+                <Table striped bordered hover className="option-chain-table" style={{ fontSize: '14px', backgroundColor: '#f8f9fa' }}>
+                  <thead style={{ backgroundColor: '#e9ecef', color: '#343a40' }}>
+                    <tr>
+                      <th style={{ width: '10%' }}>Strike Price</th>
+                      <th colSpan="4" style={{ textAlign: 'center', width: '45%' }}>Call</th>
+                      <th colSpan="4" style={{ textAlign: 'center', width: '45%' }}>Put</th>
+                    </tr>
+                    <tr>
+                      <th></th>
+                      <th style={{ width: '15%' }}>LTP</th>
+                      <th style={{ width: '10%' }}>Bid</th>
+                      <th style={{ width: '10%' }}>Ask</th>
+                      <th style={{ width: '10%' }}>OI (Lakhs)</th>
+                      <th style={{ width: '15%' }}>LTP</th>
+                      <th style={{ width: '10%' }}>Bid</th>
+                      <th style={{ width: '10%' }}>Ask</th>
+                      <th style={{ width: '10%' }}>OI (Lakhs)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      // Group data by strike price and sort by strike price
+                      const strikes = [...new Set(optionChainData.map(d => d.StrikePrice))].sort((a, b) => a - b);
+                      return strikes.map(strike => {
+                        const call = optionChainData.find(d => d.StrikePrice === strike && d.OptionType === "CE") || {};
+                        const put = optionChainData.find(d => d.StrikePrice === strike && d.OptionType === "PE") || {};
+                        const lastUpdate = (call.timestamp || put.timestamp) || "N/A";
 
-                      return (
-                        <tr key={strike}>
-                          <td>{strike}</td>
-                          <td>{call.LTP || "N/A"}</td>
-                          <td>{call.OI || "N/A"}</td>
-                          <td>{call.Volume || "N/A"}</td>
-                          <td>{put.LTP || "N/A"}</td>
-                          <td>{put.OI || "N/A"}</td>
-                          <td>{put.Volume || "N/A"}</td>
-                          <td>{lastUpdate}</td>
-                          <td>
-                            <ButtonGroup>
-                              {call.TradingSymbol && (
-                                <Button variant="primary" size="sm" onClick={() => handleSelectStrike(call)}>
-                                  Select Call
-                                </Button>
-                              )}
-                              {put.TradingSymbol && (
-                                <Button variant="secondary" size="sm" onClick={() => handleSelectStrike(put)} className="ms-2">
-                                  Select Put
-                                </Button>
-                              )}
-                            </ButtonGroup>
-                          </td>
-                        </tr>
-                      );
-                    });
-                  })()}
-                </tbody>
-              </Table>
-              <Button variant="secondary" onClick={() => { setFormStep(2); if (ws) ws.forEach(w => w.close()); setOptionChainData(null); }} className="mt-2">Back</Button>
-            </>
-          )}
+                        return (
+                          <tr key={strike} style={{ backgroundColor: strike % 2 === 0 ? '#ffffff' : '#f8f9fa' }}>
+                            <td style={{ fontWeight: 'bold', color: '#007bff' }}>{strike.toFixed(2)}</td>
+                            <td style={{ color: call.LTP >= 0 ? '#28a745' : '#dc3545' }}>{call.LTP ? call.LTP.toFixed(2) : "N/A"}</td>
+                            <td>{call.Bid ? call.Bid.toFixed(2) : "N/A"}</td>
+                            <td>{call.Ask ? call.Ask.toFixed(2) : "N/A"}</td>
+                            <td>{call.OI ? call.OI.toFixed(2) : "N/A"}</td>
+                            <td style={{ color: put.LTP >= 0 ? '#28a745' : '#dc3545' }}>{put.LTP ? put.LTP.toFixed(2) : "N/A"}</td>
+                            <td>{put.Bid ? put.Bid.toFixed(2) : "N/A"}</td>
+                            <td>{put.Ask ? put.Ask.toFixed(2) : "N/A"}</td>
+                            <td>{put.OI ? put.OI.toFixed(2) : "N/A"}</td>
+                            <td style={{ display: 'none' }}>{lastUpdate}</td> {/* Hidden for updates */}
+                            <td>
+                              <ButtonGroup>
+                                {call.TradingSymbol && (
+                                  <Button variant="primary" size="sm" onClick={() => handleSelectStrike(call)}>
+                                    Select Call
+                                  </Button>
+                                )}
+                                {put.TradingSymbol && (
+                                  <Button variant="secondary" size="sm" onClick={() => handleSelectStrike(put)} className="ms-2">
+                                    Select Put
+                                  </Button>
+                                )}
+                              </ButtonGroup>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </Table>
+                <div className="mt-2">
+                  <Button variant="secondary" onClick={() => { setFormStep(2); if (ws) ws.forEach(w => w.close()); setOptionChainData(null); }}>Back</Button>
+                </div>
+              </>
+            )}
 
-                      {formStep === 4 && (
+            {formStep === 4 && (
               <>
                 <h4 className="text-success"><FontAwesomeIcon icon={faShoppingCart} /> Step 4: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)</h4>
                 <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>

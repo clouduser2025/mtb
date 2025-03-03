@@ -278,30 +278,22 @@
 }
 
 .option-chain-table {
-  width: 100%;
-  table-layout: fixed;
+  border-collapse: collapse;
+  margin-bottom: 20px;
 }
-
 .option-chain-table th, .option-chain-table td {
-  text-align: center;
-  vertical-align: middle;
   padding: 8px;
+  text-align: center;
+  border: 1px solid #dee2e6;
 }
-
 .option-chain-table th {
-  background-color: #f8f9fa;
+  background-color: #e9ecef;
+  color: #343a40;
   font-weight: bold;
 }
-
-.option-chain-table .btn-group {
-  display: flex;
-  justify-content: center;
-}
-
-.option-chain-table .btn {
-  padding: 0.25rem 0.5rem;
-}
-
 .option-chain-table tr:nth-child(even) {
   background-color: #f8f9fa;
+}
+.option-chain-table tr:nth-child(odd) {
+  background-color: #ffffff;
 }

@@ -624,6 +624,9 @@ async def update_trade_conditions(request: UpdateTradeRequest):
         logger.error(f"Condition update error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+import re
+from fastapi import HTTPException
+
 @app.post("/api/get_shoonya_option_chain")
 async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
     try:
@@ -644,14 +647,31 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         # Parse expiry date
         try:
             expiry_date = datetime.datetime.strptime(request.expiry_date, '%d-%m-%Y')
+            expiry_str = expiry_date.strftime('%d%b%y').upper()  # e.g., "27FEB25"
         except ValueError:
             logger.error(f"Invalid expiry date format for {username}: {request.expiry_date}")
             raise HTTPException(status_code=400, detail="Invalid date format. Please use DD-MM-YYYY")
 
         # Clean symbol input
-        symbol = request.symbol.strip(',').strip()
-        expiry_str = expiry_date.strftime('%d%b%y').upper()
-        search_query = f"{symbol} {expiry_str}"
+        symbol = request.symbol.strip().upper()
+        logger.info(f"Received symbol input: {symbol} for user {username}")
+
+        # Regex to detect if the symbol is a specific option (e.g., "NIFTY27FEB14500CE")
+        option_pattern = re.compile(r"([A-Za-z]+)(\d{2}[A-Za-z]{3}\d{2})(\d+)(CE|PE)", re.IGNORECASE)
+        match = option_pattern.match(symbol)
+
+        if match:
+            # Extract root symbol from specific option symbol
+            root_symbol, expiry_part, strike_part, option_type = match.groups()
+            search_query = f"{root_symbol} {expiry_str}"
+            logger.info(f"Parsed specific option symbol: root={root_symbol}, expiry={expiry_part}, strike={strike_part}, type={option_type}")
+        else:
+            # Assume it's a base symbol (e.g., "NIFTY")
+            root_symbol = symbol
+            search_query = f"{root_symbol} {expiry_str}"
+            logger.info(f"Assuming base symbol: {root_symbol}")
+
+        # Search for the base symbol to find futures or index (e.g., "NIFTY27FEB25FUT")
         logger.info(f"Searching for {search_query} for user {username}")
         search_result = api_client.searchscrip(exchange=request.exchange, searchtext=search_query)
         
@@ -659,15 +679,16 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
             logger.error(f"No symbols found for {search_query} for user {username}")
             raise HTTPException(status_code=400, detail=f"No symbols found for {search_query}")
 
+        # Use the first result as the base symbol (e.g., "NIFTY27FEB25FUT")
         base_symbol = search_result['values'][0]['tsym']
-        logger.info(f"Using base symbol: {base_symbol} for user {username}")
+        logger.info(f"Resolved base symbol: {base_symbol} for user {username}")
 
-        # Fetch option chain with enough strikes to cover user request (up to 40 to ensure we can cap at 20)
+        # Fetch the full option chain for this base symbol
         chain = api_client.get_option_chain(
             exchange=request.exchange,
             tradingsymbol=base_symbol,
-            strikeprice=str(request.strike_price),
-            count=str(max(40, request.strike_count * 2))  # Fetch up to 40 to ensure we can cap at 20
+            strikeprice="0",  # Fetch all strikes (no specific strike filter)
+            count="0"  # Fetch all available strikes
         )
 
         if not chain or 'values' not in chain:
@@ -677,51 +698,78 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
                 return {"message": "Market is closed, no live option chain data available", "data": []}
             raise HTTPException(status_code=400, detail=f"No option chain data available: {error_msg}")
 
-        # Collect initial chain data
-        chain_data = []
+        # Collect and organize option chain data by strike price
+        chain_data = {}
         tokens = []
         for scrip in chain['values']:
-            quote = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
-            if quote:
-                chain_data.append({
-                    'TradingSymbol': scrip['tsym'],
-                    'Token': scrip['token'],
-                    'StrikePrice': float(scrip.get('strprc', '0')),
-                    'OptionType': scrip.get('optt', 'N/A'),
-                    'LTP': quote.get('lp', 'N/A'),
-                    'OI': quote.get('oi', 'N/A'),  # Include OI
-                    'Open': quote.get('op', 'N/A'),
-                    'High': quote.get('h', 'N/A'),
-                    'Low': quote.get('l', 'N/A'),
-                    'Close': quote.get('c', 'N/A'),
-                    'Volume': quote.get('v', 'N/A')
-                })
-                tokens.append(scrip['token'])
+            tsym = scrip['tsym']
+            token = scrip['token']
+            # Parse trading symbol to extract strike and option type
+            opt_match = option_pattern.match(tsym)
+            if opt_match:
+                root_symbol, expiry, strike, opt_type = opt_match.groups()
+                strike_price = float(strike)
+                if expiry != expiry_str:  # Ensure expiry matches user input
+                    continue
 
-        # Subscribe to real-time updates for these tokens
+                # Fetch real-time quotes
+                quote = api_client.get_quotes(exchange=scrip['exch'], token=token)
+                if quote and quote.get('stat') == 'Ok':
+                    ltp = float(quote.get('lp', 0)) if quote.get('lp') else 0
+                    bid = float(quote.get('bp', 0)) if quote.get('bp') else 0
+                    ask = float(quote.get('ap', 0)) if quote.get('ap') else 0
+                    oi = float(quote.get('oi', 0)) / 100000 if quote.get('oi') else 0  # Convert OI to lakhs
+
+                    if strike_price not in chain_data:
+                        chain_data[strike_price] = {'Call': {}, 'Put': {}}
+
+                    if opt_type == 'CE':
+                        chain_data[strike_price]['Call'] = {
+                            'LTP': ltp,
+                            'Bid': bid,
+                            'Ask': ask,
+                            'OI': oi
+                        }
+                    elif opt_type == 'PE':
+                        chain_data[strike_price]['Put'] = {
+                            'LTP': ltp,
+                            'Bid': bid,
+                            'Ask': ask,
+                            'OI': oi
+                        }
+                    tokens.append(token)
+
+        # Subscribe to real-time updates for all tokens
         if tokens:
-            option_chain_subscriptions[username] = tokens  # Store tokens for this user
-            api_client.subscribe(','.join(tokens))  # Subscribe to all tokens in the option chain
+            option_chain_subscriptions[username] = tokens  # Store all tokens for this user
+            api_client.subscribe(','.join(tokens))  # Subscribe to all tokens
 
-        # Filter to exactly strike_count strikes, capped at 20 (10 CE, 10 PE)
-        effective_strike_count = min(request.strike_count, 20)  # Cap at 20
-        df = pd.DataFrame(chain_data)
-        df['StrikeDiff'] = abs(df['StrikePrice'] - request.strike_price)
-        
-        # Separate calls and puts
-        ce_df = df[df['OptionType'] == 'CE'].sort_values('StrikeDiff')
-        pe_df = df[df['OptionType'] == 'PE'].sort_values('StrikeDiff')
-        
-        # Take up to 10 calls and 10 puts (or fewer if user requests less)
-        max_per_side = effective_strike_count // 2  # Max 10 per side, adjust if odd
-        ce_filtered = ce_df.head(max_per_side)
-        pe_filtered = pe_df.head(max_per_side if effective_strike_count % 2 == 0 else max_per_side + 1)  # Add 1 if odd
-        
-        # Combine and sort by strike price
-        filtered_df = pd.concat([ce_filtered, pe_filtered]).sort_values('StrikePrice')
-        filtered_data = filtered_df.to_dict('records')
+        # Format the response to match the screenshot pattern (sorted by strike price)
+        formatted_data = []
+        for strike_price in sorted(chain_data.keys()):
+            call_data = chain_data[strike_price]['Call']
+            put_data = chain_data[strike_price]['Put']
+            formatted_data.append({
+                'StrikePrice': strike_price,
+                'Call': {
+                    'LTP': call_data['LTP'],
+                    'Bid': call_data['Bid'],
+                    'Ask': call_data['Ask'],
+                    'OI': call_data['OI']
+                },
+                'Put': {
+                    'LTP': put_data['LTP'],
+                    'Bid': put_data['Bid'],
+                    'Ask': put_data['Ask'],
+                    'OI': put_data['OI']
+                }
+            })
 
-        return {"message": f"Option chain data for {symbol} with expiry {expiry_str} (Limited to 20 strikes max)", "data": filtered_data}
+        return {
+            "message": f"Option chain for {root_symbol} with expiry {expiry_str}",
+            "data": formatted_data,
+            "total_strikes": len(formatted_data)
+        }
 
     except HTTPException as e:
         raise e
