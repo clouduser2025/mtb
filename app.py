@@ -60,7 +60,7 @@ def init_db():
             sell_type TEXT,
             sell_threshold REAL,
             previous_close REAL,
-            option_type TEXT DEFAULT 'Call'  # Added to track CE or PE
+            option_type TEXT DEFAULT 'Call' -- Added to track CE or PE
         )
         """)
     conn.commit()
@@ -877,5 +877,5 @@ def on_data_shoonya(tick_data):
         logger.error(f"Shoonya WebSocket data error: {e}")
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))  # Use Render's PORT or default to 8001 locally
+    port = int(os.getenv("PORT", 8001))  # Use Render's PORT or default to 8001 locally
     uvicorn.run(app, host="0.0.0.0", port=port)
