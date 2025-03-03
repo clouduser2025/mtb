@@ -15,7 +15,7 @@ const Landing = () => {
   const [formStep, setFormStep] = useState(1);
   const [activeTradeId, setActiveTradeId] = useState(null);
   const [optionChainData, setOptionChainData] = useState(null);
-  const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, oi: 0, timestamp: "" });
+  const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, oi: 0, timestamp: "" }); // Added oi
   const [ws, setWs] = useState(null); // WebSocket state
   const [chartSymbol, setChartSymbol] = useState("NSE:BANKNIFTY"); // Default to BANKNIFTY
 
@@ -31,8 +31,8 @@ const Landing = () => {
     symbol: "BANKNIFTY", // Default to BANKNIFTY
     expiry: "", // DD-MM-YYYY format
     strike_price: 47800, // Default strike price
-    strike_count: 20, // Default to 20 strikes
-    option_type: "Call", // Default to Call, updated by user selection
+    strike_count: 5, // Default number of strikes
+    option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
     exchange: "NFO", // Default to NFO for options
@@ -103,7 +103,7 @@ const Landing = () => {
         setMessage({ text: `Option chain data fetched for ${formData.symbol} with expiry ${formData.expiry}!`, type: "success" });
         setFormStep(3);
         // Start WebSocket for real-time updates
-        startWebSocket(username, data.data.map(item => [item.Call_Token, item.Put_Token]).flat().filter(token => token !== 'N/A'));
+        startWebSocket(username, data.data.map(item => item.Token));
       } else {
         setMessage({ text: data.detail || "Failed to fetch option chain", type: "danger" });
       }
@@ -116,52 +116,33 @@ const Landing = () => {
   const startWebSocket = (username, tokens) => {
     if (ws) ws.close(); // Close existing connection
     tokens.forEach(token => {
-      if (token !== 'N/A') {
-        const wsUrl = new URL(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${token}`);
-        const tokenWs = new WebSocket(wsUrl.href);
-        tokenWs.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          setOptionChainData(prevData => {
-            if (!prevData) return prevData;
-            return prevData.map(item => {
-              if (item.Call_Token === token) {
-                return {
-                  ...item,
-                  Call_LTP: data.ltp,
-                  Call_OI: data.oi,
-                  Call_Volume: data.volume,
-                  Timestamp: data.timestamp
-                };
-              } else if (item.Put_Token === token) {
-                return {
-                  ...item,
-                  Put_LTP: data.ltp,
-                  Put_OI: data.oi,
-                  Put_Volume: data.volume,
-                  Timestamp: data.timestamp
-                };
-              }
-              return item;
-            });
-          });
-          setMarketData(prev => ({
-            ...prev,
-            ltp: data.ltp || 0.0,
-            oi: data.oi || 0,
-            volume: data.volume || 0,
-            timestamp: data.timestamp || new Date().toISOString()
-          }));
-        };
-        tokenWs.onerror = (error) => {
-          console.error("WebSocket error for token", token, ":", error);
-          setMessage({ text: "WebSocket connection failed for real-time data. Falling back to polling.", type: "warning" });
-          pollMarketData(username, token);
-        };
-        tokenWs.onclose = () => {
-          console.log("WebSocket closed for token", token, ". Attempting to reconnect...");
-          startWebSocket(username, tokens);
-        };
-      }
+      const wsUrl = new URL(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${token}`);
+      const tokenWs = new WebSocket(wsUrl.href);
+      tokenWs.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setOptionChainData(prevData => {
+          if (!prevData) return prevData;
+          return prevData.map(item => 
+            item.Token === token ? { ...item, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item
+          );
+        });
+        setMarketData(prev => ({
+          ...prev,
+          ltp: data.ltp || 0.0,
+          oi: data.oi || 0,
+          volume: data.volume || 0,
+          timestamp: data.timestamp || new Date().toISOString()
+        }));
+      };
+      tokenWs.onerror = (error) => {
+        console.error("WebSocket error for token", token, ":", error);
+        setMessage({ text: "WebSocket connection failed for real-time data. Falling back to polling.", type: "warning" });
+        pollMarketData(username, token);
+      };
+      tokenWs.onclose = () => {
+        console.log("WebSocket closed for token", token, ". Attempting to reconnect...");
+        startWebSocket(username, tokens);
+      };
     });
   };
 
@@ -174,9 +155,7 @@ const Landing = () => {
           setOptionChainData(prevData => {
             if (!prevData) return prevData;
             return prevData.map(item => 
-              item.Call_Token === token ? { ...item, Call_LTP: data.ltp, Call_OI: data.oi, Call_Volume: data.volume, Timestamp: data.market_data?.ft || new Date().toISOString() } :
-              item.Put_Token === token ? { ...item, Put_LTP: data.ltp, Put_OI: data.oi, Put_Volume: data.volume, Timestamp: data.market_data?.ft || new Date().toISOString() } :
-              item
+              item.Token === token ? { ...item, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.market_data?.ft || new Date().toISOString() } : item
             );
           });
           setMarketData({
@@ -194,24 +173,19 @@ const Landing = () => {
     return () => clearInterval(pollInterval);
   };
 
-  const handleSelectStrike = (strikeData, optionType) => {
-    const selectedTs = optionType === 'Call' ? (
-      strikeData.TradingSymbol || (strikeData.Call_LTP !== 'N/A' ? strikeData.TradingSymbol : '')
-    ) : (
-      strikeData.TradingSymbol || (strikeData.Put_LTP !== 'N/A' ? strikeData.TradingSymbol : '')
-    );
-    const selectedToken = optionType === 'Call' ? strikeData.Call_Token : strikeData.Put_Token;
+  const handleSelectStrike = (strikeData) => {
+    const selectedTs = strikeData.TradingSymbol;
     setFormData({
       ...formData,
       tradingsymbol: selectedTs,
-      symboltoken: selectedToken,
-      previous_close: parseFloat(optionType === 'Call' ? strikeData.Call_LTP : strikeData.Put_LTP) || 0,
+      symboltoken: strikeData.Token,
+      previous_close: parseFloat(strikeData.LTP),
       strike_price: parseFloat(strikeData.StrikePrice),
-      option_type: optionType
+      option_type: strikeData.OptionType === "CE" ? "Call" : "Put"
     });
     setChartSymbol(`NSE:${selectedTs}`); // Update chart to show selected option
     setFormStep(4);
-    startMarketUpdates(selectedUsers[0], selectedToken);
+    startMarketUpdates(selectedUsers[0], strikeData.Token);
   };
 
   const startMarketUpdates = useCallback((username, symboltoken) => {
@@ -310,7 +284,6 @@ const Landing = () => {
             symboltoken: formData.symboltoken,
             exchange: formData.exchange,
             strike_price: formData.strike_price,
-            option_type: formData.option_type,  // Pass the selected option type
             buy_type: formData.buy_type,
             buy_threshold: formData.buy_threshold,
             previous_close: formData.previous_close,
@@ -325,7 +298,7 @@ const Landing = () => {
 
         const data = await response.json();
         if (response.ok) {
-          setMessage({ text: `Buy trade initiated for ${username} (${user.broker}, ${formData.option_type})! Position ID: ${data.position_id}`, type: "success" });
+          setMessage({ text: `Buy trade initiated for ${username} (${user.broker})! Position ID: ${data.position_id}`, type: "success" });
           setActiveTradeId(data.position_id);
           fetchOpenPositions();
         } else {
@@ -479,7 +452,6 @@ const Landing = () => {
                     <th>Stop-Loss Value</th>
                     <th>Sell Threshold</th>
                     <th>Position</th>
-                    <th>Option Type</th>  <!-- Added to show CE or PE -->
                     <th>Broker</th>
                   </tr>
                 </thead>
@@ -496,12 +468,11 @@ const Landing = () => {
                         <td>{trade.stop_loss_value}</td>
                         <td style={{ color: "red" }}>₹{trade.sell_threshold || "N/A"}</td>
                         <td><span className="badge bg-success">Buy</span></td>
-                        <td>{trade.option_type || "N/A"}</td>  <!-- Show the option type (Call/Put) -->
                         <td>{users.find(u => u.username === trade.username)?.broker || "Unknown"}</td>
                       </tr>
                     ))
                   ) : (
-                    <tr><td colSpan="11" className="text-muted text-center">No active trades found.</td></tr>
+                    <tr><td colSpan="10" className="text-muted text-center">No active trades found.</td></tr>
                   )}
                 </tbody>
               </Table>
@@ -610,7 +581,7 @@ const Landing = () => {
                         <Form.Control
                           type="number"
                           value={formData.strike_count}
-                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 20 })}
+                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 5 })}
                           min="1"
                           required
                         />
@@ -625,17 +596,16 @@ const Landing = () => {
 
             {formStep === 3 && optionChainData && (
               <>
-                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data (Expiry: {formData.expiry}) - Live Updates (Max 20 Strikes)</h4>
+                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data (Expiry: {formData.expiry}) - Live Updates</h4>
                 <Table striped bordered hover>
                   <thead>
                     <tr>
+                      <th>Trading Symbol</th>
                       <th>Strike Price</th>
-                      <th>Call LTP (CE)</th>
-                      <th>Call OI (CE)</th>
-                      <th>Call Volume (CE)</th>
-                      <th>Put LTP (PE)</th>
-                      <th>Put OI (PE)</th>
-                      <th>Put Volume (PE)</th>
+                      <th>Option Type</th>
+                      <th>LTP</th>
+                      <th>OI</th>
+                      <th>Volume</th>
                       <th>Last Update</th>
                       <th>Action</th>
                     </tr>
@@ -643,23 +613,17 @@ const Landing = () => {
                   <tbody>
                     {optionChainData.map((strikeData, index) => (
                       <tr key={index}>
+                        <td>{strikeData.TradingSymbol}</td>
                         <td>{strikeData.StrikePrice}</td>
-                        <td>{strikeData.Call_LTP}</td>
-                        <td>{strikeData.Call_OI}</td>
-                        <td>{strikeData.Call_Volume}</td>
-                        <td>{strikeData.Put_LTP}</td>
-                        <td>{strikeData.Put_OI}</td>
-                        <td>{strikeData.Put_Volume}</td>
-                        <td>{strikeData.Timestamp || "N/A"}</td>
+                        <td>{strikeData.OptionType}</td>
+                        <td>{strikeData.LTP}</td>
+                        <td>{strikeData.OI}</td>
+                        <td>{strikeData.Volume}</td>
+                        <td>{strikeData.timestamp || "N/A"}</td>
                         <td>
-                          <ButtonGroup>
-                            <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData, 'Call')} disabled={strikeData.Call_LTP === 'N/A'}>
-                              Select Call
-                            </Button>
-                            <Button variant="secondary" size="sm" onClick={() => handleSelectStrike(strikeData, 'Put')} disabled={strikeData.Put_LTP === 'N/A'} className="ms-2">
-                              Select Put
-                            </Button>
-                          </ButtonGroup>
+                          <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData)}>
+                            Select
+                          </Button>
                         </td>
                       </tr>
                     ))}
@@ -823,44 +787,20 @@ const Landing = () => {
         <Modal.Body>
           {message.text && <Alert variant={message.type === "success" ? "success" : "danger"}>{message.text}</Alert>}
           <Form onSubmit={handleRegisterSubmit}>
-            <Form.Group>
-              <Form.Label>Username</Form.Label>
-              <Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required />
-            </Form.Group>
-            <Form.Group>
-              <Form.Label>Password</Form.Label>
-              <Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required />
-            </Form.Group>
-            <Form.Group>
-              <Form.Label>Broker</Form.Label>
-              <Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })}>
-                <option value="Shoonya">Shoonya</option>
-              </Form.Select>
-            </Form.Group>
-            <Form.Group>
-              <Form.Label>API Key</Form.Label>
-              <Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required />
-            </Form.Group>
-            <Form.Group>
-              <Form.Label>TOTP Token</Form.Label>
-              <Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required />
-            </Form.Group>
+            <Form.Group><Form.Label>Username</Form.Label><Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required /></Form.Group>
+            <Form.Group><Form.Label>Password</Form.Label><Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required /></Form.Group>
+            <Form.Group><Form.Label>Broker</Form.Label><Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })}>
+              <option value="Shoonya">Shoonya</option>
+            </Form.Select></Form.Group>
+            <Form.Group><Form.Label>API Key</Form.Label><Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required /></Form.Group>
+            <Form.Group><Form.Label>TOTP Token</Form.Label><Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required /></Form.Group>
             {formData.broker === "Shoonya" && (
               <>
-                <Form.Group>
-                  <Form.Label>Vendor Code</Form.Label>
-                  <Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required />
-                </Form.Group>
-                <Form.Group>
-                  <Form.Label>IMEI</Form.Label>
-                  <Form.Control type="text" value={formData.imei} onChange={(e) => setFormData({ ...formData, imei: e.target.value })} required />
-                </Form.Group>
+                <Form.Group><Form.Label>Vendor Code</Form.Label><Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required /></Form.Group>
+                <Form.Group><Form.Label>IMEI</Form.Label><Form.Control type="text" value={formData.imei} onChange={(e) => setFormData({ ...formData, imei: e.target.value })} required /></Form.Group>
               </>
             )}
-            <Form.Group>
-              <Form.Label>Default Quantity</Form.Label>
-              <Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required />
-            </Form.Group>
+            <Form.Group><Form.Label>Default Quantity</Form.Label><Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required /></Form.Group>
             <Button variant="primary" type="submit" className="mt-3">Register</Button>
           </Form>
         </Modal.Body>
