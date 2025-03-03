@@ -80,8 +80,8 @@ class TradeRequest(BaseModel):
     username: str
     tradingsymbol: str
     symboltoken: str
-    exchange: str = "NFO"
-    strike_price: float
+    exchange: str = "NSE"  # Default to NSE, but allow MCX, BSE
+    strike_price: Optional[float] = None  # Remove or make optional, as options are excluded
     buy_type: str = "Fixed"
     buy_threshold: float = 110
     previous_close: Optional[float] = None
@@ -101,11 +101,11 @@ class UpdateTradeRequest(BaseModel):
 
 class OptionChainRequest(BaseModel):
     username: str
-    exchange: str
+    exchange: str  # Only allow MCX, NSE, BSE
     symbol: str
-    expiry_date: str  # Format: DD-MM-YYYY
-    strike_price: float
-    strike_count: int = 20  # Default to 20 strikes, but cap at 20
+    expiry_date: str  # Format: DD-MM-YYYY (optional for non-options, but kept for consistency)
+    strike_price: Optional[float] = None  # Optional, as options are excluded
+    strike_count: Optional[int] = None  # Optional, as options are excluded
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -627,6 +627,7 @@ async def update_trade_conditions(request: UpdateTradeRequest):
 import re
 from fastapi import HTTPException
 
+
 @app.post("/api/get_shoonya_option_chain")
 async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
     try:
@@ -642,139 +643,71 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
             broker = cursor.fetchone()[0]
         
         if broker != "Shoonya":
-            raise HTTPException(status_code=400, detail="Option chain data is only available for Shoonya broker")
+            raise HTTPException(status_code=400, detail="Market data is only available for Shoonya broker")
 
-        # Parse expiry date
-        try:
-            expiry_date = datetime.datetime.strptime(request.expiry_date, '%d-%m-%Y')
-            expiry_str = expiry_date.strftime('%d%b%y').upper()  # e.g., "27FEB25"
-        except ValueError:
-            logger.error(f"Invalid expiry date format for {username}: {request.expiry_date}")
-            raise HTTPException(status_code=400, detail="Invalid date format. Please use DD-MM-YYYY")
+        # Validate exchange (only MCX, NSE, BSE allowed)
+        valid_exchanges = ["MCX", "NSE", "BSE"]
+        if request.exchange not in valid_exchanges:
+            raise HTTPException(status_code=400, detail=f"Exchange must be one of {valid_exchanges}, not {request.exchange}")
 
         # Clean symbol input
         symbol = request.symbol.strip().upper()
-        logger.info(f"Received symbol input: {symbol} for user {username}")
+        logger.info(f"Received symbol input: {symbol} for user {username} on exchange {request.exchange}")
 
-        # Regex to detect if the symbol is a specific option (e.g., "NIFTY27FEB14500CE")
-        option_pattern = re.compile(r"([A-Za-z]+)(\d{2}[A-Za-z]{3}\d{2})(\d+)(CE|PE)", re.IGNORECASE)
-        match = option_pattern.match(symbol)
-
-        if match:
-            # Extract root symbol from specific option symbol
-            root_symbol, expiry_part, strike_part, option_type = match.groups()
-            search_query = f"{root_symbol} {expiry_str}"
-            logger.info(f"Parsed specific option symbol: root={root_symbol}, expiry={expiry_part}, strike={strike_part}, type={option_type}")
-        else:
-            # Assume it's a base symbol (e.g., "NIFTY")
-            root_symbol = symbol
-            search_query = f"{root_symbol} {expiry_str}"
-            logger.info(f"Assuming base symbol: {root_symbol}")
-
-        # Search for the base symbol to find futures or index (e.g., "NIFTY27FEB25FUT")
-        logger.info(f"Searching for {search_query} for user {username}")
+        # Search for the symbol on the specified exchange
+        search_query = symbol
+        logger.info(f"Searching for {search_query} on {request.exchange} for user {username}")
         search_result = api_client.searchscrip(exchange=request.exchange, searchtext=search_query)
         
         if not search_result or 'values' not in search_result or not search_result['values']:
-            logger.error(f"No symbols found for {search_query} for user {username}")
-            raise HTTPException(status_code=400, detail=f"No symbols found for {search_query}")
+            logger.error(f"No symbols found for {search_query} on {request.exchange} for user {username}")
+            raise HTTPException(status_code=400, detail=f"No symbols found for {search_query} on {request.exchange}")
 
-        # Use the first result as the base symbol (e.g., "NIFTY27FEB25FUT")
+        # Use the first result as the base symbol (e.g., stock or commodity symbol)
         base_symbol = search_result['values'][0]['tsym']
-        logger.info(f"Resolved base symbol: {base_symbol} for user {username}")
+        token = search_result['values'][0]['token']
+        logger.info(f"Resolved base symbol: {base_symbol} with token {token} for user {username}")
 
-        # Fetch the full option chain for this base symbol
-        chain = api_client.get_option_chain(
-            exchange=request.exchange,
-            tradingsymbol=base_symbol,
-            strikeprice="0",  # Fetch all strikes (no specific strike filter)
-            count="0"  # Fetch all available strikes
-        )
-
-        if not chain or 'values' not in chain:
-            error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
-            logger.error(f"No option chain data available for {base_symbol}: {error_msg}")
+        # Fetch real-time market data for the symbol
+        quotes = api_client.get_quotes(exchange=request.exchange, token=token)
+        if not quotes or quotes.get('stat') != 'Ok':
+            error_msg = quotes.get('emsg', 'No response from API')
+            logger.error(f"No market data available for {base_symbol} on {request.exchange}: {error_msg}")
             if "market" in error_msg.lower() or "closed" in error_msg.lower():
-                return {"message": "Market is closed, no live option chain data available", "data": []}
-            raise HTTPException(status_code=400, detail=f"No option chain data available: {error_msg}")
+                return {"message": "Market is closed, no live market data available", "data": []}
+            raise HTTPException(status_code=400, detail=f"No market data available: {error_msg}")
 
-        # Collect and organize option chain data by strike price
-        chain_data = {}
-        tokens = []
-        for scrip in chain['values']:
-            tsym = scrip['tsym']
-            token = scrip['token']
-            # Parse trading symbol to extract strike and option type
-            opt_match = option_pattern.match(tsym)
-            if opt_match:
-                root_symbol, expiry, strike, opt_type = opt_match.groups()
-                strike_price = float(strike)
-                if expiry != expiry_str:  # Ensure expiry matches user input
-                    continue
+        # Collect market data
+        ltp = float(quotes.get('lp', 0)) if quotes.get('lp') else 0
+        bid = float(quotes.get('bp', 0)) if quotes.get('bp') else 0
+        ask = float(quotes.get('ap', 0)) if quotes.get('ap') else 0
+        oi = float(quotes.get('oi', 0)) if quotes.get('oi') else 0  # OI might not apply to cash markets, but included for consistency
+        volume = float(quotes.get('v', 0)) if quotes.get('v') else 0
 
-                # Fetch real-time quotes
-                quote = api_client.get_quotes(exchange=scrip['exch'], token=token)
-                if quote and quote.get('stat') == 'Ok':
-                    ltp = float(quote.get('lp', 0)) if quote.get('lp') else 0
-                    bid = float(quote.get('bp', 0)) if quote.get('bp') else 0
-                    ask = float(quote.get('ap', 0)) if quote.get('ap') else 0
-                    oi = float(quote.get('oi', 0)) / 100000 if quote.get('oi') else 0  # Convert OI to lakhs
-
-                    if strike_price not in chain_data:
-                        chain_data[strike_price] = {'Call': {}, 'Put': {}}
-
-                    if opt_type == 'CE':
-                        chain_data[strike_price]['Call'] = {
-                            'LTP': ltp,
-                            'Bid': bid,
-                            'Ask': ask,
-                            'OI': oi
-                        }
-                    elif opt_type == 'PE':
-                        chain_data[strike_price]['Put'] = {
-                            'LTP': ltp,
-                            'Bid': bid,
-                            'Ask': ask,
-                            'OI': oi
-                        }
-                    tokens.append(token)
-
-        # Subscribe to real-time updates for all tokens
-        if tokens:
-            option_chain_subscriptions[username] = tokens  # Store all tokens for this user
-            api_client.subscribe(','.join(tokens))  # Subscribe to all tokens
-
-        # Format the response to match the screenshot pattern (sorted by strike price)
-        formatted_data = []
-        for strike_price in sorted(chain_data.keys()):
-            call_data = chain_data[strike_price]['Call']
-            put_data = chain_data[strike_price]['Put']
-            formatted_data.append({
-                'StrikePrice': strike_price,
-                'Call': {
-                    'LTP': call_data['LTP'],
-                    'Bid': call_data['Bid'],
-                    'Ask': call_data['Ask'],
-                    'OI': call_data['OI']
-                },
-                'Put': {
-                    'LTP': put_data['LTP'],
-                    'Bid': put_data['Bid'],
-                    'Ask': put_data['Ask'],
-                    'OI': put_data['OI']
-                }
-            })
+        # Subscribe to real-time updates for this token
+        if token:
+            option_chain_subscriptions[username] = [token]  # Store token for this user
+            api_client.subscribe(token)  # Subscribe to the token
 
         return {
-            "message": f"Option chain for {root_symbol} with expiry {expiry_str}",
-            "data": formatted_data,
-            "total_strikes": len(formatted_data)
+            "message": f"Market data for {base_symbol} on {request.exchange}",
+            "data": [{
+                "TradingSymbol": base_symbol,
+                "Token": token,
+                "LTP": ltp,
+                "Bid": bid,
+                "Ask": ask,
+                "OI": oi,
+                "Volume": volume,
+                "Timestamp": time.strftime('%Y-%m-%d %H:%M:%S')
+            }],
+            "total_symbols": 1
         }
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Option chain fetch error for {username}: {e}")
+        logger.error(f"Market data fetch error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.websocket("/ws/option_chain/{username}/{token}")

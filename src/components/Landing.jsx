@@ -14,10 +14,9 @@ const Landing = () => {
   const [showTradesDashboard, setShowTradesDashboard] = useState(false);
   const [formStep, setFormStep] = useState(1);
   const [activeTradeId, setActiveTradeId] = useState(null);
-  const [optionChainData, setOptionChainData] = useState(null);
   const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, oi: 0, timestamp: "" }); // Added oi
   const [ws, setWs] = useState(null); // WebSocket state
-  const [chartSymbol, setChartSymbol] = useState("NSE:BANKNIFTY"); // Default to BANKNIFTY
+  const [chartSymbol, setChartSymbol] = useState("NSE:BANKNIFTY"); // Default to BANKNIFTY (NSE)
 
   const [formData, setFormData] = useState({
     username: "",
@@ -29,13 +28,13 @@ const Landing = () => {
     default_quantity: 1,
     imei: "",
     symbol: "BANKNIFTY", // Default to BANKNIFTY
-    expiry: "", // DD-MM-YYYY format
-    strike_price: 47800, // Default strike price
-    strike_count: 5, // Default number of strikes
-    option_type: "Call",
+    expiry: "", // Optional for cash markets, but kept for consistency
+    strike_price: null, // Remove, as options are excluded
+    strike_count: null, // Remove, as options are excluded
+    option_type: null, // Remove, as options are excluded
     tradingsymbol: "",
     symboltoken: "",
-    exchange: "NFO", // Default to NFO for options
+    exchange: "NSE", // Default to NSE for stocks
     buy_type: "Fixed",
     buy_threshold: 110,
     previous_close: 0,
@@ -69,7 +68,7 @@ const Landing = () => {
     }
   };
 
-  const fetchOptionChain = async () => {
+  const fetchMarketData = async () => {
     if (!selectedUsers.length) {
       setMessage({ text: "Please select at least one Shoonya user.", type: "warning" });
       return;
@@ -78,7 +77,7 @@ const Landing = () => {
     const username = selectedUsers[0];
     const user = users.find(u => u.username === username);
     if (user.broker !== "Shoonya") {
-      setMessage({ text: "Option chain data is only available for Shoonya users.", type: "warning" });
+      setMessage({ text: "Market data is only available for Shoonya users.", type: "warning" });
       return;
     }
 
@@ -90,26 +89,25 @@ const Landing = () => {
           username,
           exchange: formData.exchange,
           symbol: formData.symbol,
-          expiry_date: formData.expiry,
-          strike_price: formData.strike_price,
-          strike_count: formData.strike_count
+          expiry_date: formData.expiry || null, // Optional for cash markets
+          strike_price: null, // Removed, as options are excluded
+          strike_count: null // Removed, as options are excluded
         }),
       });
 
       const data = await response.json();
       if (response.ok) {
-        setOptionChainData(data.data);
-        setChartSymbol(`NSE:${formData.symbol.replace(" ", "")}`); // Update chart to show index
-        setMessage({ text: `Option chain data fetched for ${formData.symbol} with expiry ${formData.expiry}!`, type: "success" });
-        setFormStep(3);
-        // Start WebSocket for real-time updates
-        startWebSocket(username, data.data.map(item => item.Token));
+        setMarketData(data.data[0] || {});
+        setChartSymbol(formatChartSymbol(formData.symbol, formData.exchange)); // Update chart with symbol
+        setMessage({ text: `Market data fetched for ${formData.symbol} on ${formData.exchange}!`, type: "success" });
+        setFormStep(4); // Skip Steps 3 (option chain) since we’re not handling options
+        startWebSocket(username, [data.data[0].Token]);
       } else {
-        setMessage({ text: data.detail || "Failed to fetch option chain", type: "danger" });
+        setMessage({ text: data.detail || "Failed to fetch market data", type: "danger" });
       }
     } catch (error) {
-      console.error("Error fetching option chain:", error);
-      setMessage({ text: "Server error fetching option chain.", type: "danger" });
+      console.error("Error fetching market data:", error);
+      setMessage({ text: "Server error fetching market data.", type: "danger" });
     }
   };
 
@@ -122,12 +120,6 @@ const Landing = () => {
       newWs.push(tokenWs);
       tokenWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        setOptionChainData(prevData => {
-          if (!prevData) return prevData;
-          return prevData.map(item => 
-            item.Token === token ? { ...item, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item
-          );
-        });
         setMarketData(prev => ({
           ...prev,
           ltp: data.ltp || 0.0,
@@ -155,12 +147,6 @@ const Landing = () => {
         const response = await fetch(`https://mtb-8ra9.onrender.com/api/get_market_data/${username}/${token}`);
         if (response.ok) {
           const data = await response.json();
-          setOptionChainData(prevData => {
-            if (!prevData) return prevData;
-            return prevData.map(item => 
-              item.Token === token ? { ...item, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.market_data?.ft || new Date().toISOString() } : item
-            );
-          });
           setMarketData({
             ltp: data.ltp,
             oi: data.oi,
@@ -176,19 +162,9 @@ const Landing = () => {
     return () => clearInterval(pollInterval);
   };
 
-  const handleSelectStrike = (strikeData) => {
-    const selectedTs = strikeData.TradingSymbol;
-    setFormData({
-      ...formData,
-      tradingsymbol: selectedTs,
-      symboltoken: strikeData.Token,
-      previous_close: parseFloat(strikeData.LTP),
-      strike_price: parseFloat(strikeData.StrikePrice),
-      option_type: strikeData.OptionType === "CE" ? "Call" : "Put"
-    });
-    setChartSymbol(`NSE:${selectedTs}`); // Update chart to show selected option
-    setFormStep(4);
-    startMarketUpdates(selectedUsers[0], strikeData.Token);
+  const handleSelectStrike = () => {
+    // Removed, as options are excluded
+    setMessage({ text: "Options trading is not supported. Use cash market or commodities only.", type: "warning" });
   };
 
   const startMarketUpdates = useCallback((username, symboltoken) => {
@@ -288,7 +264,7 @@ const Landing = () => {
             tradingsymbol: formData.tradingsymbol,
             symboltoken: formData.symboltoken,
             exchange: formData.exchange,
-            strike_price: formData.strike_price,
+            strike_price: null, // Removed, as options are excluded
             buy_type: formData.buy_type,
             buy_threshold: formData.buy_threshold,
             previous_close: formData.previous_close,
@@ -372,6 +348,19 @@ const Landing = () => {
       </Dropdown.Menu>
     </Dropdown>
   );
+
+  // Helper function to format chart symbol based on input and exchange
+  const formatChartSymbol = (symbol, exchange) => {
+    const cleanSymbol = symbol.replace(" ", "").toUpperCase();
+    if (exchange === "MCX") {
+      return `MCX:${cleanSymbol}`; // For commodities
+    } else if (exchange === "NSE") {
+      return `NSE:${cleanSymbol}`; // For stocks/indices
+    } else if (exchange === "BSE") {
+      return `BSE:${cleanSymbol}`; // For BSE stocks/indices
+    }
+    return `NSE:${cleanSymbol}`; // Default to NSE for safety
+  };
 
   useEffect(() => {
     fetchUsers();
@@ -506,7 +495,7 @@ const Landing = () => {
                           onChange={(e) => {
                             if (e.target.checked) {
                               if (selectedUsers.length < 1) setSelectedUsers([user.username]);
-                              else alert("⚠ You can only select 1 Shoonya user for option trading.");
+                              else alert("⚠ You can only select 1 Shoonya user for trading.");
                             } else {
                               setSelectedUsers([]);
                             }
@@ -522,33 +511,37 @@ const Landing = () => {
 
             {formStep === 2 && (
               <>
-                <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Enter Option Chain Details</h4>
+                <h4 className="text-primary"><FontAwesomeIcon icon={faChartLine} /> Step 2: Enter Market Data Details</h4>
                 <Form>
                   <Row className="mb-3">
                     <Col md={6}>
                       <Form.Group>
-                        <Form.Label>Symbol (Default: BANKNIFTY)</Form.Label>
+                        <Form.Label>Symbol (e.g., BANKNIFTY, GOLD, RELIANCE)</Form.Label>
                         <Form.Control
                           type="text"
-                          placeholder="e.g., BANKNIFTY"
+                          placeholder="e.g., BANKNIFTY, GOLD, RELIANCE"
                           value={formData.symbol}
                           onChange={(e) => {
                             const newSymbol = e.target.value || "BANKNIFTY";
                             setFormData({ ...formData, symbol: newSymbol });
-                            setChartSymbol(`NSE:${newSymbol.replace(" ", "")}`);
+                            setChartSymbol(formatChartSymbol(newSymbol, formData.exchange));
                           }}
                         />
                       </Form.Group>
                     </Col>
                     <Col md={6}>
                       <Form.Group>
-                        <Form.Label>Exchange (Default: NFO)</Form.Label>
+                        <Form.Label>Exchange (Default: NSE)</Form.Label>
                         <Form.Select
                           value={formData.exchange}
-                          onChange={(e) => setFormData({ ...formData, exchange: e.target.value })}
+                          onChange={(e) => {
+                            const newExchange = e.target.value;
+                            setFormData({ ...formData, exchange: newExchange });
+                            setChartSymbol(formatChartSymbol(formData.symbol, newExchange));
+                          }}
                         >
-                          <option value="NFO">NFO (Nifty Futures & Options)</option>
                           <option value="NSE">NSE (National Stock Exchange)</option>
+                          <option value="BSE">BSE (Bombay Stock Exchange)</option>
                           <option value="MCX">MCX (Multi Commodity Exchange)</option>
                         </Form.Select>
                       </Form.Group>
@@ -557,103 +550,19 @@ const Landing = () => {
                   <Row className="mb-3">
                     <Col md={6}>
                       <Form.Group>
-                        <Form.Label>Expiry Date (DD-MM-YYYY)</Form.Label>
+                        <Form.Label>Expiry Date (DD-MM-YYYY, optional for cash markets)</Form.Label>
                         <Form.Control
                           type="text"
-                          placeholder="e.g., 27-03-2025"
+                          placeholder="e.g., 27-03-2025 (optional)"
                           value={formData.expiry}
                           onChange={(e) => setFormData({ ...formData, expiry: e.target.value })}
-                          required
                         />
                       </Form.Group>
                     </Col>
                   </Row>
-                  <Row className="mb-3">
-                    <Col md={6}>
-                      <Form.Group>
-                        <Form.Label>Strike Price</Form.Label>
-                        <Form.Control
-                          type="number"
-                          value={formData.strike_price}
-                          onChange={(e) => setFormData({ ...formData, strike_price: parseFloat(e.target.value) || 0 })}
-                          required
-                        />
-                      </Form.Group>
-                    </Col>
-                    <Col md={6}>
-                      <Form.Group>
-                        <Form.Label>Number of Strikes</Form.Label>
-                        <Form.Control
-                          type="number"
-                          value={formData.strike_count}
-                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 5 })}
-                          min="1"
-                          required
-                        />
-                      </Form.Group>
-                    </Col>
-                  </Row>
-                  <Button variant="primary" onClick={fetchOptionChain}>Fetch Option Chain</Button>
+                  <Button variant="primary" onClick={fetchMarketData}>Fetch Market Data</Button>
                   <Button variant="secondary" onClick={() => { setFormStep(1); setSelectedUsers([]); }} className="ms-2">Back</Button>
                 </Form>
-              </>
-            )}
-
-            {formStep === 3 && optionChainData && (
-              <>
-                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: {formData.symbol} Option Chain</h4>
-                <Table striped bordered hover className="option-chain-table" style={{ fontSize: '14px', backgroundColor: '#f8f9fa' }}>
-                  <thead style={{ backgroundColor: '#e9ecef', color: '#343a40' }}>
-                    <tr>
-                      <th style={{ width: '10%' }}>Strike Price</th>
-                      <th colSpan="4" style={{ textAlign: 'center', width: '45%' }}>Call</th>
-                      <th colSpan="4" style={{ textAlign: 'center', width: '45%' }}>Put</th>
-                    </tr>
-                    <tr>
-                      <th></th>
-                      <th style={{ width: '15%' }}>LTP</th>
-                      <th style={{ width: '10%' }}>Bid</th>
-                      <th style={{ width: '10%' }}>Ask</th>
-                      <th style={{ width: '10%' }}>OI (Lakhs)</th>
-                      <th style={{ width: '15%' }}>LTP</th>
-                      <th style={{ width: '10%' }}>Bid</th>
-                      <th style={{ width: '10%' }}>Ask</th>
-                      <th style={{ width: '10%' }}>OI (Lakhs)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {optionChainData.map((item, index) => (
-                      <tr key={index} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8f9fa' }}>
-                        <td style={{ fontWeight: 'bold', color: '#007bff' }}>{item.StrikePrice.toFixed(2)}</td>
-                        <td style={{ color: item.Call.LTP >= 0 ? '#28a745' : '#dc3545' }}>{item.Call.LTP ? item.Call.LTP.toFixed(2) : "N/A"}</td>
-                        <td>{item.Call.Bid ? item.Call.Bid.toFixed(2) : "N/A"}</td>
-                        <td>{item.Call.Ask ? item.Call.Ask.toFixed(2) : "N/A"}</td>
-                        <td>{item.Call.OI ? item.Call.OI.toFixed(2) : "N/A"}</td>
-                        <td style={{ color: item.Put.LTP >= 0 ? '#28a745' : '#dc3545' }}>{item.Put.LTP ? item.Put.LTP.toFixed(2) : "N/A"}</td>
-                        <td>{item.Put.Bid ? item.Put.Bid.toFixed(2) : "N/A"}</td>
-                        <td>{item.Put.Ask ? item.Put.Ask.toFixed(2) : "N/A"}</td>
-                        <td>{item.Put.OI ? item.Put.OI.toFixed(2) : "N/A"}</td>
-                        <td>
-                          <ButtonGroup>
-                            {item.Call.TradingSymbol && (
-                              <Button variant="primary" size="sm" onClick={() => handleSelectStrike({ ...item.Call, StrikePrice: item.StrikePrice, OptionType: "CE" })}>
-                                Select Call
-                              </Button>
-                            )}
-                            {item.Put.TradingSymbol && (
-                              <Button variant="secondary" size="sm" onClick={() => handleSelectStrike({ ...item.Put, StrikePrice: item.StrikePrice, OptionType: "PE" })} className="ms-2">
-                                Select Put
-                              </Button>
-                            )}
-                          </ButtonGroup>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-                <div className="mt-2">
-                  <Button variant="secondary" onClick={() => { setFormStep(2); if (ws) ws.forEach(w => w.close()); setOptionChainData(null); }}>Back</Button>
-                </div>
               </>
             )}
 
@@ -753,9 +662,7 @@ const Landing = () => {
                       <p><strong>Selected User:</strong> {selectedUsers.join(", ")}</p>
                       <p><strong>Symbol:</strong> {formData.symbol}</p>
                       <p><strong>Exchange:</strong> {formData.exchange}</p>
-                      <p><strong>Expiry:</strong> {formData.expiry}</p>
-                      <p><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
-                      <p><strong>Option Type:</strong> {formData.option_type}</p>
+                      <p><strong>Expiry:</strong> {formData.expiry || "N/A"}</p>
                       <p style={{ color: "green" }}><strong>Buy Condition:</strong> {formData.buy_type === "Fixed" ? `≥ ₹${formData.buy_threshold}` : `≥ ₹${(formData.previous_close * (1 + formData.buy_threshold / 100)).toFixed(2)} (${formData.buy_threshold}%)`}</p>
                       <p style={{ color: "red" }}><strong>Stop-Loss:</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
                       <p style={{ color: "red" }}><strong>Sell Condition:</strong> {formData.sell_type === "Fixed" ? `≤ ₹${formData.sell_threshold}` : `≤ ₹${(formData.previous_close * (1 - formData.sell_threshold / 100)).toFixed(2)} (${formData.sell_threshold}%)`}</p>
@@ -764,7 +671,7 @@ const Landing = () => {
                     </Col>
                   </Row>
                   <Button variant="success" onClick={handleInitiateTrade}>Execute Trade</Button>
-                  <Button variant="secondary" onClick={() => setFormStep(3)} className="ms-2">Back</Button>
+                  <Button variant="secondary" onClick={() => setFormStep(2)} className="ms-2">Back</Button>
                 </Form>
               </>
             )}
@@ -844,7 +751,7 @@ const TradingViewWidget = memo(({ symbol }) => {
     script.async = true;
     script.innerHTML = JSON.stringify({
       autosize: true,
-      symbol: symbol || "NSE:BANKNIFTY", // Default to BANKNIFTY
+      symbol: symbol || "NSE:BANKNIFTY", // Default to BANKNIFTY (NSE)
       interval: "D",
       timezone: "Asia/Kolkata", // Updated to India timezone
       theme: "light",
