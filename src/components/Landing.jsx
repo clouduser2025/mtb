@@ -30,11 +30,11 @@ const Landing = () => {
     symbol: "BANKNIFTY", // Default to BANKNIFTY
     expiry: "", // DD-MM-YYYY format
     strike_price: 47800, // Default strike price
-    strike_count: 5, // Default number of strikes
+    strike_count: 20, // Default number of strikes (updated per your request)
     option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
-    exchange: "NFO",
+    exchange: "NFO", // Default to NFO for options
     buy_type: "Fixed",
     buy_threshold: 110,
     previous_close: 0,
@@ -486,6 +486,21 @@ const Landing = () => {
                     </Col>
                     <Col md={6}>
                       <Form.Group>
+                        <Form.Label>Exchange (Default: NFO)</Form.Label>
+                        <Form.Select
+                          value={formData.exchange}
+                          onChange={(e) => setFormData({ ...formData, exchange: e.target.value })}
+                        >
+                          <option value="NFO">NFO (Nifty Futures & Options)</option>
+                          <option value="NSE">NSE (National Stock Exchange)</option>
+                          <option value="MCX">MCX (Multi Commodity Exchange)</option>
+                        </Form.Select>
+                      </Form.Group>
+                    </Col>
+                  </Row>
+                  <Row className="mb-3">
+                    <Col md={6}>
+                      <Form.Group>
                         <Form.Label>Expiry Date (DD-MM-YYYY)</Form.Label>
                         <Form.Control
                           type="text"
@@ -515,7 +530,7 @@ const Landing = () => {
                         <Form.Control
                           type="number"
                           value={formData.strike_count}
-                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 5 })}
+                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 20 })}
                           min="1"
                           required
                         />
@@ -658,6 +673,7 @@ const Landing = () => {
                     <Col>
                       <p><strong>Selected User:</strong> {selectedUsers.join(", ")}</p>
                       <p><strong>Symbol:</strong> {formData.symbol}</p>
+                      <p><strong>Exchange:</strong> {formData.exchange}</p>
                       <p><strong>Expiry:</strong> {formData.expiry}</p>
                       <p><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
                       <p><strong>Option Type:</strong> {formData.option_type}</p>

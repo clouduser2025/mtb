@@ -1,6 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from SmartApi import SmartConnect
 from SmartApi.smartWebSocketV2 import SmartWebSocketV2
 from api_helper import ShoonyaApiPy
@@ -10,10 +10,11 @@ import time
 import sqlite3
 from logzero import logger
 from fastapi.middleware.cors import CORSMiddleware
-import json
 import uvicorn
 import pandas as pd
 import datetime
+import os
+import json
 
 app = FastAPI()
 
@@ -111,6 +112,7 @@ ltp_cache = {}
 auth_tokens = {}
 refresh_tokens = {}
 feed_tokens = {}
+option_chain_subscriptions = {}  # Track active WebSocket subscriptions for option chains
 
 def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None, imei: str = "trading_app"):
     if broker == "AngelOne":
@@ -282,6 +284,10 @@ def on_data_angel(wsapp, message):
         ltp = float(message['ltp'])
         ltp_cache[symbol_key] = ltp
         process_position_update(message['tradingsymbol'], ltp)
+        # Broadcast update to WebSocket clients for option chain
+        if symbol_key in option_chain_subscriptions:
+            for ws in option_chain_subscriptions[symbol_key]:
+                ws.send_json({"symbol": message['tradingsymbol'], "ltp": ltp, "oi": message.get('oi', 0), "volume": message.get('v', 0), "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')})
     except Exception as e:
         logger.error(f"AngelOne WebSocket data error: {e}")
 
@@ -292,6 +298,10 @@ def on_data_shoonya(tick_data):
         ltp = float(tick_data['lp'])
         ltp_cache[symbol_key] = ltp
         process_position_update(tick_data['ts'], ltp)
+        # Broadcast update to WebSocket clients for option chain
+        if symbol_key in option_chain_subscriptions:
+            for ws in option_chain_subscriptions[symbol_key]:
+                ws.send_json({"symbol": tick_data['ts'], "ltp": ltp, "oi": tick_data.get('oi', 0), "volume": tick_data.get('v', 0), "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')})
     except Exception as e:
         logger.error(f"Shoonya WebSocket data error: {e}")
 
@@ -667,23 +677,31 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
                 return {"message": "Market is closed, no live option chain data available", "data": []}
             raise HTTPException(status_code=400, detail=f"No option chain data available: {error_msg}")
 
-        # Collect chain data
+        # Collect initial chain data
         chain_data = []
+        tokens = []
         for scrip in chain['values']:
             quote = api_client.get_quotes(exchange=scrip['exch'], token=scrip['token'])
             if quote:
                 chain_data.append({
                     'TradingSymbol': scrip['tsym'],
                     'Token': scrip['token'],
-                    'StrikePrice': float(scrip.get('strprc', '0')),  # Convert to float for comparison
+                    'StrikePrice': float(scrip.get('strprc', '0')),
                     'OptionType': scrip.get('optt', 'N/A'),
                     'LTP': quote.get('lp', 'N/A'),
+                    'OI': quote.get('oi', 'N/A'),  # Include OI
                     'Open': quote.get('op', 'N/A'),
                     'High': quote.get('h', 'N/A'),
                     'Low': quote.get('l', 'N/A'),
                     'Close': quote.get('c', 'N/A'),
                     'Volume': quote.get('v', 'N/A')
                 })
+                tokens.append(scrip['token'])
+
+        # Subscribe to real-time updates for these tokens
+        if tokens:
+            option_chain_subscriptions[username] = tokens  # Store tokens for this user
+            api_client.subscribe(','.join(tokens))  # Subscribe to all tokens in the option chain
 
         # Filter to exactly strike_count strikes (split between CE and PE)
         df = pd.DataFrame(chain_data)
@@ -710,5 +728,34 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         logger.error(f"Option chain fetch error for {username}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+@app.websocket("/ws/option_chain/{username}/{token}")
+async def websocket_option_chain(websocket: WebSocket, username: str, token: str):
+    await websocket.accept()
+    try:
+        if username not in smart_api_instances or username not in option_chain_subscriptions:
+            await websocket.send_json({"error": "User not authenticated or no active subscription"})
+            await websocket.close()
+            return
+
+        # Add WebSocket to the subscription for this token
+        symbol_key = f"NFO:{token}"  # Adjust exchange as needed
+        if symbol_key not in option_chain_subscriptions:
+            option_chain_subscriptions[symbol_key] = []
+        option_chain_subscriptions[symbol_key].append(websocket)
+
+        while True:
+            # This will rely on the on_data_shoonya callback to push updates
+            await websocket.receive_text()  # Keep connection alive
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for user {username}, token {token}")
+        if symbol_key in option_chain_subscriptions:
+            option_chain_subscriptions[symbol_key].remove(websocket)
+            if not option_chain_subscriptions[symbol_key]:
+                del option_chain_subscriptions[symbol_key]
+    except Exception as e:
+        logger.error(f"WebSocket error for user {username}, token {token}: {e}")
+        await websocket.close()
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)  # Using port 8001 as per your setup
+    port = int(os.getenv("PORT", 8001))  # Use Render's PORT or default to 8001 locally
+    uvicorn.run(app, host="0.0.0.0", port=port)
