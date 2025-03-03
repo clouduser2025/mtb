@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup, Card } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign } from '@fortawesome/free-solid-svg-icons';
-import './css/landing.css'; // Updated CSS for professional look
+import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign, faArrowRight, faSearch, faArrowLeft, faCheckCircle, faCheck, faEdit } from '@fortawesome/free-solid-svg-icons';
+import './css/landing.css';
 
 const Landing = () => {
   const [users, setUsers] = useState([]);
@@ -194,7 +194,7 @@ const Landing = () => {
         option_type: strikeData.OptionType === "CE" ? "Call" : "Put"
       });
       setChartSymbol(formatChartSymbol(strikeData.TradingSymbol, formData.exchange));
-      setFormStep(3.5); // New confirmation step for NFO before Step 4
+      setFormStep(3.5); // Confirmation step for NFO
     } else {
       setMessage({ text: "Options selection is only available for NFO. Moving to trade conditions.", type: "warning" });
       setFormStep(4);
