@@ -711,4 +711,4 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)  # Using port 8001 as per your setup
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # Using port 8001 as per your setup
