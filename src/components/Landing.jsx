@@ -15,7 +15,8 @@ const Landing = () => {
   const [formStep, setFormStep] = useState(1);
   const [activeTradeId, setActiveTradeId] = useState(null);
   const [optionChainData, setOptionChainData] = useState(null);
-  const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, timestamp: "" });
+  const [marketData, setMarketData] = useState({ ltp: 0.0, volume: 0, oi: 0, timestamp: "" }); // Added oi
+  const [ws, setWs] = useState(null); // WebSocket state
   const [chartSymbol, setChartSymbol] = useState("NSE:BANKNIFTY"); // Default to BANKNIFTY
 
   const [formData, setFormData] = useState({
@@ -30,7 +31,7 @@ const Landing = () => {
     symbol: "BANKNIFTY", // Default to BANKNIFTY
     expiry: "", // DD-MM-YYYY format
     strike_price: 47800, // Default strike price
-    strike_count: 20, // Default number of strikes (updated per your request)
+    strike_count: 5, // Default number of strikes
     option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
@@ -101,6 +102,8 @@ const Landing = () => {
         setChartSymbol(`NSE:${formData.symbol.replace(" ", "")}`); // Update chart to show index
         setMessage({ text: `Option chain data fetched for ${formData.symbol} with expiry ${formData.expiry}!`, type: "success" });
         setFormStep(3);
+        // Start WebSocket for real-time updates
+        startWebSocket(username, data.data.map(item => item.Token));
       } else {
         setMessage({ text: data.detail || "Failed to fetch option chain", type: "danger" });
       }
@@ -108,6 +111,66 @@ const Landing = () => {
       console.error("Error fetching option chain:", error);
       setMessage({ text: "Server error fetching option chain.", type: "danger" });
     }
+  };
+
+  const startWebSocket = (username, tokens) => {
+    if (ws) ws.close(); // Close existing connection
+    tokens.forEach(token => {
+      const wsUrl = new URL(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${token}`);
+      const tokenWs = new WebSocket(wsUrl.href);
+      tokenWs.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setOptionChainData(prevData => {
+          if (!prevData) return prevData;
+          return prevData.map(item => 
+            item.Token === token ? { ...item, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item
+          );
+        });
+        setMarketData(prev => ({
+          ...prev,
+          ltp: data.ltp || 0.0,
+          oi: data.oi || 0,
+          volume: data.volume || 0,
+          timestamp: data.timestamp || new Date().toISOString()
+        }));
+      };
+      tokenWs.onerror = (error) => {
+        console.error("WebSocket error for token", token, ":", error);
+        setMessage({ text: "WebSocket connection failed for real-time data. Falling back to polling.", type: "warning" });
+        pollMarketData(username, token);
+      };
+      tokenWs.onclose = () => {
+        console.log("WebSocket closed for token", token, ". Attempting to reconnect...");
+        startWebSocket(username, tokens);
+      };
+    });
+  };
+
+  const pollMarketData = (username, token) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`https://mtb-8ra9.onrender.com/api/get_market_data/${username}/${token}`);
+        if (response.ok) {
+          const data = await response.json();
+          setOptionChainData(prevData => {
+            if (!prevData) return prevData;
+            return prevData.map(item => 
+              item.Token === token ? { ...item, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.market_data?.ft || new Date().toISOString() } : item
+            );
+          });
+          setMarketData({
+            ltp: data.ltp,
+            oi: data.oi,
+            volume: data.market_data?.v || 0,
+            timestamp: data.market_data?.ft || new Date().toISOString()
+          });
+        }
+      } catch (error) {
+        console.error("Error polling market data for token", token, ":", error);
+        setMessage({ text: "Failed to fetch real-time market data.", type: "danger" });
+      }
+    }, 1000);
+    return () => clearInterval(pollInterval);
   };
 
   const handleSelectStrike = (strikeData) => {
@@ -126,38 +189,23 @@ const Landing = () => {
   };
 
   const startMarketUpdates = useCallback((username, symboltoken) => {
-    const ws = new WebSocket(`wss://mtb-8ra9.onrender.com/api/websocket/${username}/${symboltoken}`);
+    const ws = new WebSocket(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${symboltoken}`);
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       setMarketData({
         ltp: data.ltp || 0.0,
-        volume: data.market_data?.v || 0,
-        timestamp: data.market_data?.ft || new Date().toISOString()
+        oi: data.oi || 0,
+        volume: data.volume || 0,
+        timestamp: data.timestamp || new Date().toISOString()
       });
     };
     ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-      setMessage({ text: "WebSocket connection failed. Falling back to polling.", type: "warning" });
-      const pollInterval = setInterval(async () => {
-        try {
-          const response = await fetch(`https://mtb-8ra9.onrender.com/api/get_market_data/${username}/${symboltoken}`);
-          if (response.ok) {
-            const data = await response.json();
-            setMarketData({
-              ltp: data.ltp,
-              volume: data.market_data?.v || 0,
-              timestamp: data.market_data?.ft || new Date().toISOString()
-            });
-          }
-        } catch (error) {
-          console.error("Error polling market data:", error);
-          setMessage({ text: "Failed to fetch real-time market data.", type: "danger" });
-        }
-      }, 1000);
-      return () => clearInterval(pollInterval);
+      console.error("WebSocket error for market updates:", error);
+      setMessage({ text: "WebSocket connection failed for market updates. Falling back to polling.", type: "warning" });
+      pollMarketData(username, symboltoken);
     };
     ws.onclose = () => {
-      console.log("WebSocket closed. Attempting to reconnect...");
+      console.log("WebSocket closed for market updates. Attempting to reconnect...");
       startMarketUpdates(username, symboltoken);
     };
     return () => ws.close();
@@ -323,6 +371,9 @@ const Landing = () => {
   useEffect(() => {
     fetchUsers();
     fetchOpenPositions();
+    return () => {
+      if (ws) ws.close();
+    };
   }, []);
 
   return (
@@ -530,7 +581,7 @@ const Landing = () => {
                         <Form.Control
                           type="number"
                           value={formData.strike_count}
-                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 20 })}
+                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 5 })}
                           min="1"
                           required
                         />
@@ -545,7 +596,7 @@ const Landing = () => {
 
             {formStep === 3 && optionChainData && (
               <>
-                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data (Expiry: {formData.expiry})</h4>
+                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data (Expiry: {formData.expiry}) - Live Updates</h4>
                 <Table striped bordered hover>
                   <thead>
                     <tr>
@@ -553,7 +604,9 @@ const Landing = () => {
                       <th>Strike Price</th>
                       <th>Option Type</th>
                       <th>LTP</th>
+                      <th>OI</th>
                       <th>Volume</th>
+                      <th>Last Update</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -564,7 +617,9 @@ const Landing = () => {
                         <td>{strikeData.StrikePrice}</td>
                         <td>{strikeData.OptionType}</td>
                         <td>{strikeData.LTP}</td>
+                        <td>{strikeData.OI}</td>
                         <td>{strikeData.Volume}</td>
+                        <td>{strikeData.timestamp || "N/A"}</td>
                         <td>
                           <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData)}>
                             Select
@@ -574,14 +629,14 @@ const Landing = () => {
                     ))}
                   </tbody>
                 </Table>
-                <Button variant="secondary" onClick={() => setFormStep(2)} className="mt-2">Back</Button>
+                <Button variant="secondary" onClick={() => { setFormStep(2); if (ws) ws.close(); setOptionChainData(null); }} className="mt-2">Back</Button>
               </>
             )}
 
             {formStep === 4 && (
               <>
                 <h4 className="text-success"><FontAwesomeIcon icon={faShoppingCart} /> Step 4: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)</h4>
-                <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
+                <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
                 <Form>
                   <Row className="mb-3">
                     <Col md={4}>
@@ -694,7 +749,7 @@ const Landing = () => {
           {activeTradeId && (
             <Container className="mt-4 p-3 border rounded shadow-sm">
               <h4 className="text-warning"><FontAwesomeIcon icon={faExchangeAlt} /> Update Sell Conditions (Live Market Data)</h4>
-              <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
+              <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
               <Form>
                 <Row className="mb-3">
                   <Col md={4}>
