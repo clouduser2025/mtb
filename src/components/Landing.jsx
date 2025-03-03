@@ -622,44 +622,33 @@ const Landing = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {(() => {
-                      // Group data by strike price and sort by strike price
-                      const strikes = [...new Set(optionChainData.map(d => d.StrikePrice))].sort((a, b) => a - b);
-                      return strikes.map(strike => {
-                        const call = optionChainData.find(d => d.StrikePrice === strike && d.OptionType === "CE") || {};
-                        const put = optionChainData.find(d => d.StrikePrice === strike && d.OptionType === "PE") || {};
-                        const lastUpdate = (call.timestamp || put.timestamp) || "N/A";
-
-                        return (
-                          <tr key={strike} style={{ backgroundColor: strike % 2 === 0 ? '#ffffff' : '#f8f9fa' }}>
-                            <td style={{ fontWeight: 'bold', color: '#007bff' }}>{strike.toFixed(2)}</td>
-                            <td style={{ color: call.LTP >= 0 ? '#28a745' : '#dc3545' }}>{call.LTP ? call.LTP.toFixed(2) : "N/A"}</td>
-                            <td>{call.Bid ? call.Bid.toFixed(2) : "N/A"}</td>
-                            <td>{call.Ask ? call.Ask.toFixed(2) : "N/A"}</td>
-                            <td>{call.OI ? call.OI.toFixed(2) : "N/A"}</td>
-                            <td style={{ color: put.LTP >= 0 ? '#28a745' : '#dc3545' }}>{put.LTP ? put.LTP.toFixed(2) : "N/A"}</td>
-                            <td>{put.Bid ? put.Bid.toFixed(2) : "N/A"}</td>
-                            <td>{put.Ask ? put.Ask.toFixed(2) : "N/A"}</td>
-                            <td>{put.OI ? put.OI.toFixed(2) : "N/A"}</td>
-                            <td style={{ display: 'none' }}>{lastUpdate}</td> {/* Hidden for updates */}
-                            <td>
-                              <ButtonGroup>
-                                {call.TradingSymbol && (
-                                  <Button variant="primary" size="sm" onClick={() => handleSelectStrike(call)}>
-                                    Select Call
-                                  </Button>
-                                )}
-                                {put.TradingSymbol && (
-                                  <Button variant="secondary" size="sm" onClick={() => handleSelectStrike(put)} className="ms-2">
-                                    Select Put
-                                  </Button>
-                                )}
-                              </ButtonGroup>
-                            </td>
-                          </tr>
-                        );
-                      });
-                    })()}
+                    {optionChainData.map((item, index) => (
+                      <tr key={index} style={{ backgroundColor: index % 2 === 0 ? '#ffffff' : '#f8f9fa' }}>
+                        <td style={{ fontWeight: 'bold', color: '#007bff' }}>{item.StrikePrice.toFixed(2)}</td>
+                        <td style={{ color: item.Call.LTP >= 0 ? '#28a745' : '#dc3545' }}>{item.Call.LTP ? item.Call.LTP.toFixed(2) : "N/A"}</td>
+                        <td>{item.Call.Bid ? item.Call.Bid.toFixed(2) : "N/A"}</td>
+                        <td>{item.Call.Ask ? item.Call.Ask.toFixed(2) : "N/A"}</td>
+                        <td>{item.Call.OI ? item.Call.OI.toFixed(2) : "N/A"}</td>
+                        <td style={{ color: item.Put.LTP >= 0 ? '#28a745' : '#dc3545' }}>{item.Put.LTP ? item.Put.LTP.toFixed(2) : "N/A"}</td>
+                        <td>{item.Put.Bid ? item.Put.Bid.toFixed(2) : "N/A"}</td>
+                        <td>{item.Put.Ask ? item.Put.Ask.toFixed(2) : "N/A"}</td>
+                        <td>{item.Put.OI ? item.Put.OI.toFixed(2) : "N/A"}</td>
+                        <td>
+                          <ButtonGroup>
+                            {item.Call.TradingSymbol && (
+                              <Button variant="primary" size="sm" onClick={() => handleSelectStrike({ ...item.Call, StrikePrice: item.StrikePrice, OptionType: "CE" })}>
+                                Select Call
+                              </Button>
+                            )}
+                            {item.Put.TradingSymbol && (
+                              <Button variant="secondary" size="sm" onClick={() => handleSelectStrike({ ...item.Put, StrikePrice: item.StrikePrice, OptionType: "PE" })} className="ms-2">
+                                Select Put
+                              </Button>
+                            )}
+                          </ButtonGroup>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </Table>
                 <div className="mt-2">
