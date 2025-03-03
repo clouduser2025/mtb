@@ -59,7 +59,8 @@ def init_db():
             base_price REAL,
             sell_type TEXT,
             sell_threshold REAL,
-            previous_close REAL
+            previous_close REAL,
+            option_type TEXT DEFAULT 'Call'  # Added to track CE or PE
         )
         """)
     conn.commit()
@@ -82,6 +83,7 @@ class TradeRequest(BaseModel):
     symboltoken: str
     exchange: str = "NFO"
     strike_price: float
+    option_type: str = "Call"  # Default to Call, user can select Call or Put
     buy_type: str = "Fixed"
     buy_threshold: float = 110
     previous_close: Optional[float] = None
@@ -105,7 +107,7 @@ class OptionChainRequest(BaseModel):
     symbol: str
     expiry_date: str  # Format: DD-MM-YYYY
     strike_price: float
-    strike_count: int = 20  # Default to 20 strikes, but cap at 20
+    strike_count: int = 20  # Default to 20 strikes
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -270,11 +272,11 @@ def update_open_positions(position_id: str, username: str, symbol: str, entry_pr
         cursor.execute("""
             INSERT OR REPLACE INTO open_positions (position_id, username, symbol, symboltoken, entry_price, buy_threshold, 
                                                   stop_loss_type, stop_loss_value, points_condition, position_type, 
-                                                  position_active, highest_price, base_price, sell_type, sell_threshold, previous_close)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?, ?, ?, ?)
+                                                  position_active, highest_price, base_price, sell_type, sell_threshold, previous_close, option_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?, ?, ?, ?, ?)
         """, (position_id, username, symbol, conditions['symboltoken'], entry_price, conditions['buy_threshold'], 
               conditions['stop_loss_type'], conditions['stop_loss_value'], conditions['points_condition'],
-              entry_price, entry_price, conditions.get('sell_type'), conditions.get('sell_threshold'), conditions.get('previous_close')))
+              entry_price, entry_price, conditions.get('sell_type'), conditions.get('sell_threshold'), conditions.get('previous_close'), conditions['option_type']))
         conn.commit()
 
 def on_data_angel(wsapp, message):
@@ -282,12 +284,21 @@ def on_data_angel(wsapp, message):
     try:
         symbol_key = f"{message['exchange']}:{message['tradingsymbol']}:{message['symboltoken']}"
         ltp = float(message['ltp'])
+        oi = message.get('oi', 0)
+        volume = message.get('v', 0)
         ltp_cache[symbol_key] = ltp
         process_position_update(message['tradingsymbol'], ltp)
         # Broadcast update to WebSocket clients for option chain
         if symbol_key in option_chain_subscriptions:
             for ws in option_chain_subscriptions[symbol_key]:
-                ws.send_json({"symbol": message['tradingsymbol'], "ltp": ltp, "oi": message.get('oi', 0), "volume": message.get('v', 0), "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')})
+                ws.send_json({
+                    "symbol": message['tradingsymbol'],
+                    "ltp": ltp,
+                    "oi": oi,
+                    "volume": volume,
+                    "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+                    "option_type": message.get('optt', 'N/A')
+                })
     except Exception as e:
         logger.error(f"AngelOne WebSocket data error: {e}")
 
@@ -296,12 +307,21 @@ def on_data_shoonya(tick_data):
     try:
         symbol_key = f"{tick_data['e']}:{tick_data['ts']}:{tick_data['tk']}"
         ltp = float(tick_data['lp'])
+        oi = tick_data.get('oi', 0)
+        volume = tick_data.get('v', 0)
         ltp_cache[symbol_key] = ltp
         process_position_update(tick_data['ts'], ltp)
         # Broadcast update to WebSocket clients for option chain
         if symbol_key in option_chain_subscriptions:
             for ws in option_chain_subscriptions[symbol_key]:
-                ws.send_json({"symbol": tick_data['ts'], "ltp": ltp, "oi": tick_data.get('oi', 0), "volume": tick_data.get('v', 0), "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')})
+                ws.send_json({
+                    "symbol": tick_data['ts'],
+                    "ltp": ltp,
+                    "oi": oi,
+                    "volume": volume,
+                    "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+                    "option_type": tick_data.get('optt', 'N/A')
+                })
     except Exception as e:
         logger.error(f"Shoonya WebSocket data error: {e}")
 
@@ -313,7 +333,7 @@ def process_position_update(tradingsymbol: str, ltp: float):
     for position in positions:
         pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                              "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
-                             "sell_type", "sell_threshold", "previous_close"], position))
+                             "sell_type", "sell_threshold", "previous_close", "option_type"], position))
         username = pos_data['username']
         if username in smart_api_instances:
             api_client = smart_api_instances[username]
@@ -503,7 +523,7 @@ def get_trades():
         trades = cursor.fetchall()
     return {"trades": [dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                                  "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
-                                 "sell_type", "sell_threshold", "previous_close"], row)) for row in trades]}
+                                 "sell_type", "sell_threshold", "previous_close", "option_type"], row)) for row in trades]}
 
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
@@ -523,6 +543,7 @@ async def initiate_trade(request: TradeRequest):
         
         params = request.dict()
         strike_price = params['strike_price']
+        option_type = params['option_type'].upper()  # Ensure "Call" or "Put"
         buy_type = params['buy_type']
         buy_threshold = params['buy_threshold']
         previous_close = params.get('previous_close', strike_price)
@@ -571,12 +592,13 @@ async def initiate_trade(request: TradeRequest):
             'symboltoken': params['symboltoken'],
             'sell_type': params.get('sell_type'),
             'sell_threshold': params.get('sell_threshold'),
-            'previous_close': params.get('previous_close')
+            'previous_close': params.get('previous_close'),
+            'option_type': option_type  # Store the selected option type
         }
 
         position_id = f"{username}_{params['tradingsymbol']}_{int(time.time())}"
         update_open_positions(position_id, username, params['tradingsymbol'], entry_price, conditions)
-        return {"message": f"LONG trade initiated for {username}", "data": buy_result, "position_id": position_id}
+        return {"message": f"LONG trade initiated for {username} ({option_type})", "data": buy_result, "position_id": position_id}
 
     except HTTPException as e:
         raise e
@@ -598,7 +620,7 @@ async def update_trade_conditions(request: UpdateTradeRequest):
         
         pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                              "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
-                             "sell_type", "sell_threshold", "previous_close"], position))
+                             "sell_type", "sell_threshold", "previous_close", "option_type"], position))
         if pos_data['username'] != username:
             raise HTTPException(status_code=403, detail="Unauthorized to modify this position")
 
@@ -698,30 +720,48 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
                 })
                 tokens.append(scrip['token'])
 
+        # Group data by strike price for CE and PE
+        grouped_data = {}
+        for item in chain_data:
+            strike = item['StrikePrice']
+            if strike not in grouped_data:
+                grouped_data[strike] = {'CE': None, 'PE': None}
+            if item['OptionType'] == 'CE':
+                grouped_data[strike]['CE'] = item
+            else:
+                grouped_data[strike]['PE'] = item
+
+        # Filter to exactly strike_count strikes, capped at 20 (10 CE, 10 PE)
+        effective_strike_count = min(request.strike_count, 20)  # Cap at 20
+        strikes = list(grouped_data.keys())
+        strikes.sort(key=lambda x: abs(x - request.strike_price))
+        filtered_strikes = strikes[:effective_strike_count]  # Take user-specified number, max 20
+
+        # Format response with paired CE and PE data
+        formatted_data = []
+        for strike in filtered_strikes:
+            ce_data = grouped_data[strike]['CE']
+            pe_data = grouped_data[strike]['PE']
+            row = {
+                'StrikePrice': strike,
+                'Call_LTP': ce_data['LTP'] if ce_data else 'N/A',
+                'Call_OI': ce_data['OI'] if ce_data else 'N/A',
+                'Call_Volume': ce_data['Volume'] if ce_data else 'N/A',
+                'Call_Token': ce_data['Token'] if ce_data else 'N/A',
+                'Put_LTP': pe_data['LTP'] if pe_data else 'N/A',
+                'Put_OI': pe_data['OI'] if pe_data else 'N/A',
+                'Put_Volume': pe_data['Volume'] if pe_data else 'N/A',
+                'Put_Token': pe_data['Token'] if pe_data else 'N/A',
+                'Timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            formatted_data.append(row)
+
         # Subscribe to real-time updates for these tokens
         if tokens:
             option_chain_subscriptions[username] = tokens  # Store tokens for this user
             api_client.subscribe(','.join(tokens))  # Subscribe to all tokens in the option chain
 
-        # Filter to exactly strike_count strikes, capped at 20 (10 CE, 10 PE)
-        effective_strike_count = min(request.strike_count, 20)  # Cap at 20
-        df = pd.DataFrame(chain_data)
-        df['StrikeDiff'] = abs(df['StrikePrice'] - request.strike_price)
-        
-        # Separate calls and puts
-        ce_df = df[df['OptionType'] == 'CE'].sort_values('StrikeDiff')
-        pe_df = df[df['OptionType'] == 'PE'].sort_values('StrikeDiff')
-        
-        # Take up to 10 calls and 10 puts (or fewer if user requests less)
-        max_per_side = effective_strike_count // 2  # Max 10 per side, adjust if odd
-        ce_filtered = ce_df.head(max_per_side)
-        pe_filtered = pe_df.head(max_per_side if effective_strike_count % 2 == 0 else max_per_side + 1)  # Add 1 if odd
-        
-        # Combine and sort by strike price
-        filtered_df = pd.concat([ce_filtered, pe_filtered]).sort_values('StrikePrice')
-        filtered_data = filtered_df.to_dict('records')
-
-        return {"message": f"Option chain data for {symbol} with expiry {expiry_str} (Limited to 20 strikes max)", "data": filtered_data}
+        return {"message": f"Option chain data for {symbol} with expiry {expiry_str} (Limited to 20 strikes max)", "data": formatted_data}
 
     except HTTPException as e:
         raise e
@@ -790,6 +830,52 @@ async def get_market_data(username: str, token: str):
         logger.error(f"Market data fetch error for {username}, token {token}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+def on_data_angel(wsapp, message):
+    global ltp_cache
+    try:
+        symbol_key = f"{message['exchange']}:{message['tradingsymbol']}:{message['symboltoken']}"
+        ltp = float(message['ltp'])
+        oi = message.get('oi', 0)
+        volume = message.get('v', 0)
+        ltp_cache[symbol_key] = ltp
+        process_position_update(message['tradingsymbol'], ltp)
+        # Broadcast update to WebSocket clients for option chain
+        if symbol_key in option_chain_subscriptions:
+            for ws in option_chain_subscriptions[symbol_key]:
+                ws.send_json({
+                    "symbol": message['tradingsymbol'],
+                    "ltp": ltp,
+                    "oi": oi,
+                    "volume": volume,
+                    "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+                    "option_type": message.get('optt', 'N/A')
+                })
+    except Exception as e:
+        logger.error(f"AngelOne WebSocket data error: {e}")
+
+def on_data_shoonya(tick_data):
+    global ltp_cache
+    try:
+        symbol_key = f"{tick_data['e']}:{tick_data['ts']}:{tick_data['tk']}"
+        ltp = float(tick_data['lp'])
+        oi = tick_data.get('oi', 0)
+        volume = tick_data.get('v', 0)
+        ltp_cache[symbol_key] = ltp
+        process_position_update(tick_data['ts'], ltp)
+        # Broadcast update to WebSocket clients for option chain
+        if symbol_key in option_chain_subscriptions:
+            for ws in option_chain_subscriptions[symbol_key]:
+                ws.send_json({
+                    "symbol": tick_data['ts'],
+                    "ltp": ltp,
+                    "oi": oi,
+                    "volume": volume,
+                    "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+                    "option_type": tick_data.get('optt', 'N/A')
+                })
+    except Exception as e:
+        logger.error(f"Shoonya WebSocket data error: {e}")
+
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8001))  # Use Render's PORT or default to 8001 locally
+    port = int(os.getenv("PORT", 8000))  # Use Render's PORT or default to 8001 locally
     uvicorn.run(app, host="0.0.0.0", port=port)
