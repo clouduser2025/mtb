@@ -823,20 +823,44 @@ const Landing = () => {
         <Modal.Body>
           {message.text && <Alert variant={message.type === "success" ? "success" : "danger"}>{message.text}</Alert>}
           <Form onSubmit={handleRegisterSubmit}>
-            <Form.Group><Form.Label>Username</Form.Label><Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required /></Form.Group>
-            <Form.Group><Form.Label>Password</Form.Label><Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required /></Form.Group>
-            <Form.Group><Form.Label>Broker</Form.Label><Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })}>
-              <option value="Shoonya">Shoonya</option>
-            </Form.Select></Form.Group>
-            <Form.Group><Form.Label>API Key</Form.Label><Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required /></Form.Group>
-            <Form.Group><Form.Label>TOTP Token</Form.Label><Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required /></Form.Group>
+            <Form.Group>
+              <Form.Label>Username</Form.Label>
+              <Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label>Password</Form.Label>
+              <Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label>Broker</Form.Label>
+              <Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })}>
+                <option value="Shoonya">Shoonya</option>
+              </Form.Select>
+            </Form.Group>
+            <Form.Group>
+              <Form.Label>API Key</Form.Label>
+              <Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required />
+            </Form.Group>
+            <Form.Group>
+              <Form.Label>TOTP Token</Form.Label>
+              <Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required />
+            </Form.Group>
             {formData.broker === "Shoonya" && (
               <>
-                <Form.Group><Form.Label>Vendor Code</Form.Label><Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required /></Form.Group>
-                <Form.Group><Form.Label>IMEI</Form.Label><Form.Control type="text" value={formData.imei} onChange={(e) => setFormData({ ...formData, imei: e.target.value })} required /></Form.Group>
+                <Form.Group>
+                  <Form.Label>Vendor Code</Form.Label>
+                  <Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required />
+                </Form.Group>
+                <Form.Group>
+                  <Form.Label>IMEI</Form.Label>
+                  <Form.Control type="text" value={formData.imei} onChange={(e) => setFormData({ ...formData, imei: e.target.value })} required />
+                </Form.Group>
               </>
             )}
-            <Form.Group><Form.Label>Default Quantity</Form.Label><Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required /></Form.Group>
+            <Form.Group>
+              <Form.Label>Default Quantity</Form.Label>
+              <Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required />
+            </Form.Group>
             <Button variant="primary" type="submit" className="mt-3">Register</Button>
           </Form>
         </Modal.Body>
