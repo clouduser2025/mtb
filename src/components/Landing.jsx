@@ -31,7 +31,7 @@ const Landing = () => {
     symbol: "BANKNIFTY", // Default to BANKNIFTY
     expiry: "", // DD-MM-YYYY format
     strike_price: 47800, // Default strike price
-    strike_count: 5, // Default number of strikes
+    strike_count: 20, // Default to 20 strikes
     option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
@@ -100,7 +100,7 @@ const Landing = () => {
       if (response.ok) {
         setOptionChainData(data.data);
         setChartSymbol(`NSE:${formData.symbol.replace(" ", "")}`); // Update chart to show index
-        setMessage({ text: `Option chain data fetched for ${formData.symbol} with expiry ${formData.expiry}!`, type: "success" });
+        setMessage({ text: `Option chain data fetched for ${formData.symbol} with expiry ${formData.expiry}! (Limited to 20 strikes max)`, type: "success" });
         setFormStep(3);
         // Start WebSocket for real-time updates
         startWebSocket(username, data.data.map(item => item.Token));
@@ -173,19 +173,27 @@ const Landing = () => {
     return () => clearInterval(pollInterval);
   };
 
-  const handleSelectStrike = (strikeData) => {
-    const selectedTs = strikeData.TradingSymbol;
+  const handleSelectStrike = (strikePrice) => {
+    // Find the corresponding call and put data for this strike
+    const callData = optionChainData.find(item => item.StrikePrice === strikePrice && item.OptionType === "CE");
+    const putData = optionChainData.find(item => item.StrikePrice === strikePrice && item.OptionType === "PE");
+    
+    const selectedTs = callData ? callData.TradingSymbol : (putData ? putData.TradingSymbol : "");
+    const symboltoken = callData ? callData.Token : (putData ? putData.Token : "");
+    const previous_close = callData ? parseFloat(callData.LTP) : (putData ? parseFloat(putData.LTP) : 0);
+    const option_type = callData ? "Call" : (putData ? "Put" : "Call"); // Default to Call if neither found
+
     setFormData({
       ...formData,
       tradingsymbol: selectedTs,
-      symboltoken: strikeData.Token,
-      previous_close: parseFloat(strikeData.LTP),
-      strike_price: parseFloat(strikeData.StrikePrice),
-      option_type: strikeData.OptionType === "CE" ? "Call" : "Put"
+      symboltoken: symboltoken,
+      previous_close: previous_close,
+      strike_price: strikePrice,
+      option_type: option_type
     });
     setChartSymbol(`NSE:${selectedTs}`); // Update chart to show selected option
     setFormStep(4);
-    startMarketUpdates(selectedUsers[0], strikeData.Token);
+    startMarketUpdates(selectedUsers[0], symboltoken);
   };
 
   const startMarketUpdates = useCallback((username, symboltoken) => {
@@ -577,14 +585,19 @@ const Landing = () => {
                     </Col>
                     <Col md={6}>
                       <Form.Group>
-                        <Form.Label>Number of Strikes</Form.Label>
+                        <Form.Label>Number of Strikes (Max 20, Default 20)</Form.Label>
                         <Form.Control
                           type="number"
                           value={formData.strike_count}
-                          onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 5 })}
+                          onChange={(e) => {
+                            const count = parseInt(e.target.value) || 20;
+                            setFormData({ ...formData, strike_count: count });
+                          }}
                           min="1"
+                          max="50"  // Allow input up to 50, but backend will cap at 20
                           required
                         />
+                        <Form.Text muted>Maximum 20 strikes will be displayed (10 calls, 10 puts).</Form.Text>
                       </Form.Group>
                     </Col>
                   </Row>
@@ -596,37 +609,45 @@ const Landing = () => {
 
             {formStep === 3 && optionChainData && (
               <>
-                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data (Expiry: {formData.expiry}) - Live Updates</h4>
+                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data (Expiry: {formData.expiry}) - Live Updates (Max 20 Strikes)</h4>
                 <Table striped bordered hover>
                   <thead>
                     <tr>
-                      <th>Trading Symbol</th>
                       <th>Strike Price</th>
-                      <th>Option Type</th>
-                      <th>LTP</th>
-                      <th>OI</th>
-                      <th>Volume</th>
+                      <th>Call LTP</th>
+                      <th>Call OI</th>
+                      <th>Call Volume</th>
+                      <th>Put LTP</th>
+                      <th>Put OI</th>
+                      <th>Put Volume</th>
                       <th>Last Update</th>
                       <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {optionChainData.map((strikeData, index) => (
-                      <tr key={index}>
-                        <td>{strikeData.TradingSymbol}</td>
-                        <td>{strikeData.StrikePrice}</td>
-                        <td>{strikeData.OptionType}</td>
-                        <td>{strikeData.LTP}</td>
-                        <td>{strikeData.OI}</td>
-                        <td>{strikeData.Volume}</td>
-                        <td>{strikeData.timestamp || "N/A"}</td>
-                        <td>
-                          <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData)}>
-                            Select
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                    {[...new Set(optionChainData.map(item => item.StrikePrice))].slice(0, 20).map(strikePrice => {
+                      const callData = optionChainData.find(item => item.StrikePrice === strikePrice && item.OptionType === "CE");
+                      const putData = optionChainData.find(item => item.StrikePrice === strikePrice && item.OptionType === "PE");
+                      const lastUpdate = callData?.timestamp || putData?.timestamp || "N/A";
+
+                      return (
+                        <tr key={strikePrice}>
+                          <td>{strikePrice}</td>
+                          <td>{callData?.LTP || "N/A"}</td>
+                          <td>{callData?.OI || "N/A"}</td>
+                          <td>{callData?.Volume || "N/A"}</td>
+                          <td>{putData?.LTP || "N/A"}</td>
+                          <td>{putData?.OI || "N/A"}</td>
+                          <td>{putData?.Volume || "N/A"}</td>
+                          <td>{lastUpdate}</td>
+                          <td>
+                            <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikePrice)}>
+                              Select
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </Table>
                 <Button variant="secondary" onClick={() => { setFormStep(2); if (ws) ws.close(); setOptionChainData(null); }} className="mt-2">Back</Button>

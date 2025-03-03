@@ -105,7 +105,7 @@ class OptionChainRequest(BaseModel):
     symbol: str
     expiry_date: str  # Format: DD-MM-YYYY
     strike_price: float
-    strike_count: int = 5  # User specifies exact number of strikes
+    strike_count: int = 20  # Default to 20 strikes, but cap at 20
 
 smart_api_instances = {}
 ltp_cache = {}
@@ -662,12 +662,12 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         base_symbol = search_result['values'][0]['tsym']
         logger.info(f"Using base symbol: {base_symbol} for user {username}")
 
-        # Fetch option chain with enough strikes to cover user request
+        # Fetch option chain with enough strikes to cover user request (up to 40 to ensure we can cap at 20)
         chain = api_client.get_option_chain(
             exchange=request.exchange,
             tradingsymbol=base_symbol,
             strikeprice=str(request.strike_price),
-            count=str(max(10, request.strike_count * 2))  # Fetch at least 10 or 2x requested strikes
+            count=str(max(40, request.strike_count * 2))  # Fetch up to 40 to ensure we can cap at 20
         )
 
         if not chain or 'values' not in chain:
@@ -703,7 +703,8 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
             option_chain_subscriptions[username] = tokens  # Store tokens for this user
             api_client.subscribe(','.join(tokens))  # Subscribe to all tokens in the option chain
 
-        # Filter to exactly strike_count strikes (split between CE and PE)
+        # Filter to exactly strike_count strikes, capped at 20 (10 CE, 10 PE)
+        effective_strike_count = min(request.strike_count, 20)  # Cap at 20
         df = pd.DataFrame(chain_data)
         df['StrikeDiff'] = abs(df['StrikePrice'] - request.strike_price)
         
@@ -711,10 +712,10 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         ce_df = df[df['OptionType'] == 'CE'].sort_values('StrikeDiff')
         pe_df = df[df['OptionType'] == 'PE'].sort_values('StrikeDiff')
         
-        # Take half of strike_count for each (rounded up if odd)
-        half_count = (request.strike_count + 1) // 2  # Ensures at least half for each
-        ce_filtered = ce_df.head(half_count)
-        pe_filtered = pe_df.head(request.strike_count - half_count)  # Remaining for puts
+        # Take up to 10 calls and 10 puts (or fewer if user requests less)
+        max_per_side = effective_strike_count // 2  # Max 10 per side, adjust if odd
+        ce_filtered = ce_df.head(max_per_side)
+        pe_filtered = pe_df.head(max_per_side if effective_strike_count % 2 == 0 else max_per_side + 1)  # Add 1 if odd
         
         # Combine and sort by strike price
         filtered_df = pd.concat([ce_filtered, pe_filtered]).sort_values('StrikePrice')
