@@ -594,46 +594,67 @@ const Landing = () => {
               </>
             )}
 
-            {formStep === 3 && optionChainData && (
-              <>
-                <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: Option Chain Data (Expiry: {formData.expiry}) - Live Updates</h4>
-                <Table striped bordered hover>
-                  <thead>
-                    <tr>
-                      <th>Trading Symbol</th>
-                      <th>Strike Price</th>
-                      <th>Option Type</th>
-                      <th>LTP</th>
-                      <th>OI</th>
-                      <th>Volume</th>
-                      <th>Last Update</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {optionChainData.map((strikeData, index) => (
-                      <tr key={index}>
-                        <td>{strikeData.TradingSymbol}</td>
-                        <td>{strikeData.StrikePrice}</td>
-                        <td>{strikeData.OptionType}</td>
-                        <td>{strikeData.LTP}</td>
-                        <td>{strikeData.OI}</td>
-                        <td>{strikeData.Volume}</td>
-                        <td>{strikeData.timestamp || "N/A"}</td>
-                        <td>
-                          <Button variant="primary" size="sm" onClick={() => handleSelectStrike(strikeData)}>
-                            Select
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-                <Button variant="secondary" onClick={() => { setFormStep(2); if (ws) ws.close(); setOptionChainData(null); }} className="mt-2">Back</Button>
-              </>
-            )}
+          {formStep === 3 && optionChainData && (
+            <>
+              <h4 className="text-success"><FontAwesomeIcon icon={faChartLine} /> Step 3: {formData.symbol} Option Chain</h4>
+              <Table striped bordered hover className="option-chain-table">
+                <thead>
+                  <tr>
+                    <th>Strike Price</th>
+                    <th>Call LTP</th>
+                    <th>Call OI</th>
+                    <th>Call Volume</th>
+                    <th>Put LTP</th>
+                    <th>Put OI</th>
+                    <th>Put Volume</th>
+                    <th>Last Update</th>
+                    <th>Action (Call/Put)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    // Group data by strike price and sort by strike price
+                    const strikes = [...new Set(optionChainData.map(d => d.StrikePrice))].sort((a, b) => a - b);
+                    return strikes.map(strike => {
+                      const call = optionChainData.find(d => d.StrikePrice === strike && d.OptionType === "CE") || {};
+                      const put = optionChainData.find(d => d.StrikePrice === strike && d.OptionType === "PE") || {};
+                      const lastUpdate = (call.timestamp || put.timestamp) || "N/A";
 
-            {formStep === 4 && (
+                      return (
+                        <tr key={strike}>
+                          <td>{strike}</td>
+                          <td>{call.LTP || "N/A"}</td>
+                          <td>{call.OI || "N/A"}</td>
+                          <td>{call.Volume || "N/A"}</td>
+                          <td>{put.LTP || "N/A"}</td>
+                          <td>{put.OI || "N/A"}</td>
+                          <td>{put.Volume || "N/A"}</td>
+                          <td>{lastUpdate}</td>
+                          <td>
+                            <ButtonGroup>
+                              {call.TradingSymbol && (
+                                <Button variant="primary" size="sm" onClick={() => handleSelectStrike(call)}>
+                                  Select Call
+                                </Button>
+                              )}
+                              {put.TradingSymbol && (
+                                <Button variant="secondary" size="sm" onClick={() => handleSelectStrike(put)} className="ms-2">
+                                  Select Put
+                                </Button>
+                              )}
+                            </ButtonGroup>
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </Table>
+              <Button variant="secondary" onClick={() => { setFormStep(2); if (ws) ws.forEach(w => w.close()); setOptionChainData(null); }} className="mt-2">Back</Button>
+            </>
+          )}
+
+                      {formStep === 4 && (
               <>
                 <h4 className="text-success"><FontAwesomeIcon icon={faShoppingCart} /> Step 4: Set Buy, Stop-Loss, and Sell Conditions (Live Market Data)</h4>
                 <p><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>

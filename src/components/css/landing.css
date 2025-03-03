@@ -276,3 +276,32 @@
   background: #ffffff;
   border-radius: 0 0 15px 15px;
 }
+
+.option-chain-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.option-chain-table th, .option-chain-table td {
+  text-align: center;
+  vertical-align: middle;
+  padding: 8px;
+}
+
+.option-chain-table th {
+  background-color: #f8f9fa;
+  font-weight: bold;
+}
+
+.option-chain-table .btn-group {
+  display: flex;
+  justify-content: center;
+}
+
+.option-chain-table .btn {
+  padding: 0.25rem 0.5rem;
+}
+
+.option-chain-table tr:nth-child(even) {
+  background-color: #f8f9fa;
+}
