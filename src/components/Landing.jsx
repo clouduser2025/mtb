@@ -93,15 +93,15 @@ const Landing = () => {
           username,
           exchange: formData.exchange,
           symbol: formData.symbol,
-          expiry_date: formData.expiry,
-          strike_price: formData.strike_price,
-          strike_count: formData.strike_count
+          expiry_date: formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO" ? formData.expiry : undefined,
+          strike_price: formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO" ? formData.strike_price : undefined,
+          strike_count: formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO" ? formData.strike_count : undefined
         }),
       });
 
       const data = await response.json();
       if (response.ok) {
-        if (formData.exchange === "NFO") {
+        if (formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO") {
           setOptionChainData(data.data);
           setChartSymbol(formatChartSymbol(formData.symbol, formData.exchange));
           setMessage({ text: `Option chain data fetched for ${formData.symbol}!`, type: "success" });
@@ -132,7 +132,7 @@ const Landing = () => {
       tokenWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
         console.log(`WebSocket data for token ${token}:`, data);
-        if (formData.exchange === "NFO") {
+        if (formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO") {
           setOptionChainData(prevData => prevData?.map(item => ({
             ...item,
             Call: item.Call.Token === token ? { ...item.Call, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item.Call,
@@ -175,7 +175,7 @@ const Landing = () => {
         if (response.ok) {
           const data = await response.json();
           console.log(`Polling data for token ${token}:`, data);
-          if (formData.exchange === "NFO") {
+          if (formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO") {
             setOptionChainData(prevData => prevData?.map(item => ({
               ...item,
               Call: item.Call.Token === token ? { ...item.Call, LTP: data.ltp, OI: data.oi, Volume: data.market_data?.v, timestamp: data.market_data?.ft } : item.Call,
@@ -206,7 +206,6 @@ const Landing = () => {
     return () => clearInterval(pollInterval);
   };
 
-  // Function to update buy_threshold based on buy_type
   const updateBuyThreshold = (currentLtp) => {
     const { buy_type, buy_threshold, previous_close } = formData;
     let newThreshold;
@@ -234,11 +233,11 @@ const Landing = () => {
       ...formData,
       tradingsymbol: strikeData.TradingSymbol || assetName,
       symboltoken: strikeData.Token,
-      previous_close: parseFloat(strikeData.LTP) || 0, // Set Prev Close to initial LTP
+      previous_close: parseFloat(strikeData.LTP) || 0,
       strike_price: parseInt(strikeData.StrikePrice, 10),
       option_type: isCall ? "Call" : "Put",
-      buy_type: "Fixed", // Default buy type
-      buy_threshold: parseFloat(strikeData.LTP) || 0 // Initialize Buy Threshold with LTP
+      buy_type: "Fixed",
+      buy_threshold: parseFloat(strikeData.LTP) || 0
     });
     setMarketData({
       ltp: parseFloat(strikeData.LTP) || 0.0,
@@ -270,7 +269,7 @@ const Landing = () => {
         volume: data.volume || 0,
         timestamp: data.timestamp || new Date().toISOString()
       });
-      updateBuyThreshold(data.ltp); // Update threshold with real-time LTP
+      updateBuyThreshold(data.ltp);
     };
     newWs.onerror = (error) => {
       console.error("WebSocket error for market updates:", error);
@@ -352,7 +351,7 @@ const Landing = () => {
           tradingsymbol: formData.tradingsymbol,
           symboltoken: formData.symboltoken,
           exchange: formData.exchange,
-          strike_price: formData.strike_price,
+          strike_price: formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO" ? formData.strike_price : undefined,
           buy_type: formData.buy_type,
           buy_threshold: formData.buy_threshold,
           previous_close: formData.previous_close,
@@ -582,10 +581,12 @@ const Landing = () => {
                         <Form.Group>
                           <Form.Label>Exchange</Form.Label>
                           <Form.Select value={formData.exchange} onChange={(e) => setFormData({ ...formData, exchange: e.target.value })}>
-                            <option value="NFO">NFO</option>
                             <option value="NSE">NSE</option>
-                            <option value="BSE">BSE</option>
+                            <option value="NFO">NFO</option>
                             <option value="MCX">MCX</option>
+                            <option value="BSE">BSE</option>
+                            <option value="CDS">CDS</option>
+                            <option value="BFO">BFO</option>
                           </Form.Select>
                         </Form.Group>
                       </Col>
@@ -599,12 +600,13 @@ const Landing = () => {
                             value={formData.expiry}
                             onChange={(e) => setFormData({ ...formData, expiry: e.target.value })}
                             placeholder="e.g., 27-03-2025"
-                            required={formData.exchange === "NFO"}
+                            required={formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO"}
+                            disabled={formData.exchange !== "NFO" && formData.exchange !== "CDS" && formData.exchange !== "BFO"}
                           />
                         </Form.Group>
                       </Col>
                     </Row>
-                    {formData.exchange === "NFO" && (
+                    {(formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO") && (
                       <Row className="mb-3">
                         <Col md={6}>
                           <Form.Group>
@@ -613,6 +615,7 @@ const Landing = () => {
                               type="number"
                               value={formData.strike_price}
                               onChange={(e) => setFormData({ ...formData, strike_price: parseFloat(e.target.value) || 0 })}
+                              disabled={formData.exchange !== "NFO" && formData.exchange !== "CDS" && formData.exchange !== "BFO"}
                             />
                           </Form.Group>
                         </Col>
@@ -623,6 +626,7 @@ const Landing = () => {
                               type="number"
                               value={formData.strike_count}
                               onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 5 })}
+                              disabled={formData.exchange !== "NFO" && formData.exchange !== "CDS" && formData.exchange !== "BFO"}
                             />
                           </Form.Group>
                         </Col>
@@ -638,7 +642,7 @@ const Landing = () => {
                 </div>
               )}
 
-              {formStep === 3 && optionChainData && (
+              {formStep === 3 && optionChainData && (formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO") && (
                 <div>
                   <h5>Select Option</h5>
                   <Table striped hover responsive>
@@ -681,7 +685,7 @@ const Landing = () => {
                   <Card className="mb-3 p-3">
                     <p><strong>Asset:</strong> {formData.tradingsymbol}</p>
                     <p><strong>Exchange:</strong> {formData.exchange}</p>
-                    {formData.exchange === "NFO" && (
+                    {(formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO") && (
                       <>
                         <p><strong>Type:</strong> {formData.option_type}</p>
                         <p><strong>Strike:</strong> {formData.strike_price}</p>
@@ -692,7 +696,7 @@ const Landing = () => {
                   <Button variant="success" onClick={handleConfirmTrade}>
                     <FontAwesomeIcon icon={faCheck} /> Confirm
                   </Button>
-                  <Button variant="outline-secondary" className="ms-2" onClick={() => setFormStep(formData.exchange === "NFO" ? 3 : 2)}>
+                  <Button variant="outline-secondary" className="ms-2" onClick={() => setFormStep(formData.exchange === "NFO" || formData.exchange === "CDS" || formData.exchange === "BFO" ? 3 : 2)}>
                     <FontAwesomeIcon icon={faArrowLeft} /> Back
                   </Button>
                 </div>
@@ -723,7 +727,7 @@ const Landing = () => {
                       </Col>
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>Buy Threshold</Form.Label>
+                          <Form.Label>Buy Threshold</Label>
                           <Form.Control
                             type="number"
                             step="0.01"
@@ -748,7 +752,7 @@ const Landing = () => {
                               setFormData(prev => ({ ...prev, previous_close: value }));
                               updateBuyThreshold(marketData.ltp); // Recalculate on prev close change
                             }}
-                            readOnly // Keep as reference, update only via LTP initially
+                            readOnly // Keep as reference, updated via LTP initially
                           />
                         </Form.Group>
                       </Col>

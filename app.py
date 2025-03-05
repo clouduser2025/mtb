@@ -121,10 +121,14 @@ feed_tokens = {}
 option_chain_subscriptions = {}
 
 def load_symbol_data():
-    global nse_symbols, nfo_symbols
+    global nse_symbols, nfo_symbols, mcx_symbols, bse_symbols, cds_symbols, bfo_symbols
     base_path = os.path.dirname(os.path.abspath(__file__))
     nse_file_path = os.path.join(base_path, "data", "NSE_symbols.txt")
     nfo_file_path = os.path.join(base_path, "data", "NFO_symbols.txt")
+    mcx_file_path = os.path.join(base_path, "data", "MCX_symbols.txt")
+    bse_file_path = os.path.join(base_path, "data", "BSE_symbols.txt")
+    cds_file_path = os.path.join(base_path, "data", "CDS_symbols.txt")
+    bfo_file_path = os.path.join(base_path, "data", "BFO_symbols.txt")
     
     if os.path.exists(nse_file_path):
         try:
@@ -148,6 +152,50 @@ def load_symbol_data():
         logger.warning(f"NFO symbols file not found at {nfo_file_path}. Proceeding with empty NFO symbols.")
         nfo_symbols = pd.DataFrame()
 
+    if os.path.exists(mcx_file_path):
+        try:
+            mcx_symbols = pd.read_csv(mcx_file_path)
+            logger.info(f"Loaded MCX symbols: {len(mcx_symbols)} entries from {mcx_file_path}")
+        except Exception as e:
+            logger.error(f"Failed to load MCX symbols from {mcx_file_path}: {e}")
+            mcx_symbols = pd.DataFrame()
+    else:
+        logger.warning(f"MCX symbols file not found at {mcx_file_path}. Proceeding with empty MCX symbols.")
+        mcx_symbols = pd.DataFrame()
+
+    if os.path.exists(bse_file_path):
+        try:
+            bse_symbols = pd.read_csv(bse_file_path)
+            logger.info(f"Loaded BSE symbols: {len(bse_symbols)} entries from {bse_file_path}")
+        except Exception as e:
+            logger.error(f"Failed to load BSE symbols from {bse_file_path}: {e}")
+            bse_symbols = pd.DataFrame()
+    else:
+        logger.warning(f"BSE symbols file not found at {bse_file_path}. Proceeding with empty BSE symbols.")
+        bse_symbols = pd.DataFrame()
+
+    if os.path.exists(cds_file_path):
+        try:
+            cds_symbols = pd.read_csv(cds_file_path)
+            logger.info(f"Loaded CDS symbols: {len(cds_symbols)} entries from {cds_file_path}")
+        except Exception as e:
+            logger.error(f"Failed to load CDS symbols from {cds_file_path}: {e}")
+            cds_symbols = pd.DataFrame()
+    else:
+        logger.warning(f"CDS symbols file not found at {cds_file_path}. Proceeding with empty CDS symbols.")
+        cds_symbols = pd.DataFrame()
+
+    if os.path.exists(bfo_file_path):
+        try:
+            bfo_symbols = pd.read_csv(bfo_file_path)
+            logger.info(f"Loaded BFO symbols: {len(bfo_symbols)} entries from {bfo_file_path}")
+        except Exception as e:
+            logger.error(f"Failed to load BFO symbols from {bfo_file_path}: {e}")
+            bfo_symbols = pd.DataFrame()
+    else:
+        logger.warning(f"BFO symbols file not found at {bfo_file_path}. Proceeding with empty BFO symbols.")
+        bfo_symbols = pd.DataFrame()
+
 def find_symbols(exchange: str, symbol: str, expiry_date: str = None):
     if exchange == "NSE" and not nse_symbols.empty:
         df = nse_symbols
@@ -157,6 +205,54 @@ def find_symbols(exchange: str, symbol: str, expiry_date: str = None):
     
     elif exchange == "NFO" and not nfo_symbols.empty:
         df = nfo_symbols
+        filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
+                      df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
+        if expiry_date:
+            try:
+                expiry_dt = datetime.datetime.strptime(expiry_date, '%d-%m-%Y')
+                expiry_str = expiry_dt.strftime('%d-%b-%Y').upper()
+                filtered = filtered[filtered['Expiry'] == expiry_str]
+            except ValueError:
+                logger.error(f"Invalid expiry date format: {expiry_date}")
+                return []
+        return filtered.to_dict('records') if not filtered.empty else []
+    
+    elif exchange == "MCX" and not mcx_symbols.empty:
+        df = mcx_symbols
+        filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
+                      df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
+        if expiry_date:
+            try:
+                expiry_dt = datetime.datetime.strptime(expiry_date, '%d-%m-%Y')
+                expiry_str = expiry_dt.strftime('%d-%b-%Y').upper()
+                filtered = filtered[filtered['Expiry'] == expiry_str]
+            except ValueError:
+                logger.error(f"Invalid expiry date format: {expiry_date}")
+                return []
+        return filtered.to_dict('records') if not filtered.empty else []
+    
+    elif exchange == "BSE" and not bse_symbols.empty:
+        df = bse_symbols
+        filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
+                      df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
+        return filtered.to_dict('records') if not filtered.empty else []
+    
+    elif exchange == "CDS" and not cds_symbols.empty:
+        df = cds_symbols
+        filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
+                      df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
+        if expiry_date:
+            try:
+                expiry_dt = datetime.datetime.strptime(expiry_date, '%d-%m-%Y')
+                expiry_str = expiry_dt.strftime('%d-%b-%Y').upper()
+                filtered = filtered[filtered['Expiry'] == expiry_str]
+            except ValueError:
+                logger.error(f"Invalid expiry date format: {expiry_date}")
+                return []
+        return filtered.to_dict('records') if not filtered.empty else []
+    
+    elif exchange == "BFO" and not bfo_symbols.empty:
+        df = bfo_symbols
         filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
                       df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
         if expiry_date:
