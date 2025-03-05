@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
-import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup, Card } from 'react-bootstrap';
+import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup, Card, OverlayTrigger, Tooltip } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign,
-  faArrowRight, faSearch, faArrowLeft, faCheckCircle, faCheck, faEdit
+  faArrowRight, faSearch, faArrowLeft, faCheckCircle, faCheck, faEdit, faQuestionCircle
 } from '@fortawesome/free-solid-svg-icons';
 import './css/landing.css';
 
@@ -40,7 +40,7 @@ const Landing = () => {
     symboltoken: "",
     exchange: "NFO",
     buy_type: "Fixed",
-    buy_threshold: 110,
+    buy_threshold: 0,
     previous_close: 0,
     producttype: "INTRADAY",
     stop_loss_type: "Fixed",
@@ -145,7 +145,8 @@ const Landing = () => {
               volume: data.volume || 0,
               timestamp: data.timestamp || new Date().toISOString()
             });
-            updateBuyThreshold(data.ltp); // Update threshold with real-time LTP
+            updateBuyThreshold(data.ltp);
+            updateSellThreshold(data.ltp);
           }
         } else {
           setMarketData(prev => ({
@@ -188,7 +189,8 @@ const Landing = () => {
                 volume: data.market_data?.v || 0,
                 timestamp: data.market_data?.ft || new Date().toISOString()
               });
-              updateBuyThreshold(data.ltp); // Update threshold with polled LTP
+              updateBuyThreshold(data.ltp);
+              updateSellThreshold(data.ltp);
             }
           } else {
             setMarketData({
@@ -211,13 +213,13 @@ const Landing = () => {
     let newThreshold;
     switch (buy_type) {
       case "Fixed":
-        newThreshold = parseFloat(buy_threshold) || currentLtp; // Use user input or current LTP
+        newThreshold = parseFloat(buy_threshold) || currentLtp; // Fixed price to buy at
         break;
       case "Percentage":
-        newThreshold = previous_close * (1 + (parseFloat(buy_threshold) || 0) / 100);
+        newThreshold = previous_close * (1 + (parseFloat(buy_threshold) || 0) / 100); // % increase from prev close
         break;
       case "Points":
-        newThreshold = currentLtp + (parseFloat(buy_threshold) || 0);
+        newThreshold = currentLtp + (parseFloat(buy_threshold) || 0); // Points above current LTP
         break;
       default:
         newThreshold = currentLtp;
@@ -225,9 +227,25 @@ const Landing = () => {
     setFormData(prev => ({ ...prev, buy_threshold: newThreshold }));
   };
 
+  const updateSellThreshold = (currentLtp) => {
+    const { sell_type, sell_threshold, previous_close } = formData;
+    let newThreshold;
+    switch (sell_type) {
+      case "Fixed":
+        newThreshold = parseFloat(sell_threshold) || 0; // Fixed price to sell at
+        break;
+      case "Percentage":
+        newThreshold = previous_close * (1 - (parseFloat(sell_threshold) || 0) / 100); // % decrease from prev close
+        break;
+      default:
+        newThreshold = 0;
+    }
+    setFormData(prev => ({ ...prev, sell_threshold: newThreshold }));
+  };
+
   const handleSelectStrike = (strikeData) => {
     const isCall = strikeData.OptionType === "CE";
-    const expiry = formData.expiry ? formData.expiry.replace(/-/g, "").slice(0, 6) : "27MAR25"; // Adjust based on your expiry format
+    const expiry = formData.expiry ? formData.expiry.replace(/-/g, "").slice(0, 6) : "27MAR25";
     const assetName = `${formData.symbol}${expiry}${isCall ? "C" : "P"}${strikeData.StrikePrice}`;
     setFormData({
       ...formData,
@@ -237,7 +255,9 @@ const Landing = () => {
       strike_price: parseInt(strikeData.StrikePrice, 10),
       option_type: isCall ? "Call" : "Put",
       buy_type: "Fixed",
-      buy_threshold: parseFloat(strikeData.LTP) || 0
+      buy_threshold: parseFloat(strikeData.LTP) || 0,
+      sell_type: "Fixed",
+      sell_threshold: 90
     });
     setMarketData({
       ltp: parseFloat(strikeData.LTP) || 0.0,
@@ -270,6 +290,7 @@ const Landing = () => {
         timestamp: data.timestamp || new Date().toISOString()
       });
       updateBuyThreshold(data.ltp);
+      updateSellThreshold(data.ltp);
     };
     newWs.onerror = (error) => {
       console.error("WebSocket error for market updates:", error);
@@ -707,7 +728,7 @@ const Landing = () => {
                   <h5>Trade Conditions</h5>
                   <p><strong>Live:</strong> LTP: ₹{marketData.ltp.toFixed(2) || '0.00'}, OI: {marketData.oi}, Vol: {marketData.volume}</p>
                   <Form>
-                    <Row className="mb-3">
+                    <Row className="mb-3 align-items-center">
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Buy Type</Form.Label>
@@ -715,7 +736,7 @@ const Landing = () => {
                             const newBuyType = e.target.value;
                             setFormData(prev => {
                               const updated = { ...prev, buy_type: newBuyType };
-                              updateBuyThreshold(marketData.ltp, newBuyType); // Recalculate on change
+                              updateBuyThreshold(marketData.ltp, newBuyType);
                               return updated;
                             });
                           }}>
@@ -727,17 +748,32 @@ const Landing = () => {
                       </Col>
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>Buy Threshold</Label>
-                          <Form.Control
-                            type="number"
-                            step="0.01"
-                            value={formData.buy_threshold}
-                            onChange={(e) => {
-                              const value = parseFloat(e.target.value) || 0;
-                              setFormData(prev => ({ ...prev, buy_threshold: value }));
-                              updateBuyThreshold(marketData.ltp); // Recalculate on manual input
-                            }}
-                          />
+                          <Form.Label>Buy Threshold</Form.Label>
+                          <div className="input-group">
+                            <Form.Control
+                              type="number"
+                              step="0.01"
+                              value={formData.buy_threshold}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                setFormData(prev => ({ ...prev, buy_threshold: value }));
+                                updateBuyThreshold(marketData.ltp);
+                              }}
+                              placeholder={formData.buy_type === "Fixed" ? "Enter Fixed Price (₹)" : formData.buy_type === "Percentage" ? "Enter % Increase" : "Enter Points"}
+                            />
+                            <OverlayTrigger
+                              placement="top"
+                              overlay={
+                                <Tooltip id="buy-threshold-tooltip">
+                                  {formData.buy_type === "Fixed" && "Enter a fixed price (e.g., 412.90 to buy at that price)."}
+                                  {formData.buy_type === "Percentage" && "Enter % increase from Prev Close (e.g., 5 for 5% above 412.90 = 433.55)."}
+                                  {formData.buy_type === "Points" && "Enter points above current LTP (e.g., 10 for 412.90 + 10 = 422.90)."}
+                                </Tooltip>
+                              }
+                            >
+                              <span className="input-group-text"><FontAwesomeIcon icon={faQuestionCircle} /></span>
+                            </OverlayTrigger>
+                          </div>
                         </Form.Group>
                       </Col>
                       <Col md={4}>
@@ -750,14 +786,15 @@ const Landing = () => {
                             onChange={(e) => {
                               const value = parseFloat(e.target.value) || 0;
                               setFormData(prev => ({ ...prev, previous_close: value }));
-                              updateBuyThreshold(marketData.ltp); // Recalculate on prev close change
+                              updateBuyThreshold(marketData.ltp);
+                              updateSellThreshold(marketData.ltp);
                             }}
-                            readOnly // Keep as reference, updated via LTP initially
+                            readOnly
                           />
                         </Form.Group>
                       </Col>
                     </Row>
-                    <Row className="mb-3">
+                    <Row className="mb-3 align-items-center">
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Product Type</Form.Label>
@@ -771,7 +808,10 @@ const Landing = () => {
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>SL Type</Form.Label>
-                          <Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}>
+                          <Form.Select value={formData.stop_loss_type} onChange={(e) => {
+                            const newSlType = e.target.value;
+                            setFormData(prev => ({ ...prev, stop_loss_type: newSlType }));
+                          }}>
                             <option value="Fixed">Fixed</option>
                             <option value="Percentage">Percentage</option>
                             <option value="Points">Points</option>
@@ -781,21 +821,40 @@ const Landing = () => {
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>SL Value</Form.Label>
-                          <Form.Control type="number" step="0.01" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} />
+                          <Form.Control
+                            type="number"
+                            step="0.01"
+                            value={formData.stop_loss_value}
+                            onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })}
+                            placeholder={formData.stop_loss_type === "Fixed" ? "Enter Fixed SL (₹)" : formData.stop_loss_type === "Percentage" ? "Enter % Loss" : "Enter Points"}
+                          />
                         </Form.Group>
                       </Col>
                     </Row>
-                    <Row className="mb-3">
+                    <Row className="mb-3 align-items-center">
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>Points</Form.Label>
-                          <Form.Control type="number" step="0.01" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} />
+                          <Form.Label>Points Condition</Form.Label>
+                          <Form.Control
+                            type="number"
+                            step="0.01"
+                            value={formData.points_condition}
+                            onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })}
+                            placeholder="Enter negative points for base adjustment (e.g., -2)"
+                          />
                         </Form.Group>
                       </Col>
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Sell Type</Form.Label>
-                          <Form.Select value={formData.sell_type} onChange={(e) => setFormData({ ...formData, sell_type: e.target.value })}>
+                          <Form.Select value={formData.sell_type} onChange={(e) => {
+                            const newSellType = e.target.value;
+                            setFormData(prev => {
+                              const updated = { ...prev, sell_type: newSellType };
+                              updateSellThreshold(marketData.ltp, newSellType);
+                              return updated;
+                            });
+                          }}>
                             <option value="Fixed">Fixed</option>
                             <option value="Percentage">Percentage</option>
                           </Form.Select>
@@ -804,7 +863,30 @@ const Landing = () => {
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Sell Threshold</Form.Label>
-                          <Form.Control type="number" step="0.01" value={formData.sell_threshold} onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })} />
+                          <div className="input-group">
+                            <Form.Control
+                              type="number"
+                              step="0.01"
+                              value={formData.sell_threshold}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0;
+                                setFormData(prev => ({ ...prev, sell_threshold: value }));
+                                updateSellThreshold(marketData.ltp);
+                              }}
+                              placeholder={formData.sell_type === "Fixed" ? "Enter Fixed Price (₹)" : "Enter % Decrease"}
+                            />
+                            <OverlayTrigger
+                              placement="top"
+                              overlay={
+                                <Tooltip id="sell-threshold-tooltip">
+                                  {formData.sell_type === "Fixed" && "Enter a fixed price to sell at (e.g., 390)."}
+                                  {formData.sell_type === "Percentage" && "Enter % decrease from Prev Close (e.g., 5 for 5% below 412.90 = 392.26)."}
+                                </Tooltip>
+                              }
+                            >
+                              <span className="input-group-text"><FontAwesomeIcon icon={faQuestionCircle} /></span>
+                            </OverlayTrigger>
+                          </div>
                         </Form.Group>
                       </Col>
                     </Row>
