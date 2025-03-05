@@ -30,8 +30,8 @@ app.add_middleware(
 conn = sqlite3.connect("trading_multi.db", check_same_thread=False)
 
 # Global variables to store symbol data
-nse_symbols = None
-nfo_symbols = None
+nse_symbols = pd.DataFrame()  # Initialize as empty DataFrame
+nfo_symbols = pd.DataFrame()  # Initialize as empty DataFrame
 
 def init_db():
     with conn:
@@ -120,46 +120,59 @@ refresh_tokens = {}
 feed_tokens = {}
 option_chain_subscriptions = {}
 
+# Updated load_symbol_data function
 def load_symbol_data():
     global nse_symbols, nfo_symbols
     try:
-        nse_file_path = "C:/Users/shafe/mtb-master/NSE_symbols.txt"
-        nfo_file_path = "C:/Users/shafe/mtb-master/NFO_symbols.txt"
+        # Use relative paths from the location of app.py
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        nse_file_path = os.path.join(base_path, "data", "NSE_symbols.txt")
+        nfo_file_path = os.path.join(base_path, "data", "NFO_symbols.txt")
         
+        # Load NSE symbols if file exists, otherwise proceed with empty DataFrame
         if os.path.exists(nse_file_path):
             nse_symbols = pd.read_csv(nse_file_path)
-            logger.info(f"Loaded NSE symbols: {len(nse_symbols)} entries")
+            logger.info(f"Loaded NSE symbols: {len(nse_symbols)} entries from {nse_file_path}")
         else:
-            logger.error(f"NSE symbols file not found at {nse_file_path}")
-            raise FileNotFoundError(f"NSE symbols file not found at {nse_file_path}")
+            logger.warning(f"NSE symbols file not found at {nse_file_path}. Proceeding with empty NSE symbols.")
+            nse_symbols = pd.DataFrame()
 
+        # Load NFO symbols if file exists, otherwise proceed with empty DataFrame
         if os.path.exists(nfo_file_path):
             nfo_symbols = pd.read_csv(nfo_file_path)
-            logger.info(f"Loaded NFO symbols: {len(nfo_symbols)} entries")
+            logger.info(f"Loaded NFO symbols: {len(nfo_symbols)} entries from {nfo_file_path}")
         else:
-            logger.error(f"NFO symbols file not found at {nfo_file_path}")
-            raise FileNotFoundError(f"NFO symbols file not found at {nfo_file_path}")
+            logger.warning(f"NFO symbols file not found at {nfo_file_path}. Proceeding with empty NFO symbols.")
+            nfo_symbols = pd.DataFrame()
     except Exception as e:
         logger.error(f"Error loading symbol data: {e}")
-        raise
+        # Instead of raising, log the error and proceed with empty DataFrames
+        nse_symbols = pd.DataFrame()
+        nfo_symbols = pd.DataFrame()
 
+# Updated find_symbols function
 def find_symbols(exchange: str, symbol: str, expiry_date: str = None):
-    if exchange == "NSE":
+    if exchange == "NSE" and not nse_symbols.empty:
         df = nse_symbols
         filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
                       df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
         return filtered.to_dict('records') if not filtered.empty else []
     
-    elif exchange == "NFO":
+    elif exchange == "NFO" and not nfo_symbols.empty:
         df = nfo_symbols
         filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
                       df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
         if expiry_date:
-            expiry_dt = datetime.datetime.strptime(expiry_date, '%d-%m-%Y')
-            expiry_str = expiry_dt.strftime('%d-%b-%Y').upper()
-            filtered = filtered[filtered['Expiry'] == expiry_str]
+            try:
+                expiry_dt = datetime.datetime.strptime(expiry_date, '%d-%m-%Y')
+                expiry_str = expiry_dt.strftime('%d-%b-%Y').upper()
+                filtered = filtered[filtered['Expiry'] == expiry_str]
+            except ValueError:
+                logger.error(f"Invalid expiry date format: {expiry_date}")
+                return []
         return filtered.to_dict('records') if not filtered.empty else []
     
+    logger.warning(f"No symbol data available for {exchange} or symbol {symbol}")
     return []
 
 def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None, imei: str = "trading_app"):
