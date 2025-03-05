@@ -30,8 +30,12 @@ app.add_middleware(
 conn = sqlite3.connect("trading_multi.db", check_same_thread=False)
 
 # Global variables to store symbol data
-nse_symbols = pd.DataFrame()  # Initialize as empty DataFrame
-nfo_symbols = pd.DataFrame()  # Initialize as empty DataFrame
+nse_symbols = pd.DataFrame()
+nfo_symbols = pd.DataFrame()
+mcx_symbols = pd.DataFrame()
+bse_symbols = pd.DataFrame()
+cds_symbols = pd.DataFrame()
+bfo_symbols = pd.DataFrame()
 
 def init_db():
     with conn:
@@ -89,14 +93,14 @@ class TradeRequest(BaseModel):
     exchange: str = "NSE"
     strike_price: Optional[float] = None
     buy_type: str = "Fixed"
-    buy_threshold: float = 110
+    buy_threshold: float = 0
     previous_close: Optional[float] = None
     producttype: str = "INTRADAY"
     stop_loss_type: str = "Fixed"
     stop_loss_value: float = 5.0
     points_condition: float = 0
-    sell_type: Optional[str] = "Fixed"
-    sell_threshold: Optional[float] = 90
+    sell_type: str = "Fixed"
+    sell_threshold: float = 90
 
 class UpdateTradeRequest(BaseModel):
     username: str
@@ -520,37 +524,85 @@ def start_websocket(username: str, broker: str, api_key: str, auth_token: str, f
         )
 
 def check_conditions(api_client, position_data: dict, ltp: float, username: str):
-    stop_loss_price = None
-    highest_price = max(ltp, position_data['highest_price'])
+    entry_price = position_data['entry_price']
+    buy_threshold = position_data['buy_threshold']
+    stop_loss_type = position_data['stop_loss_type']
+    stop_loss_value = position_data['stop_loss_value']
+    points_condition = position_data['points_condition']
+    sell_type = position_data.get('sell_type')
+    sell_threshold = position_data.get('sell_threshold')
+    highest_price = position_data['highest_price']
     base_price = position_data['base_price']
-    if position_data['stop_loss_type'] == "Fixed":
-        stop_loss_price = position_data['entry_price'] - position_data['stop_loss_value']
-    elif position_data['stop_loss_type'] in ["Percentage", "Points"]:
-        if position_data['points_condition'] < 0 and ltp < base_price + position_data['points_condition']:
-            base_price = ltp
+    previous_close = position_data['previous_close']
+
+    # Update highest_price and base_price for trailing stop
+    highest_price = max(ltp, highest_price)
+    if points_condition < 0 and ltp < base_price + points_condition:
+        base_price = ltp
+
+    # Calculate stop-loss price
+    stop_loss_price = None
+    if stop_loss_type == "Fixed":
+        stop_loss_price = entry_price - stop_loss_value
+    elif stop_loss_type == "Percentage":
         profit = highest_price - base_price
-        if position_data['stop_loss_type'] == "Percentage":
-            stop_loss_price = base_price + (profit * (1 - position_data['stop_loss_value'] / 100))
-        elif position_data['stop_loss_type'] == "Points":
-            stop_loss_price = highest_price - position_data['stop_loss_value']
+        stop_loss_price = base_price + (profit * (1 - stop_loss_value / 100)) if profit > 0 else entry_price - (entry_price * stop_loss_value / 100)
+    elif stop_loss_type == "Points":
+        stop_loss_price = highest_price - stop_loss_value
 
+    # Calculate sell threshold
     sell_price = None
-    if position_data.get('sell_type') == "Fixed" and position_data.get('sell_threshold'):
-        sell_price = position_data['sell_threshold']
-    elif position_data.get('sell_type') == "Percentage" and position_data.get('sell_threshold') and position_data.get('previous_close'):
-        sell_price = position_data['previous_close'] * (1 - position_data['sell_threshold'] / 100)
+    if sell_type == "Fixed":
+        sell_price = sell_threshold
+    elif sell_type == "Percentage":
+        sell_price = previous_close * (1 - sell_threshold / 100)
 
+    # Update database with new highest_price and base_price
     with conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE open_positions SET highest_price = ?, base_price = ? WHERE position_id = ?", 
                        (highest_price, base_price, position_data['position_id']))
         conn.commit()
 
-    if (stop_loss_price and ltp <= stop_loss_price) or (sell_price and ltp <= sell_price):
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
-            broker = cursor.fetchone()[0]
+    # Check conditions for action
+    with conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT broker FROM users WHERE username = ?", (username,))
+        broker = cursor.fetchone()[0]
+
+    if ltp >= buy_threshold and position_data['position_active'] == 0:  # Initial buy condition
+        orderparams = {
+            "variety": "NORMAL",
+            "tradingsymbol": position_data['symbol'],
+            "symboltoken": position_data['symboltoken'],
+            "transactiontype": "BUY" if broker == "AngelOne" else "B",
+            "exchange": position_data['exchange'],
+            "ordertype": "MARKET" if broker == "AngelOne" else "MKT",
+            "producttype": "INTRADAY",
+            "duration": "DAY",
+            "price": "0",
+            "quantity": "1",
+            "squareoff": "0",
+            "stoploss": "0"
+        } if broker == "AngelOne" else {
+            "buy_or_sell": "B",
+            "product_type": "I",
+            "exchange": position_data['exchange'],
+            "tradingsymbol": position_data['symbol'],
+            "quantity": 1,
+            "price_type": "MKT",
+            "price": 0,
+            "retention": "DAY"
+        }
+        buy_result = place_order(api_client, broker, orderparams, "LONG", username)
+        if buy_result:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE open_positions SET position_active = 1, entry_price = ? WHERE position_id = ?", (ltp, position_data['position_id']))
+                conn.commit()
+            logger.info(f"Buy executed for {username} at {ltp}")
+
+    elif (stop_loss_price and ltp <= stop_loss_price) or (sell_price and ltp <= sell_price) or (not position_data['position_active']):
         orderparams = {
             "variety": "NORMAL",
             "tradingsymbol": position_data['symbol'],
@@ -574,12 +626,13 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             "price": 0,
             "retention": "DAY"
         }
-        place_order(api_client, broker, orderparams, "EXIT", username)
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE open_positions SET position_active = 0 WHERE position_id = ?", (position_data['position_id'],))
-            conn.commit()
-        logger.info(f"Stop-loss or sell threshold hit for {username}. Sold at {ltp}")
+        sell_result = place_order(api_client, broker, orderparams, "EXIT", username)
+        if sell_result:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE open_positions SET position_active = 0 WHERE position_id = ?", (position_data['position_id'],))
+                conn.commit()
+            logger.info(f"Sell executed for {username} at {ltp} due to {'stop-loss' if ltp <= stop_loss_price else 'sell threshold'}")
 
 @app.on_event("startup")
 async def startup_event():
@@ -684,16 +737,16 @@ async def initiate_trade(request: TradeRequest):
         broker, default_quantity = user
         
         params = request.dict()
-        valid_exchanges = ["NFO", "MCX", "NSE", "BSE"]
+        valid_exchanges = ["NFO", "MCX", "NSE", "BSE", "CDS", "BFO"]
         if params['exchange'] not in valid_exchanges:
             raise HTTPException(status_code=400, detail=f"Exchange must be one of {valid_exchanges}, not {params['exchange']}")
 
         strike_price = params['strike_price']
         buy_type = params['buy_type']
         buy_threshold = params['buy_threshold']
-        previous_close = params.get('previous_close', strike_price if strike_price else 0)
+        previous_close = params.get('previous_close', 0)
         # Recalculate buy_threshold based on buy_type for consistency with frontend
-        if buy_type == "Percentage":
+        if buy_type == "Percentage" and previous_close:
             buy_threshold = previous_close * (1 + buy_threshold / 100)
         elif buy_type == "Points":
             ltp = get_ltp(api_client, broker, params['exchange'], params['tradingsymbol'], params['symboltoken'])
@@ -814,24 +867,24 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         if broker != "Shoonya":
             raise HTTPException(status_code=400, detail="Market/option chain data is only available for Shoonya broker")
 
-        valid_exchanges = ["NFO", "MCX", "NSE", "BSE"]
+        valid_exchanges = ["NFO", "MCX", "NSE", "BSE", "CDS", "BFO"]
         if request.exchange not in valid_exchanges:
             raise HTTPException(status_code=400, detail=f"Exchange must be one of {valid_exchanges}, not {request.exchange}")
 
         symbol = request.symbol.strip().upper()
         logger.info(f"Received symbol input: {symbol} for user {username} on exchange {request.exchange}")
 
-        if request.exchange == "NFO":
+        if request.exchange == "NFO" or request.exchange == "CDS" or request.exchange == "BFO":
             try:
                 expiry_date = datetime.datetime.strptime(request.expiry_date, '%d-%m-%Y')
                 expiry_str = expiry_date.strftime('%d-%b-%Y').upper()
             except ValueError:
                 logger.error(f"Invalid expiry date format for {username}: {request.expiry_date}")
-                raise HTTPException(status_code=400, detail="Invalid date format for NFO. Please use DD-MM-YYYY")
+                raise HTTPException(status_code=400, detail="Invalid date format for NFO/CDS/BFO. Please use DD-MM-YYYY")
 
-            symbols = find_symbols("NFO", symbol, request.expiry_date)
+            symbols = find_symbols(request.exchange, symbol, request.expiry_date)
             if not symbols:
-                logger.warning(f"No symbols found for {symbol} with expiry {expiry_str} in local NFO data")
+                logger.warning(f"No symbols found for {symbol} with expiry {expiry_str} in local {request.exchange} data")
                 return {"message": f"No symbols found for {symbol} with expiry {expiry_str}", "data": [], "total_strikes": 0}
 
             chain_data = {}
@@ -842,7 +895,7 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
                 strike_price = float(scrip['StrikePrice'])
                 opt_type = scrip['OptionType']
 
-                quote = api_client.get_quotes(exchange="NFO", token=token)
+                quote = api_client.get_quotes(exchange=request.exchange, token=token)
                 if quote and quote.get('stat') == 'Ok':
                     ltp = float(quote.get('lp', 0)) if quote.get('lp') else 0
                     bid = float(quote.get('bp', 0)) if quote.get('bp') else 0
@@ -883,7 +936,7 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
                 for strike in sorted(chain_data.keys())
             ]
             return {
-                "message": f"Option chain for {symbol} with expiry {expiry_str} on NFO",
+                "message": f"Option chain for {symbol} with expiry {expiry_str} on {request.exchange}",
                 "data": formatted_data,
                 "total_strikes": len(formatted_data)
             }
@@ -978,7 +1031,7 @@ async def get_market_data(username: str, token: str):
         if broker != "Shoonya":
             raise HTTPException(status_code=400, detail="Market data is only available for Shoonya broker")
 
-        exchanges = ["NFO", "MCX", "NSE", "BSE"]
+        exchanges = ["NFO", "MCX", "NSE", "BSE", "CDS", "BFO"]
         for exchange in exchanges:
             quotes = api_client.get_quotes(exchange=exchange, token=token)
             if quotes and quotes.get('stat') == 'Ok':
