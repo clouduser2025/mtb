@@ -38,7 +38,7 @@ const Landing = () => {
     option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
-    exchange: "NFO", // Default to NFO since your data is NFO-based
+    exchange: "NFO",
     buy_type: "Fixed",
     buy_threshold: 110,
     previous_close: 0,
@@ -145,6 +145,7 @@ const Landing = () => {
               volume: data.volume || 0,
               timestamp: data.timestamp || new Date().toISOString()
             });
+            updateBuyThreshold(data.ltp); // Update threshold with real-time LTP
           }
         } else {
           setMarketData(prev => ({
@@ -187,6 +188,7 @@ const Landing = () => {
                 volume: data.market_data?.v || 0,
                 timestamp: data.market_data?.ft || new Date().toISOString()
               });
+              updateBuyThreshold(data.ltp); // Update threshold with polled LTP
             }
           } else {
             setMarketData({
@@ -204,17 +206,39 @@ const Landing = () => {
     return () => clearInterval(pollInterval);
   };
 
+  // Function to update buy_threshold based on buy_type
+  const updateBuyThreshold = (currentLtp) => {
+    const { buy_type, buy_threshold, previous_close } = formData;
+    let newThreshold;
+    switch (buy_type) {
+      case "Fixed":
+        newThreshold = parseFloat(buy_threshold) || currentLtp; // Use user input or current LTP
+        break;
+      case "Percentage":
+        newThreshold = previous_close * (1 + (parseFloat(buy_threshold) || 0) / 100);
+        break;
+      case "Points":
+        newThreshold = currentLtp + (parseFloat(buy_threshold) || 0);
+        break;
+      default:
+        newThreshold = currentLtp;
+    }
+    setFormData(prev => ({ ...prev, buy_threshold: newThreshold }));
+  };
+
   const handleSelectStrike = (strikeData) => {
     const isCall = strikeData.OptionType === "CE";
     const expiry = formData.expiry ? formData.expiry.replace(/-/g, "").slice(0, 6) : "27MAR25"; // Adjust based on your expiry format
     const assetName = `${formData.symbol}${expiry}${isCall ? "C" : "P"}${strikeData.StrikePrice}`;
     setFormData({
       ...formData,
-      tradingsymbol: strikeData.TradingSymbol || assetName, // Use TradingSymbol if available, else construct it
+      tradingsymbol: strikeData.TradingSymbol || assetName,
       symboltoken: strikeData.Token,
-      previous_close: parseFloat(strikeData.LTP) || 0,
-      strike_price: parseInt(strikeData.StrikePrice, 10), // Ensure integer for display
-      option_type: isCall ? "Call" : "Put"
+      previous_close: parseFloat(strikeData.LTP) || 0, // Set Prev Close to initial LTP
+      strike_price: parseInt(strikeData.StrikePrice, 10),
+      option_type: isCall ? "Call" : "Put",
+      buy_type: "Fixed", // Default buy type
+      buy_threshold: parseFloat(strikeData.LTP) || 0 // Initialize Buy Threshold with LTP
     });
     setMarketData({
       ltp: parseFloat(strikeData.LTP) || 0.0,
@@ -246,6 +270,7 @@ const Landing = () => {
         volume: data.volume || 0,
         timestamp: data.timestamp || new Date().toISOString()
       });
+      updateBuyThreshold(data.ltp); // Update threshold with real-time LTP
     };
     newWs.onerror = (error) => {
       console.error("WebSocket error for market updates:", error);
@@ -659,10 +684,10 @@ const Landing = () => {
                     {formData.exchange === "NFO" && (
                       <>
                         <p><strong>Type:</strong> {formData.option_type}</p>
-                        <p><strong>Strike:</strong> {formData.strike_price}</p> {/* Displays as 49200 */}
+                        <p><strong>Strike:</strong> {formData.strike_price}</p>
                       </>
                     )}
-                    <p><strong>LTP:</strong> ₹{marketData.ltp.toFixed(2) || '0.00'}</p> {/* Ensures LTP updates */}
+                    <p><strong>LTP:</strong> ₹{marketData.ltp.toFixed(2) || '0.00'}</p>
                   </Card>
                   <Button variant="success" onClick={handleConfirmTrade}>
                     <FontAwesomeIcon icon={faCheck} /> Confirm
@@ -682,22 +707,49 @@ const Landing = () => {
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Buy Type</Form.Label>
-                          <Form.Select value={formData.buy_type} onChange={(e) => setFormData({ ...formData, buy_type: e.target.value })}>
+                          <Form.Select value={formData.buy_type} onChange={(e) => {
+                            const newBuyType = e.target.value;
+                            setFormData(prev => {
+                              const updated = { ...prev, buy_type: newBuyType };
+                              updateBuyThreshold(marketData.ltp, newBuyType); // Recalculate on change
+                              return updated;
+                            });
+                          }}>
                             <option value="Fixed">Fixed</option>
                             <option value="Percentage">Percentage</option>
+                            <option value="Points">Points</option>
                           </Form.Select>
                         </Form.Group>
                       </Col>
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Buy Threshold</Form.Label>
-                          <Form.Control type="number" value={formData.buy_threshold} onChange={(e) => setFormData({ ...formData, buy_threshold: parseFloat(e.target.value) || 0 })} />
+                          <Form.Control
+                            type="number"
+                            step="0.01"
+                            value={formData.buy_threshold}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value) || 0;
+                              setFormData(prev => ({ ...prev, buy_threshold: value }));
+                              updateBuyThreshold(marketData.ltp); // Recalculate on manual input
+                            }}
+                          />
                         </Form.Group>
                       </Col>
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Prev Close</Form.Label>
-                          <Form.Control type="number" value={formData.previous_close} onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })} />
+                          <Form.Control
+                            type="number"
+                            step="0.01"
+                            value={formData.previous_close}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value) || 0;
+                              setFormData(prev => ({ ...prev, previous_close: value }));
+                              updateBuyThreshold(marketData.ltp); // Recalculate on prev close change
+                            }}
+                            readOnly // Keep as reference, update only via LTP initially
+                          />
                         </Form.Group>
                       </Col>
                     </Row>
@@ -725,7 +777,7 @@ const Landing = () => {
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>SL Value</Form.Label>
-                          <Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} />
+                          <Form.Control type="number" step="0.01" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
                     </Row>
@@ -733,7 +785,7 @@ const Landing = () => {
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Points</Form.Label>
-                          <Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} />
+                          <Form.Control type="number" step="0.01" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
                       <Col md={4}>
@@ -748,7 +800,7 @@ const Landing = () => {
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Sell Threshold</Form.Label>
-                          <Form.Control type="number" value={formData.sell_threshold} onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })} />
+                          <Form.Control type="number" step="0.01" value={formData.sell_threshold} onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
                     </Row>
@@ -780,13 +832,13 @@ const Landing = () => {
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>SL Value</Form.Label>
-                          <Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} />
+                          <Form.Control type="number" step="0.01" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
                       <Col md={4}>
                         <Form.Group>
                           <Form.Label>Points</Form.Label>
-                          <Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} />
+                          <Form.Control type="number" step="0.01" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
                     </Row>

@@ -120,37 +120,34 @@ refresh_tokens = {}
 feed_tokens = {}
 option_chain_subscriptions = {}
 
-# Updated load_symbol_data function
 def load_symbol_data():
     global nse_symbols, nfo_symbols
-    try:
-        # Use relative paths from the location of app.py
-        base_path = os.path.dirname(os.path.abspath(__file__))
-        nse_file_path = os.path.join(base_path, "data", "NSE_symbols.txt")
-        nfo_file_path = os.path.join(base_path, "data", "NFO_symbols.txt")
-        
-        # Load NSE symbols if file exists, otherwise proceed with empty DataFrame
-        if os.path.exists(nse_file_path):
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    nse_file_path = os.path.join(base_path, "data", "NSE_symbols.txt")
+    nfo_file_path = os.path.join(base_path, "data", "NFO_symbols.txt")
+    
+    if os.path.exists(nse_file_path):
+        try:
             nse_symbols = pd.read_csv(nse_file_path)
             logger.info(f"Loaded NSE symbols: {len(nse_symbols)} entries from {nse_file_path}")
-        else:
-            logger.warning(f"NSE symbols file not found at {nse_file_path}. Proceeding with empty NSE symbols.")
+        except Exception as e:
+            logger.error(f"Failed to load NSE symbols from {nse_file_path}: {e}")
             nse_symbols = pd.DataFrame()
+    else:
+        logger.warning(f"NSE symbols file not found at {nse_file_path}. Proceeding with empty NSE symbols.")
+        nse_symbols = pd.DataFrame()
 
-        # Load NFO symbols if file exists, otherwise proceed with empty DataFrame
-        if os.path.exists(nfo_file_path):
+    if os.path.exists(nfo_file_path):
+        try:
             nfo_symbols = pd.read_csv(nfo_file_path)
             logger.info(f"Loaded NFO symbols: {len(nfo_symbols)} entries from {nfo_file_path}")
-        else:
-            logger.warning(f"NFO symbols file not found at {nfo_file_path}. Proceeding with empty NFO symbols.")
+        except Exception as e:
+            logger.error(f"Failed to load NFO symbols from {nfo_file_path}: {e}")
             nfo_symbols = pd.DataFrame()
-    except Exception as e:
-        logger.error(f"Error loading symbol data: {e}")
-        # Instead of raising, log the error and proceed with empty DataFrames
-        nse_symbols = pd.DataFrame()
+    else:
+        logger.warning(f"NFO symbols file not found at {nfo_file_path}. Proceeding with empty NFO symbols.")
         nfo_symbols = pd.DataFrame()
 
-# Updated find_symbols function
 def find_symbols(exchange: str, symbol: str, expiry_date: str = None):
     if exchange == "NSE" and not nse_symbols.empty:
         df = nse_symbols
@@ -345,11 +342,14 @@ def on_data_angel(wsapp, message):
     try:
         symbol_key = f"{message['exchange']}:{message['tradingsymbol']}:{message['symboltoken']}"
         ltp = float(message['ltp'])
+        oi = float(message.get('oi', 0))
+        volume = float(message.get('v', 0))
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
         ltp_cache[symbol_key] = ltp
         process_position_update(message['tradingsymbol'], ltp)
         if symbol_key in option_chain_subscriptions:
             for ws in option_chain_subscriptions[symbol_key]:
-                ws.send_json({"symbol": message['tradingsymbol'], "ltp": ltp, "oi": message.get('oi', 0), "volume": message.get('v', 0), "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')})
+                ws.send_json({"symbol": message['tradingsymbol'], "ltp": ltp, "oi": oi, "volume": volume, "timestamp": timestamp})
     except Exception as e:
         logger.error(f"AngelOne WebSocket data error: {e}")
 
@@ -358,11 +358,14 @@ def on_data_shoonya(tick_data):
     try:
         symbol_key = f"{tick_data['e']}:{tick_data['ts']}:{tick_data['tk']}"
         ltp = float(tick_data['lp'])
+        oi = float(tick_data.get('oi', 0))
+        volume = float(tick_data.get('v', 0))
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
         ltp_cache[symbol_key] = ltp
         process_position_update(tick_data['ts'], ltp)
         if symbol_key in option_chain_subscriptions:
             for ws in option_chain_subscriptions[symbol_key]:
-                ws.send_json({"symbol": tick_data['ts'], "ltp": ltp, "oi": tick_data.get('oi', 0), "volume": tick_data.get('v', 0), "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')})
+                ws.send_json({"symbol": tick_data['ts'], "ltp": ltp, "oi": oi, "volume": volume, "timestamp": timestamp})
     except Exception as e:
         logger.error(f"Shoonya WebSocket data error: {e}")
 
@@ -397,9 +400,11 @@ def subscribe_to_tokens(wsapp, exchange_type):
         if wsapp:  # AngelOne
             token_list = [{"exchangeType": exchange_type, "tokens": tokens}]
             wsapp.subscribe("abc123", 1, token_list)
+            logger.info(f"AngelOne subscribed to tokens: {tokens}")
         else:  # Shoonya
             for token in tokens:
                 smart_api_instances[list(smart_api_instances.keys())[0]].subscribe(f"{token}")
+                logger.info(f"Shoonya subscribed to token: {token}")
 
 def start_websocket(username: str, broker: str, api_key: str, auth_token: str, feed_token: Optional[str] = None):
     if broker == "AngelOne":
@@ -591,10 +596,16 @@ async def initiate_trade(request: TradeRequest):
         buy_type = params['buy_type']
         buy_threshold = params['buy_threshold']
         previous_close = params.get('previous_close', strike_price if strike_price else 0)
-        entry_threshold = buy_threshold if buy_type == "Fixed" else previous_close * (1 + buy_threshold / 100)
+        # Recalculate buy_threshold based on buy_type for consistency with frontend
+        if buy_type == "Percentage":
+            buy_threshold = previous_close * (1 + buy_threshold / 100)
+        elif buy_type == "Points":
+            ltp = get_ltp(api_client, broker, params['exchange'], params['tradingsymbol'], params['symboltoken'])
+            buy_threshold = ltp + buy_threshold
+
         ltp = get_ltp(api_client, broker, params['exchange'], params['tradingsymbol'], params['symboltoken'])
-        if ltp < entry_threshold:
-            raise HTTPException(status_code=400, detail=f"Current LTP {ltp} below buy threshold {entry_threshold}")
+        if ltp < buy_threshold:
+            raise HTTPException(status_code=400, detail=f"Current LTP {ltp} below buy threshold {buy_threshold}")
 
         buy_order_params = (
             {
@@ -629,7 +640,7 @@ async def initiate_trade(request: TradeRequest):
         entry_price = ltp
 
         conditions = {
-            'buy_threshold': entry_threshold,
+            'buy_threshold': buy_threshold,
             'stop_loss_type': params['stop_loss_type'],
             'stop_loss_value': params['stop_loss_value'],
             'points_condition': params['points_condition'],
@@ -741,18 +752,20 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
                     bid = float(quote.get('bp', 0)) if quote.get('bp') else 0
                     ask = float(quote.get('ap', 0)) if quote.get('ap') else 0
                     oi = float(quote.get('oi', 0)) / 100000 if quote.get('oi') else 0
+                    volume = float(quote.get('v', 0)) if quote.get('v') else 0
+                    logger.info(f"Fetch LTP for {tsym} (token: {token}): LTP={ltp}, OI={oi}, Volume={volume}")
 
                     if strike_price not in chain_data:
                         chain_data[strike_price] = {'Call': {}, 'Put': {}}
 
                     if opt_type == 'CE':
                         chain_data[strike_price]['Call'] = {
-                            'LTP': ltp, 'Bid': bid, 'Ask': ask, 'OI': oi,
+                            'LTP': ltp, 'Bid': bid, 'Ask': ask, 'OI': oi, 'Volume': volume,
                             'TradingSymbol': tsym, 'Token': token
                         }
                     elif opt_type == 'PE':
                         chain_data[strike_price]['Put'] = {
-                            'LTP': ltp, 'Bid': bid, 'Ask': ask, 'OI': oi,
+                            'LTP': ltp, 'Bid': bid, 'Ask': ask, 'OI': oi, 'Volume': volume,
                             'TradingSymbol': tsym, 'Token': token
                         }
                     tokens.append(token)
@@ -767,6 +780,7 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
             if tokens:
                 option_chain_subscriptions[username] = tokens
                 api_client.subscribe(','.join(tokens))
+                logger.info(f"Subscribed to tokens for {username}: {tokens}")
 
             formatted_data = [
                 {'StrikePrice': strike, 'Call': chain_data[strike]['Call'], 'Put': chain_data[strike]['Put']}
@@ -797,8 +811,8 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
                 raise HTTPException(status_code=400, detail=f"No market data available: {error_msg}")
 
             ltp = float(quotes.get('lp', 0)) if quotes.get('lp') else 0
-            bid = float(quotes.get('bp', 0)) if quotes.get('bp') else 0
-            ask = float(quotes.get('ap', 0)) if quotes.get('ap') else 0
+            bid = float(quotes.get('bp', 0)) if quote.get('bp') else 0
+            ask = float(quotes.get('ap', 0)) if quote.get('ap') else 0
             oi = float(quotes.get('oi', 0)) if quotes.get('oi') else 0
             volume = float(quotes.get('v', 0)) if quotes.get('v') else 0
 
@@ -872,12 +886,16 @@ async def get_market_data(username: str, token: str):
         for exchange in exchanges:
             quotes = api_client.get_quotes(exchange=exchange, token=token)
             if quotes and quotes.get('stat') == 'Ok':
+                ltp = float(quotes.get('lp', 0))
+                oi = float(quotes.get('oi', 0))
+                volume = float(quotes.get('v', 0))
+                timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
                 return {
-                    "ltp": float(quotes.get('lp', 0)),
-                    "oi": quotes.get('oi', 0),
+                    "ltp": ltp,
+                    "oi": oi,
                     "market_data": {
-                        "v": quotes.get('v', 0),
-                        "ft": time.strftime('%Y-%m-%d %H:%M:%S')
+                        "v": volume,
+                        "ft": timestamp
                     }
                 }
         raise HTTPException(status_code=400, detail="No market data available for this token across exchanges")
