@@ -355,3 +355,27 @@
   background: linear-gradient(45deg, #0056b3, #003d7a);
   transition: background 0.3s ease;
 }
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f4f7fa;
+}
+
+.shadow-sm {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1) !important;
+}
+
+.card {
+  transition: transform 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-5px);
+}
+
+.btn {
+  border-radius: 20px;
+}
+
+.table th, .table td {
+  vertical-align: middle;
+}

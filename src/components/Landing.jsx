@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup, Card } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign, faArrowRight, faSearch, faArrowLeft, faCheckCircle, faCheck, faEdit } from '@fortawesome/free-solid-svg-icons';
-import './css/landing.css'; // Updated CSS for a beautiful, professional look
+import './css/landing.css'; // Ensure this CSS file is updated for the new design
 
 const Landing = () => {
   const [users, setUsers] = useState([]);
@@ -22,7 +22,7 @@ const Landing = () => {
   const [formData, setFormData] = useState({
     username: "",
     password: "",
-    broker: "Shoonya", // Can be changed to support multiple brokers later
+    broker: "Shoonya",
     api_key: "",
     totp_token: "",
     vendor_code: "",
@@ -54,7 +54,7 @@ const Landing = () => {
       setUsers(data.users || []);
     } catch (error) {
       console.error("Error fetching users:", error);
-      setMessage({ text: "Failed to fetch users", type: "danger" });
+      setMessage({ text: "Failed to fetch users. Check your network or server status.", type: "danger" });
     }
   };
 
@@ -65,7 +65,7 @@ const Landing = () => {
       setOpenTrades(data.trades || []);
     } catch (error) {
       console.error("Error fetching open positions:", error);
-      setMessage({ text: "Failed to fetch open positions", type: "danger" });
+      setMessage({ text: "Failed to fetch open positions.", type: "danger" });
     }
   };
 
@@ -103,55 +103,55 @@ const Landing = () => {
           setChartSymbol(formatChartSymbol(formData.symbol, formData.exchange));
           setMessage({ text: `Option chain data fetched for ${formData.symbol} with expiry ${formData.expiry} on NFO!`, type: "success" });
           setFormStep(3);
-          startWebSocket(username, data.data.map(item => item.Token));
-        } else {  // MCX, NSE, BSE
+          startWebSocket(username, data.data.flatMap(item => [item.Call.Token, item.Put.Token].filter(Boolean)));
+        } else {
           setMarketData(data.data[0] || {});
-          setChartSymbol(formatChartSymbol(formData.symbol, formData.exchange));
+          setChartSymbol(formatChartSymbol(data.data[0]?.TradingSymbol || formData.symbol, formData.exchange));
           setMessage({ text: `Market data fetched for ${formData.symbol} on ${formData.exchange}!`, type: "info" });
-          // Hide Step 4 until confirmed (for MCX, NSE, BSE, we'll show a confirmation step later if needed)
-          setFormStep(3); // Temporarily show a confirmation step for all exchanges
+          setFormStep(3.5); // Directly to confirmation for non-NFO
+          startWebSocket(username, [data.data[0]?.Token]);
         }
       } else {
-        setMessage({ text: data.detail || "Failed to fetch data", type: "danger" });
+        setMessage({ text: data.message || data.detail || "Failed to fetch data", type: "danger" });
       }
     } catch (error) {
       console.error("Error fetching data:", error);
-      setMessage({ text: "Server error fetching data.", type: "danger" });
+      setMessage({ text: "Server error fetching data. Please try again.", type: "danger" });
     }
   };
 
   const startWebSocket = (username, tokens) => {
     if (ws) ws.forEach(w => w.close());
-    const newWs = [];
-    tokens.forEach(token => {
+    const newWs = tokens.map(token => {
       const wsUrl = new URL(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${token}`);
       const tokenWs = new WebSocket(wsUrl.href);
-      newWs.push(tokenWs);
       tokenWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (formData.exchange === "NFO") {
-          setOptionChainData(prevData => prevData?.map(item => 
-            item.Token === token ? { ...item, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item
-          ));
+          setOptionChainData(prevData => prevData?.map(item => ({
+            ...item,
+            Call: item.Call.Token === token ? { ...item.Call, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item.Call,
+            Put: item.Put.Token === token ? { ...item.Put, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item.Put
+          })));
         } else {
           setMarketData(prev => ({
             ...prev,
-            ltp: data.ltp || 0.0,
-            oi: data.oi || 0,
-            volume: data.volume || 0,
-            timestamp: data.timestamp || new Date().toISOString()
+            ltp: data.ltp || prev.ltp,
+            oi: data.oi || prev.oi,
+            volume: data.volume || prev.volume,
+            timestamp: data.timestamp || prev.timestamp
           }));
         }
       };
       tokenWs.onerror = (error) => {
         console.error("WebSocket error for token", token, ":", error);
-        setMessage({ text: "WebSocket connection failed for real-time data. Falling back to polling.", type: "warning" });
+        setMessage({ text: `WebSocket failed for ${token}. Using polling instead.`, type: "warning" });
         pollMarketData(username, token);
       };
       tokenWs.onclose = () => {
-        console.log("WebSocket closed for token", token, ". Attempting to reconnect...");
-        startWebSocket(username, tokens);
+        console.log("WebSocket closed for token", token);
       };
+      return tokenWs;
     });
     setWs(newWs);
   };
@@ -163,9 +163,11 @@ const Landing = () => {
         if (response.ok) {
           const data = await response.json();
           if (formData.exchange === "NFO") {
-            setOptionChainData(prevData => prevData?.map(item => 
-              item.Token === token ? { ...item, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.market_data?.ft || new Date().toISOString() } : item
-            ));
+            setOptionChainData(prevData => prevData?.map(item => ({
+              ...item,
+              Call: item.Call.Token === token ? { ...item.Call, LTP: data.ltp, OI: data.oi, Volume: data.market_data?.v, timestamp: data.market_data?.ft } : item.Call,
+              Put: item.Put.Token === token ? { ...item.Put, LTP: data.ltp, OI: data.oi, Volume: data.market_data?.v, timestamp: data.market_data?.ft } : item.Put
+            })));
           } else {
             setMarketData({
               ltp: data.ltp,
@@ -177,34 +179,23 @@ const Landing = () => {
         }
       } catch (error) {
         console.error("Error polling market data for token", token, ":", error);
-        setMessage({ text: "Failed to fetch real-time market data.", type: "danger" });
       }
-    }, 1000);
+    }, 2000); // Poll every 2 seconds
     return () => clearInterval(pollInterval);
   };
 
   const handleSelectStrike = (strikeData) => {
-    if (formData.exchange === "NFO") {
-      setFormData({
-        ...formData,
-        tradingsymbol: strikeData.TradingSymbol,
-        symboltoken: strikeData.Token,
-        previous_close: parseFloat(strikeData.LTP),
-        strike_price: parseFloat(strikeData.StrikePrice),
-        option_type: strikeData.OptionType === "CE" ? "Call" : "Put"
-      });
-      setChartSymbol(formatChartSymbol(strikeData.TradingSymbol, formData.exchange));
-      setFormStep(3.5); // Confirmation step for NFO
-    } else {
-      setFormData({
-        ...formData,
-        tradingsymbol: strikeData.TradingSymbol,
-        symboltoken: strikeData.Token,
-        previous_close: parseFloat(strikeData.LTP)
-      });
-      setChartSymbol(formatChartSymbol(strikeData.TradingSymbol, formData.exchange));
-      setFormStep(3.5); // Confirmation step for MCX, NSE, BSE before Step 4
-    }
+    const isCall = strikeData.OptionType === "CE";
+    setFormData({
+      ...formData,
+      tradingsymbol: strikeData.TradingSymbol,
+      symboltoken: strikeData.Token,
+      previous_close: parseFloat(strikeData.LTP) || 0,
+      strike_price: parseFloat(strikeData.StrikePrice),
+      option_type: isCall ? "Call" : "Put"
+    });
+    setChartSymbol(formatChartSymbol(strikeData.TradingSymbol, formData.exchange));
+    setFormStep(3.5);
     startMarketUpdates(selectedUsers[0], strikeData.Token);
   };
 
@@ -229,12 +220,11 @@ const Landing = () => {
     };
     newWs.onerror = (error) => {
       console.error("WebSocket error for market updates:", error);
-      setMessage({ text: "WebSocket connection failed for market updates. Falling back to polling.", type: "warning" });
+      setMessage({ text: "WebSocket failed for market updates. Polling instead.", type: "warning" });
       pollMarketData(username, symboltoken);
     };
     newWs.onclose = () => {
-      console.log("WebSocket closed for market updates. Attempting to reconnect...");
-      startMarketUpdates(username, symboltoken);
+      console.log("WebSocket closed for market updates.");
     };
     return () => newWs.close();
   }, []);
@@ -249,7 +239,7 @@ const Landing = () => {
         api_key: formData.api_key,
         totp_token: formData.totp_token,
         default_quantity: parseInt(formData.default_quantity || 1, 10),
-        imei: formData.imei
+        imei: formData.broker === "Shoonya" ? formData.imei : "trading_app"
       };
       if (formData.broker === "Shoonya") {
         payload.vendor_code = formData.vendor_code;
@@ -261,7 +251,7 @@ const Landing = () => {
       });
       const data = await response.json();
       if (response.ok) {
-        setMessage({ text: `User ${formData.username} registered successfully (${formData.broker})!`, type: "success" });
+        setMessage({ text: data.message, type: "success" });
         fetchUsers();
         setFormData({ ...formData, username: "", password: "", api_key: "", totp_token: "", vendor_code: "", imei: "" });
         setShowRegisterModal(false);
@@ -270,106 +260,101 @@ const Landing = () => {
       }
     } catch (error) {
       console.error("Error registering user:", error);
-      setMessage({ text: `Server error registering ${formData.broker} user. Try again later.`, type: "danger" });
+      setMessage({ text: "Server error during registration.", type: "danger" });
     }
   };
 
   const handleDeleteUser = async (username) => {
+    if (!window.confirm(`Are you sure you want to delete ${username}?`)) return;
     try {
       const response = await fetch(`https://mtb-8ra9.onrender.com/api/delete_user/${username}`, { method: "DELETE" });
       const data = await response.json();
       if (response.ok) {
         setUsers(users.filter(user => user.username !== username));
-        setMessage({ text: "User deleted successfully!", type: "success" });
+        setMessage({ text: data.message, type: "success" });
       } else {
         setMessage({ text: data.detail || "Failed to delete user", type: "danger" });
       }
     } catch (error) {
       console.error("Error deleting user:", error);
-      setMessage({ text: "Server error. Try again later.", type: "danger" });
+      setMessage({ text: "Server error deleting user.", type: "danger" });
     }
   };
 
   const handleInitiateTrade = async () => {
     if (!selectedUsers.length) {
-      setMessage({ text: "Please select at least one user.", type: "warning" });
+      setMessage({ text: "Please select a user.", type: "warning" });
       return;
     }
 
     try {
-      for (const username of selectedUsers) {
-        const user = users.find(u => u.username === username);
-        if (!user) continue;
+      const username = selectedUsers[0];
+      const user = users.find(u => u.username === username);
+      if (!user) throw new Error("User not found");
 
-        const adjustedProductType = user.broker === "Shoonya" && formData.producttype === "INTRADAY" ? "I" : formData.producttype;
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/initiate_buy_trade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          tradingsymbol: formData.tradingsymbol,
+          symboltoken: formData.symboltoken,
+          exchange: formData.exchange,
+          strike_price: formData.strike_price,
+          buy_type: formData.buy_type,
+          buy_threshold: formData.buy_threshold,
+          previous_close: formData.previous_close,
+          producttype: formData.producttype,
+          stop_loss_type: formData.stop_loss_type,
+          stop_loss_value: formData.stop_loss_value,
+          points_condition: formData.points_condition,
+          sell_type: formData.sell_type,
+          sell_threshold: formData.sell_threshold
+        }),
+      });
 
-        const response = await fetch("https://mtb-8ra9.onrender.com/api/initiate_buy_trade", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username,
-            tradingsymbol: formData.tradingsymbol,
-            symboltoken: formData.symboltoken,
-            exchange: formData.exchange,
-            strike_price: formData.strike_price,
-            buy_type: formData.buy_type,
-            buy_threshold: formData.buy_threshold,
-            previous_close: formData.previous_close,
-            producttype: adjustedProductType,
-            stop_loss_type: formData.stop_loss_type,
-            stop_loss_value: formData.stop_loss_value,
-            points_condition: formData.points_condition,
-            sell_type: formData.sell_type,
-            sell_threshold: formData.sell_threshold
-          }),
-        });
-
-        const data = await response.json();
-        if (response.ok) {
-          setMessage({ text: `Buy trade initiated for ${username} (${user.broker})! Position ID: ${data.position_id}`, type: "success" });
-          setActiveTradeId(data.position_id);
-          fetchOpenPositions();
-        } else {
-          setMessage({ text: `Failed for ${username} (${user.broker}): ${data.detail}`, type: "danger" });
-        }
+      const data = await response.json();
+      if (response.ok) {
+        setMessage({ text: data.message, type: "success" });
+        setActiveTradeId(data.position_id);
+        fetchOpenPositions();
+        setFormStep(1);
+        setSelectedUsers([]);
+      } else {
+        setMessage({ text: data.detail || "Trade initiation failed", type: "danger" });
       }
     } catch (error) {
       console.error("Error initiating trade:", error);
       setMessage({ text: "Server error initiating trade.", type: "danger" });
     }
-    setFormStep(1);
-    setSelectedUsers([]);
   };
 
   const handleUpdateConditions = async () => {
     if (!activeTradeId || !selectedUsers.length) {
-      setMessage({ text: "No active trade or users selected for update.", type: "warning" });
+      setMessage({ text: "No active trade or user selected.", type: "warning" });
       return;
     }
 
     try {
-      for (const username of selectedUsers) {
-        const user = users.find(u => u.username === username);
-        if (!user) continue;
+      const username = selectedUsers[0];
+      const response = await fetch("https://mtb-8ra9.onrender.com/api/update_trade_conditions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          position_id: activeTradeId,
+          stop_loss_type: formData.stop_loss_type,
+          stop_loss_value: formData.stop_loss_value,
+          points_condition: formData.points_condition,
+        }),
+      });
 
-        const response = await fetch("https://mtb-8ra9.onrender.com/api/update_trade_conditions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username,
-            position_id: activeTradeId,
-            stop_loss_type: formData.stop_loss_type,
-            stop_loss_value: formData.stop_loss_value,
-            points_condition: formData.points_condition,
-          }),
-        });
-
-        const data = await response.json();
-        if (response.ok) {
-          setMessage({ text: `Conditions updated for ${username} (${user.broker})!`, type: "success" });
-        } else {
-          setMessage({ text: `Failed to update for ${username} (${user.broker}): ${data.detail}`, type: "danger" });
-        }
+      const data = await response.json();
+      if (response.ok) {
+        setMessage({ text: data.message, type: "success" });
+        fetchOpenPositions();
+      } else {
+        setMessage({ text: data.detail || "Failed to update conditions", type: "danger" });
       }
     } catch (error) {
       console.error("Error updating conditions:", error);
@@ -378,31 +363,27 @@ const Landing = () => {
   };
 
   const UserActionsDropdown = ({ setShowRegisterModal, setShowUsers, showUsers }) => (
-    <Dropdown as={ButtonGroup} className="shadow-sm">
-      <Dropdown.Toggle variant="primary" id="dropdown-basic" className="user-actions-dropdown">
-        <FontAwesomeIcon icon={faUserCog} /> Manage Users
+    <Dropdown as={ButtonGroup}>
+      <Dropdown.Toggle variant="outline-dark" id="dropdown-basic" className="rounded-pill">
+        <FontAwesomeIcon icon={faUserCog} /> User Actions
       </Dropdown.Toggle>
       <Dropdown.Menu>
-        <Dropdown.Item onClick={() => setShowRegisterModal(true)} className="text-dark">
-          <FontAwesomeIcon icon={faUserPlus} className="me-2 text-primary" /> Register User
+        <Dropdown.Item onClick={() => setShowRegisterModal(true)}>
+          <FontAwesomeIcon icon={faUserPlus} className="me-2" /> Register User
         </Dropdown.Item>
-        <Dropdown.Item onClick={() => { setShowUsers(!showUsers); fetchUsers(); }} className="text-dark">
-          <FontAwesomeIcon icon={faUsers} className="me-2 text-primary" /> View Users
+        <Dropdown.Item onClick={() => { setShowUsers(!showUsers); fetchUsers(); }}>
+          <FontAwesomeIcon icon={faUsers} className="me-2" /> View Users
         </Dropdown.Item>
-        <Dropdown.Item onClick={() => window.open('https://www.shoonya.com/login', '_blank')} className="text-dark">
-          <FontAwesomeIcon icon={faSignInAlt} className="me-2 text-primary" /> Shoonya Login
+        <Dropdown.Item onClick={() => window.open('https://www.shoonya.com/login', '_blank')}>
+          <FontAwesomeIcon icon={faSignInAlt} className="me-2" /> Shoonya Login
         </Dropdown.Item>
       </Dropdown.Menu>
     </Dropdown>
   );
 
   const formatChartSymbol = (symbol, exchange) => {
-    const cleanSymbol = symbol.replace(" ", "").toUpperCase();
-    if (exchange === "NFO") return `NFO:${cleanSymbol}`;
-    else if (exchange === "MCX") return `MCX:${cleanSymbol}`;
-    else if (exchange === "NSE") return `NSE:${cleanSymbol}`;
-    else if (exchange === "BSE") return `BSE:${cleanSymbol}`;
-    return `NSE:${cleanSymbol}`;
+    const cleanSymbol = symbol.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    return `${exchange}:${cleanSymbol}`;
   };
 
   useEffect(() => {
@@ -412,11 +393,11 @@ const Landing = () => {
   }, []);
 
   return (
-    <Container fluid className="p-4 bg-gradient" style={{ minHeight: "100vh", background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)" }}>
-      <Row className="justify-content-center">
-        <Col md={12} className="mb-4">
+    <Container fluid className="p-4" style={{ minHeight: "100vh", background: "linear-gradient(135deg, #e6f0fa 0%, #d1e0e8 100%)" }}>
+      <Row className="mb-4">
+        <Col>
           {message.text && (
-            <Alert variant={message.type === "success" ? "success" : "danger"} className="mb-3" style={{ borderRadius: "12px", boxShadow: "0 4px 6px rgba(0,0,0,0.1)", transition: "all 0.3s ease" }}>
+            <Alert variant={message.type} dismissible onClose={() => setMessage({ text: "", type: "" })} style={{ borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.1)" }}>
               {message.text}
             </Alert>
           )}
@@ -424,11 +405,10 @@ const Landing = () => {
       </Row>
 
       <Row className="g-4">
-        <Col md={6} className="mb-4">
-          <Card className="h-100 shadow-lg border-0" style={{ borderRadius: "12px", background: "#ffffff", transform: "translateY(0)", transition: "transform 0.3s ease" }}>
-            <Card.Body>
-              <h4 className="text-primary mb-3"><FontAwesomeIcon icon={faChartLine} className="me-2" /> Market Chart</h4>
-              <div style={{ height: "500px", border: "1px solid #e9ecef", borderRadius: "8px", boxShadow: "0 2px 4px rgba(0,0,0,0.05)" }}>
+        <Col md={6}>
+          <Card className="shadow-sm" style={{ borderRadius: "15px", overflow: "hidden" }}>
+            <Card.Body className="p-0">
+              <div style={{ height: "500px" }}>
                 <TradingViewWidget symbol={chartSymbol} />
               </div>
             </Card.Body>
@@ -436,38 +416,34 @@ const Landing = () => {
         </Col>
 
         <Col md={6}>
-          <Row className="justify-content-end mb-3">
+          <Row className="mb-3 justify-content-end">
             <Col xs="auto">
               <UserActionsDropdown setShowRegisterModal={setShowRegisterModal} setShowUsers={setShowUsers} showUsers={showUsers} />
             </Col>
           </Row>
 
           {showUsers && (
-            <Card className="mb-4 shadow-lg border-0" style={{ borderRadius: "12px", background: "#ffffff" }}>
+            <Card className="mb-4 shadow-sm" style={{ borderRadius: "15px" }}>
+              <Card.Header className="bg-dark text-white">Registered Users</Card.Header>
               <Card.Body>
-                <h3 className="text-primary mb-3"><FontAwesomeIcon icon={faUsers} className="me-2" /> Registered Users</h3>
-                <Table striped bordered hover responsive className="table-hover table-sm" style={{ borderRadius: "8px" }}>
-                  <thead className="bg-gradient-primary text-white" style={{ background: "linear-gradient(45deg, #007bff, #0056b3)" }}>
+                <Table striped hover responsive>
+                  <thead>
                     <tr>
-                      <th>#</th><th>Username</th><th>Broker</th><th>Default Qty</th><th>Vendor Code</th><th>IMEI</th><th>Actions</th>
+                      <th>#</th><th>Username</th><th>Broker</th><th>Qty</th><th>Vendor</th><th>IMEI</th><th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {users.length > 0 ? (
-                      users.map((user, index) => (
-                        <tr key={index} className="hover-effect" style={{ transition: "background-color 0.3s ease" }}>
-                          <td>{index + 1}</td>
-                          <td>{user.username}</td>
-                          <td>{user.broker}</td>
-                          <td>{user.default_quantity}</td>
-                          <td>{user.broker === "Shoonya" ? user.vendor_code || "N/A" : "N/A"}</td>
-                          <td>{user.broker === "Shoonya" ? user.imei || "N/A" : "N/A"}</td>
-                          <td><Button variant="danger" size="sm" className="rounded-pill" onClick={() => handleDeleteUser(user.username)}>Delete</Button></td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr><td colSpan="7" className="text-muted text-center">No registered users found.</td></tr>
-                    )}
+                    {users.map((user, index) => (
+                      <tr key={index}>
+                        <td>{index + 1}</td>
+                        <td>{user.username}</td>
+                        <td>{user.broker}</td>
+                        <td>{user.default_quantity}</td>
+                        <td>{user.vendor_code || "N/A"}</td>
+                        <td>{user.imei || "N/A"}</td>
+                        <td><Button variant="outline-danger" size="sm" onClick={() => handleDeleteUser(user.username)}>Delete</Button></td>
+                      </tr>
+                    ))}
                   </tbody>
                 </Table>
               </Card.Body>
@@ -475,134 +451,103 @@ const Landing = () => {
           )}
 
           {showTradesDashboard && (
-            <Card className="mb-4 shadow-lg border-0" style={{ borderRadius: "12px", background: "#ffffff" }}>
+            <Card className="mb-4 shadow-sm" style={{ borderRadius: "15px" }}>
+              <Card.Header className="bg-dark text-white">Active Trades</Card.Header>
               <Card.Body>
-                <h3 className="text-dark fw-bold mb-3"><FontAwesomeIcon icon={faExchangeAlt} className="me-2 text-primary" /> Active Trades</h3>
-                <Table striped bordered hover responsive className="table-hover table-sm" style={{ borderRadius: "8px" }}>
-                  <thead className="bg-gradient-dark text-white" style={{ background: "linear-gradient(45deg, #343a40, #212529)" }}>
+                <Table striped hover responsive>
+                  <thead>
                     <tr>
-                      <th>#</th><th>Username</th><th>Symbol</th><th>Entry Price</th><th>Buy Threshold</th><th>Stop-Loss Type</th><th>Stop-Loss Value</th><th>Sell Threshold</th><th>Position</th><th>Broker</th>
+                      <th>#</th><th>User</th><th>Symbol</th><th>Entry</th><th>Buy</th><th>SL Type</th><th>SL Value</th><th>Sell</th><th>Broker</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {openTrades.length > 0 ? (
-                      openTrades.map((trade, index) => (
-                        <tr key={index} className="hover-effect" style={{ transition: "background-color 0.3s ease" }}>
-                          <td>{index + 1}</td>
-                          <td>{trade.username}</td>
-                          <td>{trade.symbol}</td>
-                          <td style={{ color: "green" }}>₹{trade.entry_price}</td>
-                          <td>₹{trade.buy_threshold}</td>
-                          <td>{trade.stop_loss_type}</td>
-                          <td>{trade.stop_loss_value}</td>
-                          <td style={{ color: "red" }}>₹{trade.sell_threshold || "N/A"}</td>
-                          <td><span className="badge bg-success rounded-pill">Buy</span></td>
-                          <td>{users.find(u => u.username === trade.username)?.broker || "Unknown"}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr><td colSpan="10" className="text-muted text-center">No active trades found.</td></tr>
-                    )}
+                    {openTrades.map((trade, index) => (
+                      <tr key={index}>
+                        <td>{index + 1}</td>
+                        <td>{trade.username}</td>
+                        <td>{trade.symbol}</td>
+                        <td>₹{trade.entry_price.toFixed(2)}</td>
+                        <td>₹{trade.buy_threshold.toFixed(2)}</td>
+                        <td>{trade.stop_loss_type}</td>
+                        <td>{trade.stop_loss_value}</td>
+                        <td>₹{trade.sell_threshold?.toFixed(2) || "N/A"}</td>
+                        <td>{users.find(u => u.username === trade.username)?.broker}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </Table>
               </Card.Body>
             </Card>
           )}
 
-          <Row className="justify-content-center mb-3">
+          <Row className="mb-3 justify-content-center">
             <Col xs="auto">
-              <Button variant="outline-primary" className="rounded-pill" onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }}>
-                <FontAwesomeIcon icon={faExchangeAlt} className="me-2" /> Trades Dashboard
+              <Button variant="outline-info" onClick={() => { setShowTradesDashboard(!showTradesDashboard); fetchOpenPositions(); }}>
+                <FontAwesomeIcon icon={faExchangeAlt} /> Toggle Trades
               </Button>
             </Col>
           </Row>
 
-          <Card className="shadow-lg border-0 p-4" style={{ borderRadius: "12px", background: "#ffffff" }}>
+          <Card className="shadow-sm p-4" style={{ borderRadius: "15px" }}>
             <Card.Body>
               {formStep === 1 && (
-                <div className="fade-in">
-                  <h4 className="text-primary mb-3"><FontAwesomeIcon icon={faUsers} /> Select User</h4>
+                <div>
+                  <h5>Select User</h5>
                   <Form>
-                    <Row className="mb-3">
-                      <Col>
-                        {users.map((user, index) => (
-                          <Form.Check
-                            key={index}
-                            type="checkbox"
-                            label={user.username}
-                            checked={selectedUsers.includes(user.username)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                if (selectedUsers.length < 1) setSelectedUsers([user.username]);
-                                else alert("⚠ You can only select 1 user for trading.");
-                              } else {
-                                setSelectedUsers([]);
-                              }
-                            }}
-                            className="mb-2"
-                          />
-                        ))}
-                      </Col>
-                    </Row>
-                    <Button variant="primary" className="rounded-pill" onClick={() => { if (selectedUsers.length) setFormStep(2); else alert("Select 1 user."); }}>
-                      <FontAwesomeIcon icon={faArrowRight} className="me-2" /> Next
+                    {users.map((user, index) => (
+                      <Form.Check
+                        key={index}
+                        type="radio"
+                        label={user.username}
+                        checked={selectedUsers[0] === user.username}
+                        onChange={() => setSelectedUsers([user.username])}
+                        className="mb-2"
+                      />
+                    ))}
+                    <Button variant="primary" onClick={() => selectedUsers.length ? setFormStep(2) : setMessage({ text: "Select a user.", type: "warning" })}>
+                      <FontAwesomeIcon icon={faArrowRight} /> Next
                     </Button>
                   </Form>
                 </div>
               )}
 
               {formStep === 2 && (
-                <div className="fade-in">
-                  <h4 className="text-primary mb-3"><FontAwesomeIcon icon={faChartLine} /> Enter Market/Option Data</h4>
+                <div>
+                  <h5>Market/Option Data</h5>
                   <Form>
                     <Row className="mb-3">
                       <Col md={6}>
                         <Form.Group>
-                          <Form.Label>Symbol (e.g., BANKNIFTY, GOLD, RELIANCE, NIFTY27MAR14500CE)</Form.Label>
+                          <Form.Label>Symbol</Form.Label>
                           <Form.Control
                             type="text"
-                            placeholder="e.g., BANKNIFTY, GOLD, RELIANCE, NIFTY27MAR14500CE"
                             value={formData.symbol}
-                            onChange={(e) => {
-                              const newSymbol = e.target.value || "BANKNIFTY";
-                              setFormData({ ...formData, symbol: newSymbol });
-                              setChartSymbol(formatChartSymbol(newSymbol, formData.exchange));
-                            }}
-                            className="rounded"
+                            onChange={(e) => setFormData({ ...formData, symbol: e.target.value })}
                           />
                         </Form.Group>
                       </Col>
                       <Col md={6}>
                         <Form.Group>
-                          <Form.Label>Exchange (Default: NSE)</Form.Label>
-                          <Form.Select
-                            value={formData.exchange}
-                            onChange={(e) => {
-                              const newExchange = e.target.value;
-                              setFormData({ ...formData, exchange: newExchange });
-                              setChartSymbol(formatChartSymbol(formData.symbol, newExchange));
-                            }}
-                            className="rounded"
-                          >
-                            <option value="NFO">NFO (Futures & Options)</option>
-                            <option value="NSE">NSE (Stocks)</option>
-                            <option value="BSE">BSE (Stocks)</option>
-                            <option value="MCX">MCX (Commodities)</option>
+                          <Form.Label>Exchange</Form.Label>
+                          <Form.Select value={formData.exchange} onChange={(e) => setFormData({ ...formData, exchange: e.target.value })}>
+                            <option value="NFO">NFO</option>
+                            <option value="NSE">NSE</option>
+                            <option value="BSE">BSE</option>
+                            <option value="MCX">MCX</option>
                           </Form.Select>
                         </Form.Group>
                       </Col>
                     </Row>
                     <Row className="mb-3">
-                      <Col md={6}>
+                      <Col>
                         <Form.Group>
-                          <Form.Label>Expiry Date (DD-MM-YYYY, required for NFO, optional for others)</Form.Label>
+                          <Form.Label>Expiry (DD-MM-YYYY)</Form.Label>
                           <Form.Control
                             type="text"
-                            placeholder="e.g., 27-03-2025"
                             value={formData.expiry}
                             onChange={(e) => setFormData({ ...formData, expiry: e.target.value })}
+                            placeholder="e.g., 27-03-2025"
                             required={formData.exchange === "NFO"}
-                            className="rounded"
                           />
                         </Form.Group>
                       </Col>
@@ -611,167 +556,139 @@ const Landing = () => {
                       <Row className="mb-3">
                         <Col md={6}>
                           <Form.Group>
-                            <Form.Label>Strike Price (for NFO only)</Form.Label>
+                            <Form.Label>Strike Price</Form.Label>
                             <Form.Control
                               type="number"
                               value={formData.strike_price}
                               onChange={(e) => setFormData({ ...formData, strike_price: parseFloat(e.target.value) || 0 })}
-                              required
-                              className="rounded"
                             />
                           </Form.Group>
                         </Col>
                         <Col md={6}>
                           <Form.Group>
-                            <Form.Label>Number of Strikes (for NFO only)</Form.Label>
+                            <Form.Label>Strike Count</Form.Label>
                             <Form.Control
                               type="number"
                               value={formData.strike_count}
                               onChange={(e) => setFormData({ ...formData, strike_count: parseInt(e.target.value) || 5 })}
-                              min="1"
-                              required
-                              className="rounded"
                             />
                           </Form.Group>
                         </Col>
                       </Row>
                     )}
-                    <div className="d-flex gap-2">
-                      <Button variant="primary" className="rounded-pill" onClick={fetchOptionChainOrMarketData}>
-                        <FontAwesomeIcon icon={faSearch} className="me-2" /> Fetch Data
-                      </Button>
-                      <Button variant="secondary" className="rounded-pill" onClick={() => { setFormStep(1); setSelectedUsers([]); }}>
-                        <FontAwesomeIcon icon={faArrowLeft} className="me-2" /> Back
-                      </Button>
-                    </div>
+                    <Button variant="primary" onClick={fetchOptionChainOrMarketData}>
+                      <FontAwesomeIcon icon={faSearch} /> Fetch
+                    </Button>
+                    <Button variant="outline-secondary" className="ms-2" onClick={() => setFormStep(1)}>
+                      <FontAwesomeIcon icon={faArrowLeft} /> Back
+                    </Button>
                   </Form>
                 </div>
               )}
 
-              {formData.exchange === "NFO" && formStep === 3 && optionChainData && (
-                <div className="fade-in">
-                  <h4 className="text-success mb-3"><FontAwesomeIcon icon={faChartLine} /> Select Option</h4>
-                  <Table striped bordered hover responsive className="option-chain-table table-hover table-sm" style={{ fontSize: '14px', background: "#ffffff", borderRadius: "12px", boxShadow: "0 4px 8px rgba(0,0,0,0.1)" }}>
-                    <thead className="bg-gradient-primary text-white" style={{ background: "linear-gradient(45deg, #007bff, #0056b3)" }}>
+              {formStep === 3 && optionChainData && (
+                <div>
+                  <h5>Select Option</h5>
+                  <Table striped hover responsive>
+                    <thead>
                       <tr>
-                        <th style={{ width: '10%' }}>Strike Price</th>
-                        <th colSpan="4" style={{ textAlign: 'center', width: '45%' }}>Call</th>
-                        <th colSpan="4" style={{ textAlign: 'center', width: '45%' }}>Put</th>
-                      </tr>
-                      <tr>
-                        <th></th><th>LTP</th><th>Bid</th><th>Ask</th><th>OI (Lakhs)</th><th>LTP</th><th>Bid</th><th>Ask</th><th>OI (Lakhs)</th>
+                        <th>Strike</th><th>Call LTP</th><th>Call OI</th><th>Put LTP</th><th>Put OI</th><th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {optionChainData.map((item, index) => (
-                        <tr key={index} className="hover-effect" style={{ backgroundColor: index % 2 === 0 ? '#f8f9fa' : '#ffffff', transition: "background-color 0.3s ease" }}>
-                          <td style={{ fontWeight: 'bold', color: '#007bff' }}>{item.StrikePrice.toFixed(2)}</td>
-                          <td style={{ color: item.Call.LTP >= 0 ? '#28a745' : '#dc3545' }}>{item.Call.LTP ? item.Call.LTP.toFixed(2) : "N/A"}</td>
-                          <td>{item.Call.Bid ? item.Call.Bid.toFixed(2) : "N/A"}</td>
-                          <td>{item.Call.Ask ? item.Call.Ask.toFixed(2) : "N/A"}</td>
-                          <td>{item.Call.OI ? item.Call.OI.toFixed(2) : "N/A"}</td>
-                          <td style={{ color: item.Put.LTP >= 0 ? '#28a745' : '#dc3545' }}>{item.Put.LTP ? item.Put.LTP.toFixed(2) : "N/A"}</td>
-                          <td>{item.Put.Bid ? item.Put.Bid.toFixed(2) : "N/A"}</td>
-                          <td>{item.Put.Ask ? item.Put.Ask.toFixed(2) : "N/A"}</td>
-                          <td>{item.Put.OI ? item.Put.OI.toFixed(2) : "N/A"}</td>
+                        <tr key={index}>
+                          <td>{item.StrikePrice}</td>
+                          <td>{item.Call.LTP?.toFixed(2)}</td>
+                          <td>{item.Call.OI?.toFixed(2)}</td>
+                          <td>{item.Put.LTP?.toFixed(2)}</td>
+                          <td>{item.Put.OI?.toFixed(2)}</td>
                           <td>
                             <ButtonGroup>
-                              {item.Call.TradingSymbol && (
-                                <Button variant="primary" size="sm" className="rounded-pill" onClick={() => handleSelectStrike({ ...item.Call, StrikePrice: item.StrikePrice, OptionType: "CE" })}>
-                                  Select Call
-                                </Button>
-                              )}
-                              {item.Put.TradingSymbol && (
-                                <Button variant="secondary" size="sm" className="rounded-pill ms-2" onClick={() => handleSelectStrike({ ...item.Put, StrikePrice: item.StrikePrice, OptionType: "PE" })}>
-                                  Select Put
-                                </Button>
-                              )}
+                              <Button variant="outline-primary" size="sm" onClick={() => handleSelectStrike({ ...item.Call, StrikePrice: item.StrikePrice, OptionType: "CE" })}>
+                                Call
+                              </Button>
+                              <Button variant="outline-secondary" size="sm" onClick={() => handleSelectStrike({ ...item.Put, StrikePrice: item.StrikePrice, OptionType: "PE" })}>
+                                Put
+                              </Button>
                             </ButtonGroup>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </Table>
-                  <div className="mt-3 d-flex gap-2">
-                    <Button variant="secondary" className="rounded-pill" onClick={() => { setFormStep(2); if (ws) ws.forEach(w => w.close()); setOptionChainData(null); }}>
-                      <FontAwesomeIcon icon={faArrowLeft} className="me-2" /> Back
-                    </Button>
-                  </div>
+                  <Button variant="outline-secondary" onClick={() => { setFormStep(2); setOptionChainData(null); if (ws) ws.forEach(w => w.close()); }}>
+                    <FontAwesomeIcon icon={faArrowLeft} /> Back
+                  </Button>
                 </div>
               )}
 
               {formStep === 3.5 && (
-                <div className="fade-in">
-                  <h4 className="text-info mb-3"><FontAwesomeIcon icon={faCheckCircle} /> Confirm Selection</h4>
-                  <Card className="mb-3 p-3 shadow-lg" style={{ borderRadius: "12px", background: "linear-gradient(135deg, #f8f9fa, #e9ecef)" }}>
-                    <p className="mb-2"><strong>Selected Asset:</strong> {formData.tradingsymbol}</p>
-                    <p className="mb-2"><strong>Exchange:</strong> {formData.exchange}</p>
+                <div>
+                  <h5>Confirm Selection</h5>
+                  <Card className="mb-3 p-3">
+                    <p><strong>Asset:</strong> {formData.tradingsymbol}</p>
+                    <p><strong>Exchange:</strong> {formData.exchange}</p>
                     {formData.exchange === "NFO" && (
                       <>
-                        <p className="mb-2"><strong>Option Type:</strong> {formData.option_type}</p>
-                        <p className="mb-2"><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
+                        <p><strong>Type:</strong> {formData.option_type}</p>
+                        <p><strong>Strike:</strong> ₹{formData.strike_price}</p>
                       </>
                     )}
-                    <p className="mb-0"><strong>Previous Close:</strong> ₹{formData.previous_close.toFixed(2)}</p>
+                    <p><strong>LTP:</strong> ₹{marketData.ltp.toFixed(2)}</p>
                   </Card>
-                  <div className="d-flex gap-2">
-                    <Button variant="success" className="rounded-pill" onClick={handleConfirmTrade}>
-                      <FontAwesomeIcon icon={faCheck} className="me-2" /> Confirm & Proceed
-                    </Button>
-                    <Button variant="secondary" className="rounded-pill" onClick={() => setFormStep(formData.exchange === "NFO" ? 3 : 2)}>
-                      <FontAwesomeIcon icon={faArrowLeft} className="me-2" /> Back
-                    </Button>
-                  </div>
+                  <Button variant="success" onClick={handleConfirmTrade}>
+                    <FontAwesomeIcon icon={faCheck} /> Confirm
+                  </Button>
+                  <Button variant="outline-secondary" className="ms-2" onClick={() => setFormStep(formData.exchange === "NFO" ? 3 : 2)}>
+                    <FontAwesomeIcon icon={faArrowLeft} /> Back
+                  </Button>
                 </div>
               )}
 
               {formStep === 4 && (
-                <div className="fade-in">
-                  <h4 className="text-success mb-3"><FontAwesomeIcon icon={faShoppingCart} /> Set Trade Conditions</h4>
-                  <p className="text-muted"><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
+                <div>
+                  <h5>Trade Conditions</h5>
+                  <p><strong>Live:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Vol: {marketData.volume}</p>
                   <Form>
-                    <Row className="mb-3 g-3">
+                    <Row className="mb-3">
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>Buy Condition Type</Form.Label>
-                          <Form.Select value={formData.buy_type} onChange={(e) => setFormData({ ...formData, buy_type: e.target.value })} className="rounded">
-                            <option value="Fixed">Fixed Price (e.g., ₹110)</option>
-                            <option value="Percentage">Percentage Increase (e.g., 5%)</option>
+                          <Form.Label>Buy Type</Form.Label>
+                          <Form.Select value={formData.buy_type} onChange={(e) => setFormData({ ...formData, buy_type: e.target.value })}>
+                            <option value="Fixed">Fixed</option>
+                            <option value="Percentage">Percentage</option>
                           </Form.Select>
                         </Form.Group>
                       </Col>
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>{formData.buy_type === "Fixed" ? "Buy Threshold" : "Buy % Increase"}</Form.Label>
-                          <Form.Control type="number" value={formData.buy_threshold} onChange={(e) => setFormData({ ...formData, buy_threshold: parseFloat(e.target.value) || 0 })} required className="rounded" />
+                          <Form.Label>Buy Threshold</Form.Label>
+                          <Form.Control type="number" value={formData.buy_threshold} onChange={(e) => setFormData({ ...formData, buy_threshold: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
-                      {formData.buy_type === "Percentage" && (
-                        <Col md={4}>
-                          <Form.Group>
-                            <Form.Label>Previous Close</Form.Label>
-                            <Form.Control type="number" value={formData.previous_close} onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })} required className="rounded" />
-                          </Form.Group>
-                        </Col>
-                      )}
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>Product Type</Form.Label>
-                          <Form.Select value={formData.producttype} onChange={(e) => setFormData({ ...formData, producttype: e.target.value })} className="rounded">
-                            <option value="INTRADAY">MIS (Intraday)</option>
-                            <option value="C">CNC (Cash and Carry)</option>
-                            <option value="M">NRML (Normal)</option>
-                            <option value="B">Bracket Order</option>
-                            <option value="H">Cover Order</option>
-                          </Form.Select>
+                          <Form.Label>Prev Close</Form.Label>
+                          <Form.Control type="number" value={formData.previous_close} onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
                     </Row>
-                    <Row className="mb-3 g-3">
+                    <Row className="mb-3">
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>Stop-Loss Type</Form.Label>
-                          <Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })} className="rounded">
+                          <Form.Label>Product Type</Form.Label>
+                          <Form.Select value={formData.producttype} onChange={(e) => setFormData({ ...formData, producttype: e.target.value })}>
+                            <option value="INTRADAY">Intraday</option>
+                            <option value="C">CNC</option>
+                            <option value="M">NRML</option>
+                          </Form.Select>
+                        </Form.Group>
+                      </Col>
+                      <Col md={4}>
+                        <Form.Group>
+                          <Form.Label>SL Type</Form.Label>
+                          <Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}>
                             <option value="Fixed">Fixed</option>
                             <option value="Percentage">Percentage</option>
                             <option value="Points">Points</option>
@@ -780,165 +697,130 @@ const Landing = () => {
                       </Col>
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>Stop-Loss Value</Form.Label>
-                          <Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} required className="rounded" />
-                        </Form.Group>
-                      </Col>
-                      <Col md={4}>
-                        <Form.Group>
-                          <Form.Label>Points Condition</Form.Label>
-                          <Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} className="rounded" />
+                          <Form.Label>SL Value</Form.Label>
+                          <Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
                     </Row>
-                    <Row className="mb-3 g-3">
+                    <Row className="mb-3">
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>Sell Condition Type</Form.Label>
-                          <Form.Select value={formData.sell_type} onChange={(e) => setFormData({ ...formData, sell_type: e.target.value })} className="rounded">
-                            <option value="Fixed">Fixed Price (e.g., ₹90)</option>
-                            <option value="Percentage">Percentage Decrease (e.g., 5%)</option>
+                          <Form.Label>Points</Form.Label>
+                          <Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} />
+                        </Form.Group>
+                      </Col>
+                      <Col md={4}>
+                        <Form.Group>
+                          <Form.Label>Sell Type</Form.Label>
+                          <Form.Select value={formData.sell_type} onChange={(e) => setFormData({ ...formData, sell_type: e.target.value })}>
+                            <option value="Fixed">Fixed</option>
+                            <option value="Percentage">Percentage</option>
                           </Form.Select>
                         </Form.Group>
                       </Col>
                       <Col md={4}>
                         <Form.Group>
-                          <Form.Label>{formData.sell_type === "Fixed" ? "Sell Threshold" : "Sell % Decrease"}</Form.Label>
-                          <Form.Control type="number" value={formData.sell_threshold} onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })} required className="rounded" />
+                          <Form.Label>Sell Threshold</Form.Label>
+                          <Form.Control type="number" value={formData.sell_threshold} onChange={(e) => setFormData({ ...formData, sell_threshold: parseFloat(e.target.value) || 0 })} />
                         </Form.Group>
                       </Col>
-                      {formData.sell_type === "Percentage" && (
-                        <Col md={4}>
-                          <Form.Group>
-                            <Form.Label>Previous Close</Form.Label>
-                            <Form.Control type="number" value={formData.previous_close} onChange={(e) => setFormData({ ...formData, previous_close: parseFloat(e.target.value) || 0 })} required className="rounded" />
-                          </Form.Group>
-                        </Col>
-                      )}
                     </Row>
+                    <Button variant="success" onClick={handleInitiateTrade}>
+                      <FontAwesomeIcon icon={faCheck} /> Execute
+                    </Button>
+                    <Button variant="outline-secondary" className="ms-2" onClick={() => setFormStep(3.5)}>
+                      <FontAwesomeIcon icon={faArrowLeft} /> Back
+                    </Button>
+                  </Form>
+                </div>
+              )}
+
+              {activeTradeId && (
+                <div className="mt-4">
+                  <h5>Update Conditions</h5>
+                  <Form>
                     <Row className="mb-3">
-                      <Col>
-                        <Card className="p-3" style={{ borderRadius: "12px", background: "linear-gradient(135deg, #f8f9fa, #e9ecef)", boxShadow: "0 4px 8px rgba(0,0,0,0.1)" }}>
-                          <p className="mb-2"><strong>Selected User:</strong> {selectedUsers.join(", ")}</p>
-                          <p className="mb-2"><strong>Symbol:</strong> {formData.symbol}</p>
-                          <p className="mb-2"><strong>Exchange:</strong> {formData.exchange}</p>
-                          <p className="mb-2"><strong>Expiry:</strong> {formData.expiry || "N/A"}</p>
-                          {formData.exchange === "NFO" && (
-                            <>
-                              <p className="mb-2"><strong>Strike Price:</strong> ₹{formData.strike_price}</p>
-                              <p className="mb-2"><strong>Option Type:</strong> {formData.option_type}</p>
-                            </>
-                          )}
-                          <p className="text-success mb-2"><strong>Buy Condition:</strong> {formData.buy_type === "Fixed" ? `≥ ₹${formData.buy_threshold}` : `≥ ₹${(formData.previous_close * (1 + formData.buy_threshold / 100)).toFixed(2)} (${formData.buy_threshold}%)`}</p>
-                          <p className="text-danger mb-2"><strong>Stop-Loss:</strong> {formData.stop_loss_type} at {formData.stop_loss_value} {formData.stop_loss_type === "Percentage" ? "%" : ""} (Points: {formData.points_condition})</p>
-                          <p className="text-danger mb-2"><strong>Sell Condition:</strong> {formData.sell_type === "Fixed" ? `≤ ₹${formData.sell_threshold}` : `≤ ₹${(formData.previous_close * (1 - formData.sell_threshold / 100)).toFixed(2)} (${formData.sell_threshold}%)`}</p>
-                          <p className="mb-0"><strong>Product Type:</strong> {formData.producttype}</p>
-                          <p className="mb-0"><strong>Broker:</strong> {users.find(u => u.username === selectedUsers[0])?.broker || "Unknown"}</p>
-                        </Card>
+                      <Col md={4}>
+                        <Form.Group>
+                          <Form.Label>SL Type</Form.Label>
+                          <Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })}>
+                            <option value="Fixed">Fixed</option>
+                            <option value="Percentage">Percentage</option>
+                            <option value="Points">Points</option>
+                          </Form.Select>
+                        </Form.Group>
+                      </Col>
+                      <Col md={4}>
+                        <Form.Group>
+                          <Form.Label>SL Value</Form.Label>
+                          <Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} />
+                        </Form.Group>
+                      </Col>
+                      <Col md={4}>
+                        <Form.Group>
+                          <Form.Label>Points</Form.Label>
+                          <Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} />
+                        </Form.Group>
                       </Col>
                     </Row>
-                    <div className="d-flex gap-2">
-                      <Button variant="success" className="rounded-pill" onClick={handleInitiateTrade}>
-                        <FontAwesomeIcon icon={faCheck} className="me-2" /> Execute Trade
-                      </Button>
-                      <Button variant="secondary" className="rounded-pill" onClick={() => setFormStep(3.5)}>
-                        <FontAwesomeIcon icon={faArrowLeft} className="me-2" /> Back
-                      </Button>
-                    </div>
+                    <Button variant="warning" onClick={handleUpdateConditions}>
+                      <FontAwesomeIcon icon={faEdit} /> Update
+                    </Button>
                   </Form>
                 </div>
               )}
             </Card.Body>
           </Card>
-
-          {activeTradeId && (
-            <Card className="mt-4 shadow-lg border-0 p-4" style={{ borderRadius: "12px", background: "#ffffff" }}>
-              <Card.Body>
-                <h4 className="text-warning mb-3"><FontAwesomeIcon icon={faExchangeAlt} /> Update Trade Conditions</h4>
-                <p className="text-muted"><strong>Live Market Data:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Volume: {marketData.volume}, Last Update: {marketData.timestamp}</p>
-                <Form>
-                  <Row className="mb-3 g-3">
-                    <Col md={4}>
-                      <Form.Group>
-                        <Form.Label>Stop-Loss Type</Form.Label>
-                        <Form.Select value={formData.stop_loss_type} onChange={(e) => setFormData({ ...formData, stop_loss_type: e.target.value })} className="rounded">
-                          <option value="Fixed">Fixed</option>
-                          <option value="Percentage">Percentage</option>
-                          <option value="Points">Points</option>
-                        </Form.Select>
-                      </Form.Group>
-                    </Col>
-                    <Col md={4}>
-                      <Form.Group>
-                        <Form.Label>Stop-Loss Value</Form.Label>
-                        <Form.Control type="number" value={formData.stop_loss_value} onChange={(e) => setFormData({ ...formData, stop_loss_value: parseFloat(e.target.value) || 0 })} className="rounded" />
-                      </Form.Group>
-                    </Col>
-                    <Col md={4}>
-                      <Form.Group>
-                        <Form.Label>Points Condition</Form.Label>
-                        <Form.Control type="number" value={formData.points_condition} onChange={(e) => setFormData({ ...formData, points_condition: parseFloat(e.target.value) || 0 })} className="rounded" />
-                      </Form.Group>
-                    </Col>
-                  </Row>
-                  <Button variant="warning" className="rounded-pill" onClick={handleUpdateConditions}>
-                    <FontAwesomeIcon icon={faEdit} className="me-2" /> Update Conditions
-                  </Button>
-                </Form>
-              </Card.Body>
-            </Card>
-          )}
         </Col>
       </Row>
 
-      <Modal show={showRegisterModal} onHide={() => setShowRegisterModal(false)} centered className="shadow-lg" style={{ borderRadius: "12px" }}>
-        <Modal.Header closeButton className="bg-gradient-primary text-white" style={{ borderRadius: "12px 12px 0 0", background: "linear-gradient(45deg, #007bff, #0056b3)" }}>
+      <Modal show={showRegisterModal} onHide={() => setShowRegisterModal(false)} centered>
+        <Modal.Header closeButton className="bg-dark text-white">
           <Modal.Title>Register User</Modal.Title>
         </Modal.Header>
-        <Modal.Body className="p-4">
-          {message.text && <Alert variant={message.type === "success" ? "success" : "danger"} className="mb-3" style={{ borderRadius: "8px", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>{message.text}</Alert>}
+        <Modal.Body>
           <Form onSubmit={handleRegisterSubmit}>
             <Form.Group className="mb-3">
               <Form.Label>Username</Form.Label>
-              <Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required className="rounded" />
+              <Form.Control type="text" value={formData.username} onChange={(e) => setFormData({ ...formData, username: e.target.value })} required />
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Password</Form.Label>
-              <Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required className="rounded" />
+              <Form.Control type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required />
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Broker</Form.Label>
-              <Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })} className="rounded">
+              <Form.Select value={formData.broker} onChange={(e) => setFormData({ ...formData, broker: e.target.value })}>
                 <option value="Shoonya">Shoonya</option>
-                <option value="AngelOne">AngelOne</option> {/* Placeholder for future brokers */}
+                <option value="AngelOne">AngelOne</option>
               </Form.Select>
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>API Key</Form.Label>
-              <Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required className="rounded" />
+              <Form.Control type="text" value={formData.api_key} onChange={(e) => setFormData({ ...formData, api_key: e.target.value })} required />
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>TOTP Token</Form.Label>
-              <Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required className="rounded" />
+              <Form.Control type="text" value={formData.totp_token} onChange={(e) => setFormData({ ...formData, totp_token: e.target.value })} required />
             </Form.Group>
             {formData.broker === "Shoonya" && (
               <>
                 <Form.Group className="mb-3">
                   <Form.Label>Vendor Code</Form.Label>
-                  <Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required className="rounded" />
+                  <Form.Control type="text" value={formData.vendor_code} onChange={(e) => setFormData({ ...formData, vendor_code: e.target.value })} required />
                 </Form.Group>
                 <Form.Group className="mb-3">
                   <Form.Label>IMEI</Form.Label>
-                  <Form.Control type="text" value={formData.imei} onChange={(e) => setFormData({ ...formData, imei: e.target.value })} required className="rounded" />
+                  <Form.Control type="text" value={formData.imei} onChange={(e) => setFormData({ ...formData, imei: e.target.value })} required />
                 </Form.Group>
               </>
             )}
             <Form.Group className="mb-3">
               <Form.Label>Default Quantity</Form.Label>
-              <Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required className="rounded" />
+              <Form.Control type="number" value={formData.default_quantity} onChange={(e) => setFormData({ ...formData, default_quantity: e.target.value })} required />
             </Form.Group>
-            <Button variant="primary" type="submit" className="rounded-pill w-100" style={{ background: "linear-gradient(45deg, #007bff, #0056b3)", border: "none" }}>
-              <FontAwesomeIcon icon={faUserPlus} className="me-2" /> Register
+            <Button variant="primary" type="submit">
+              <FontAwesomeIcon icon={faUserPlus} /> Register
             </Button>
           </Form>
         </Modal.Body>
@@ -947,7 +829,6 @@ const Landing = () => {
   );
 };
 
-// Define TradingViewWidget component
 const TradingViewWidget = memo(({ symbol }) => {
   const container = useRef();
 
@@ -959,7 +840,7 @@ const TradingViewWidget = memo(({ symbol }) => {
     script.innerHTML = JSON.stringify({
       autosize: true,
       symbol: symbol || "NSE:BANKNIFTY",
-      interval: "D",
+      interval: "5",
       timezone: "Asia/Kolkata",
       theme: "light",
       style: "1",
@@ -975,11 +856,6 @@ const TradingViewWidget = memo(({ symbol }) => {
   return (
     <div className="tradingview-widget-container" ref={container} style={{ height: "100%", width: "100%" }}>
       <div className="tradingview-widget-container__widget" style={{ height: "calc(100% - 32px)", width: "100%" }}></div>
-      <div className="tradingview-widget-copyright">
-        <a href="https://www.tradingview.com/" rel="noopener nofollow" target="_blank" className="text-muted">
-          Track all markets on TradingView
-        </a>
-      </div>
     </div>
   );
 });
