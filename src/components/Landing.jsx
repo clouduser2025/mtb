@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback, memo, useRef } from 'react';
 import { Container, Button, Table, Form, Alert, Modal, Row, Col, Dropdown, ButtonGroup, Card } from 'react-bootstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign, faArrowRight, faSearch, faArrowLeft, faCheckCircle, faCheck, faEdit } from '@fortawesome/free-solid-svg-icons';
-import './css/landing.css'; // Ensure this CSS file is updated for the new design
+import {
+  faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign,
+  faArrowRight, faSearch, faArrowLeft, faCheckCircle, faCheck, faEdit
+} from '@fortawesome/free-solid-svg-icons';
+import './css/landing.css';
 
 const Landing = () => {
   const [users, setUsers] = useState([]);
@@ -35,7 +38,7 @@ const Landing = () => {
     option_type: "Call",
     tradingsymbol: "",
     symboltoken: "",
-    exchange: "NSE",
+    exchange: "NFO", // Default to NFO since your data is NFO-based
     buy_type: "Fixed",
     buy_threshold: 110,
     previous_close: 0,
@@ -54,7 +57,7 @@ const Landing = () => {
       setUsers(data.users || []);
     } catch (error) {
       console.error("Error fetching users:", error);
-      setMessage({ text: "Failed to fetch users. Check your network or server status.", type: "danger" });
+      setMessage({ text: "Failed to fetch users.", type: "danger" });
     }
   };
 
@@ -71,7 +74,7 @@ const Landing = () => {
 
   const fetchOptionChainOrMarketData = async () => {
     if (!selectedUsers.length) {
-      setMessage({ text: "Please select at least one user.", type: "warning" });
+      setMessage({ text: "Please select a user.", type: "warning" });
       return;
     }
 
@@ -101,14 +104,14 @@ const Landing = () => {
         if (formData.exchange === "NFO") {
           setOptionChainData(data.data);
           setChartSymbol(formatChartSymbol(formData.symbol, formData.exchange));
-          setMessage({ text: `Option chain data fetched for ${formData.symbol} with expiry ${formData.expiry} on NFO!`, type: "success" });
+          setMessage({ text: `Option chain data fetched for ${formData.symbol}!`, type: "success" });
           setFormStep(3);
           startWebSocket(username, data.data.flatMap(item => [item.Call.Token, item.Put.Token].filter(Boolean)));
         } else {
           setMarketData(data.data[0] || {});
           setChartSymbol(formatChartSymbol(data.data[0]?.TradingSymbol || formData.symbol, formData.exchange));
-          setMessage({ text: `Market data fetched for ${formData.symbol} on ${formData.exchange}!`, type: "info" });
-          setFormStep(3.5); // Directly to confirmation for non-NFO
+          setMessage({ text: `Market data fetched for ${formData.symbol}!`, type: "info" });
+          setFormStep(3.5);
           startWebSocket(username, [data.data[0]?.Token]);
         }
       } else {
@@ -116,7 +119,7 @@ const Landing = () => {
       }
     } catch (error) {
       console.error("Error fetching data:", error);
-      setMessage({ text: "Server error fetching data. Please try again.", type: "danger" });
+      setMessage({ text: "Server error fetching data.", type: "danger" });
     }
   };
 
@@ -125,14 +128,24 @@ const Landing = () => {
     const newWs = tokens.map(token => {
       const wsUrl = new URL(`wss://mtb-8ra9.onrender.com/ws/option_chain/${username}/${token}`);
       const tokenWs = new WebSocket(wsUrl.href);
+      tokenWs.onopen = () => console.log(`WebSocket opened for token: ${token}`);
       tokenWs.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        console.log(`WebSocket data for token ${token}:`, data);
         if (formData.exchange === "NFO") {
           setOptionChainData(prevData => prevData?.map(item => ({
             ...item,
             Call: item.Call.Token === token ? { ...item.Call, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item.Call,
             Put: item.Put.Token === token ? { ...item.Put, LTP: data.ltp, OI: data.oi, Volume: data.volume, timestamp: data.timestamp } : item.Put
           })));
+          if (formData.symboltoken === token) {
+            setMarketData({
+              ltp: data.ltp || 0.0,
+              oi: data.oi || 0,
+              volume: data.volume || 0,
+              timestamp: data.timestamp || new Date().toISOString()
+            });
+          }
         } else {
           setMarketData(prev => ({
             ...prev,
@@ -145,12 +158,10 @@ const Landing = () => {
       };
       tokenWs.onerror = (error) => {
         console.error("WebSocket error for token", token, ":", error);
-        setMessage({ text: `WebSocket failed for ${token}. Using polling instead.`, type: "warning" });
+        setMessage({ text: `WebSocket failed for ${token}. Using polling.`, type: "warning" });
         pollMarketData(username, token);
       };
-      tokenWs.onclose = () => {
-        console.log("WebSocket closed for token", token);
-      };
+      tokenWs.onclose = () => console.log("WebSocket closed for token", token);
       return tokenWs;
     });
     setWs(newWs);
@@ -162,12 +173,21 @@ const Landing = () => {
         const response = await fetch(`https://mtb-8ra9.onrender.com/api/get_market_data/${username}/${token}`);
         if (response.ok) {
           const data = await response.json();
+          console.log(`Polling data for token ${token}:`, data);
           if (formData.exchange === "NFO") {
             setOptionChainData(prevData => prevData?.map(item => ({
               ...item,
               Call: item.Call.Token === token ? { ...item.Call, LTP: data.ltp, OI: data.oi, Volume: data.market_data?.v, timestamp: data.market_data?.ft } : item.Call,
               Put: item.Put.Token === token ? { ...item.Put, LTP: data.ltp, OI: data.oi, Volume: data.market_data?.v, timestamp: data.market_data?.ft } : item.Put
             })));
+            if (formData.symboltoken === token) {
+              setMarketData({
+                ltp: data.ltp || 0.0,
+                oi: data.oi || 0,
+                volume: data.market_data?.v || 0,
+                timestamp: data.market_data?.ft || new Date().toISOString()
+              });
+            }
           } else {
             setMarketData({
               ltp: data.ltp,
@@ -180,21 +200,29 @@ const Landing = () => {
       } catch (error) {
         console.error("Error polling market data for token", token, ":", error);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 2000);
     return () => clearInterval(pollInterval);
   };
 
   const handleSelectStrike = (strikeData) => {
     const isCall = strikeData.OptionType === "CE";
+    const expiry = formData.expiry ? formData.expiry.replace(/-/g, "").slice(0, 6) : "27MAR25"; // Adjust based on your expiry format
+    const assetName = `${formData.symbol}${expiry}${isCall ? "C" : "P"}${strikeData.StrikePrice}`;
     setFormData({
       ...formData,
-      tradingsymbol: strikeData.TradingSymbol,
+      tradingsymbol: strikeData.TradingSymbol || assetName, // Use TradingSymbol if available, else construct it
       symboltoken: strikeData.Token,
       previous_close: parseFloat(strikeData.LTP) || 0,
-      strike_price: parseFloat(strikeData.StrikePrice),
+      strike_price: parseInt(strikeData.StrikePrice, 10), // Ensure integer for display
       option_type: isCall ? "Call" : "Put"
     });
-    setChartSymbol(formatChartSymbol(strikeData.TradingSymbol, formData.exchange));
+    setMarketData({
+      ltp: parseFloat(strikeData.LTP) || 0.0,
+      oi: parseFloat(strikeData.OI) || 0,
+      volume: parseFloat(strikeData.Volume) || 0,
+      timestamp: strikeData.timestamp || new Date().toISOString()
+    });
+    setChartSymbol(formatChartSymbol(strikeData.TradingSymbol || assetName, formData.exchange));
     setFormStep(3.5);
     startMarketUpdates(selectedUsers[0], strikeData.Token);
   };
@@ -211,6 +239,7 @@ const Landing = () => {
     setWs([newWs]);
     newWs.onmessage = (event) => {
       const data = JSON.parse(event.data);
+      console.log("Market update received:", data);
       setMarketData({
         ltp: data.ltp || 0.0,
         oi: data.oi || 0,
@@ -220,12 +249,10 @@ const Landing = () => {
     };
     newWs.onerror = (error) => {
       console.error("WebSocket error for market updates:", error);
-      setMessage({ text: "WebSocket failed for market updates. Polling instead.", type: "warning" });
+      setMessage({ text: "WebSocket failed for updates. Polling instead.", type: "warning" });
       pollMarketData(username, symboltoken);
     };
-    newWs.onclose = () => {
-      console.log("WebSocket closed for market updates.");
-    };
+    newWs.onclose = () => console.log("WebSocket closed for market updates.");
     return () => newWs.close();
   }, []);
 
@@ -599,10 +626,10 @@ const Landing = () => {
                       {optionChainData.map((item, index) => (
                         <tr key={index}>
                           <td>{item.StrikePrice}</td>
-                          <td>{item.Call.LTP?.toFixed(2)}</td>
-                          <td>{item.Call.OI?.toFixed(2)}</td>
-                          <td>{item.Put.LTP?.toFixed(2)}</td>
-                          <td>{item.Put.OI?.toFixed(2)}</td>
+                          <td>{item.Call.LTP?.toFixed(2) || 'N/A'}</td>
+                          <td>{item.Call.OI?.toFixed(2) || 'N/A'}</td>
+                          <td>{item.Put.LTP?.toFixed(2) || 'N/A'}</td>
+                          <td>{item.Put.OI?.toFixed(2) || 'N/A'}</td>
                           <td>
                             <ButtonGroup>
                               <Button variant="outline-primary" size="sm" onClick={() => handleSelectStrike({ ...item.Call, StrikePrice: item.StrikePrice, OptionType: "CE" })}>
@@ -632,10 +659,10 @@ const Landing = () => {
                     {formData.exchange === "NFO" && (
                       <>
                         <p><strong>Type:</strong> {formData.option_type}</p>
-                        <p><strong>Strike:</strong> ₹{formData.strike_price}</p>
+                        <p><strong>Strike:</strong> {formData.strike_price}</p> {/* Displays as 49200 */}
                       </>
                     )}
-                    <p><strong>LTP:</strong> ₹{marketData.ltp.toFixed(2)}</p>
+                    <p><strong>LTP:</strong> ₹{marketData.ltp.toFixed(2) || '0.00'}</p> {/* Ensures LTP updates */}
                   </Card>
                   <Button variant="success" onClick={handleConfirmTrade}>
                     <FontAwesomeIcon icon={faCheck} /> Confirm
@@ -649,7 +676,7 @@ const Landing = () => {
               {formStep === 4 && (
                 <div>
                   <h5>Trade Conditions</h5>
-                  <p><strong>Live:</strong> LTP: ₹{marketData.ltp.toFixed(2)}, OI: {marketData.oi}, Vol: {marketData.volume}</p>
+                  <p><strong>Live:</strong> LTP: ₹{marketData.ltp.toFixed(2) || '0.00'}, OI: {marketData.oi}, Vol: {marketData.volume}</p>
                   <Form>
                     <Row className="mb-3">
                       <Col md={4}>
