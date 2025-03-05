@@ -29,6 +29,10 @@ app.add_middleware(
 
 conn = sqlite3.connect("trading_multi.db", check_same_thread=False)
 
+# Global variables to store symbol data
+nse_symbols = None
+nfo_symbols = None
+
 def init_db():
     with conn:
         conn.execute("""
@@ -60,7 +64,8 @@ def init_db():
             base_price REAL,
             sell_type TEXT,
             sell_threshold REAL,
-            previous_close REAL
+            previous_close REAL,
+            exchange TEXT
         )
         """)
     conn.commit()
@@ -81,8 +86,8 @@ class TradeRequest(BaseModel):
     username: str
     tradingsymbol: str
     symboltoken: str
-    exchange: str = "NSE"  # Default to NSE, but allow NFO, MCX, BSE
-    strike_price: Optional[float] = None  # Required for NFO, optional for others
+    exchange: str = "NSE"
+    strike_price: Optional[float] = None
     buy_type: str = "Fixed"
     buy_threshold: float = 110
     previous_close: Optional[float] = None
@@ -102,18 +107,60 @@ class UpdateTradeRequest(BaseModel):
 
 class OptionChainRequest(BaseModel):
     username: str
-    exchange: str  # Allow NFO, MCX, NSE, BSE
+    exchange: str
     symbol: str
-    expiry_date: str  # Required for NFO, optional for others
-    strike_price: Optional[float] = None  # Required for NFO, optional for others
-    strike_count: Optional[int] = 20  # Default for NFO, optional for others
+    expiry_date: str
+    strike_price: Optional[float] = None
+    strike_count: Optional[int] = 20
 
 smart_api_instances = {}
 ltp_cache = {}
 auth_tokens = {}
 refresh_tokens = {}
 feed_tokens = {}
-option_chain_subscriptions = {}  # Track active WebSocket subscriptions for option chains
+option_chain_subscriptions = {}
+
+def load_symbol_data():
+    global nse_symbols, nfo_symbols
+    try:
+        nse_file_path = "C:/Users/shafe/mtb-master/NSE_symbols.txt"
+        nfo_file_path = "C:/Users/shafe/mtb-master/NFO_symbols.txt"
+        
+        if os.path.exists(nse_file_path):
+            nse_symbols = pd.read_csv(nse_file_path)
+            logger.info(f"Loaded NSE symbols: {len(nse_symbols)} entries")
+        else:
+            logger.error(f"NSE symbols file not found at {nse_file_path}")
+            raise FileNotFoundError(f"NSE symbols file not found at {nse_file_path}")
+
+        if os.path.exists(nfo_file_path):
+            nfo_symbols = pd.read_csv(nfo_file_path)
+            logger.info(f"Loaded NFO symbols: {len(nfo_symbols)} entries")
+        else:
+            logger.error(f"NFO symbols file not found at {nfo_file_path}")
+            raise FileNotFoundError(f"NFO symbols file not found at {nfo_file_path}")
+    except Exception as e:
+        logger.error(f"Error loading symbol data: {e}")
+        raise
+
+def find_symbols(exchange: str, symbol: str, expiry_date: str = None):
+    if exchange == "NSE":
+        df = nse_symbols
+        filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
+                      df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
+        return filtered.to_dict('records') if not filtered.empty else []
+    
+    elif exchange == "NFO":
+        df = nfo_symbols
+        filtered = df[df['Symbol'].str.contains(symbol, case=False, na=False) | 
+                      df['TradingSymbol'].str.contains(symbol, case=False, na=False)]
+        if expiry_date:
+            expiry_dt = datetime.datetime.strptime(expiry_date, '%d-%m-%Y')
+            expiry_str = expiry_dt.strftime('%d-%b-%Y').upper()
+            filtered = filtered[filtered['Expiry'] == expiry_str]
+        return filtered.to_dict('records') if not filtered.empty else []
+    
+    return []
 
 def authenticate_user(username: str, password: str, broker: str, api_key: str, totp_token: str, vendor_code: Optional[str] = None, imei: str = "trading_app"):
     if broker == "AngelOne":
@@ -271,11 +318,13 @@ def update_open_positions(position_id: str, username: str, symbol: str, entry_pr
         cursor.execute("""
             INSERT OR REPLACE INTO open_positions (position_id, username, symbol, symboltoken, entry_price, buy_threshold, 
                                                   stop_loss_type, stop_loss_value, points_condition, position_type, 
-                                                  position_active, highest_price, base_price, sell_type, sell_threshold, previous_close)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?, ?, ?, ?)
+                                                  position_active, highest_price, base_price, sell_type, sell_threshold, 
+                                                  previous_close, exchange)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'LONG', 1, ?, ?, ?, ?, ?, ?)
         """, (position_id, username, symbol, conditions['symboltoken'], entry_price, conditions['buy_threshold'], 
               conditions['stop_loss_type'], conditions['stop_loss_value'], conditions['points_condition'],
-              entry_price, entry_price, conditions.get('sell_type'), conditions.get('sell_threshold'), conditions.get('previous_close')))
+              entry_price, entry_price, conditions.get('sell_type'), conditions.get('sell_threshold'), 
+              conditions.get('previous_close'), conditions.get('exchange', 'NSE')))
         conn.commit()
 
 def on_data_angel(wsapp, message):
@@ -285,7 +334,6 @@ def on_data_angel(wsapp, message):
         ltp = float(message['ltp'])
         ltp_cache[symbol_key] = ltp
         process_position_update(message['tradingsymbol'], ltp)
-        # Broadcast update to WebSocket clients for option chain/market data
         if symbol_key in option_chain_subscriptions:
             for ws in option_chain_subscriptions[symbol_key]:
                 ws.send_json({"symbol": message['tradingsymbol'], "ltp": ltp, "oi": message.get('oi', 0), "volume": message.get('v', 0), "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')})
@@ -299,7 +347,6 @@ def on_data_shoonya(tick_data):
         ltp = float(tick_data['lp'])
         ltp_cache[symbol_key] = ltp
         process_position_update(tick_data['ts'], ltp)
-        # Broadcast update to WebSocket clients for option chain/market data
         if symbol_key in option_chain_subscriptions:
             for ws in option_chain_subscriptions[symbol_key]:
                 ws.send_json({"symbol": tick_data['ts'], "ltp": ltp, "oi": tick_data.get('oi', 0), "volume": tick_data.get('v', 0), "timestamp": time.strftime('%Y-%m-%d %H:%M:%S')})
@@ -314,7 +361,7 @@ def process_position_update(tradingsymbol: str, ltp: float):
     for position in positions:
         pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                              "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
-                             "sell_type", "sell_threshold", "previous_close"], position))
+                             "sell_type", "sell_threshold", "previous_close", "exchange"], position))
         username = pos_data['username']
         if username in smart_api_instances:
             api_client = smart_api_instances[username]
@@ -339,7 +386,7 @@ def subscribe_to_tokens(wsapp, exchange_type):
             wsapp.subscribe("abc123", 1, token_list)
         else:  # Shoonya
             for token in tokens:
-                smart_api_instances[list(smart_api_instances.keys())[0]].subscribe(f"{token}")  # Adjust exchange dynamically if needed
+                smart_api_instances[list(smart_api_instances.keys())[0]].subscribe(f"{token}")
 
 def start_websocket(username: str, broker: str, api_key: str, auth_token: str, feed_token: Optional[str] = None):
     if broker == "AngelOne":
@@ -395,7 +442,7 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
             "tradingsymbol": position_data['symbol'],
             "symboltoken": position_data['symboltoken'],
             "transactiontype": "SELL" if broker == "AngelOne" else "S",
-            "exchange": position_data['exchange'],  # Use the exchange from position data
+            "exchange": position_data['exchange'],
             "ordertype": "MARKET" if broker == "AngelOne" else "MKT",
             "producttype": "INTRADAY",
             "duration": "DAY",
@@ -406,7 +453,7 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
         } if broker == "AngelOne" else {
             "buy_or_sell": "S",
             "product_type": "I",
-            "exchange": position_data['exchange'],  # Use the exchange from position data
+            "exchange": position_data['exchange'],
             "tradingsymbol": position_data['symbol'],
             "quantity": 1,
             "price_type": "MKT",
@@ -422,6 +469,7 @@ def check_conditions(api_client, position_data: dict, ltp: float, username: str)
 
 @app.on_event("startup")
 async def startup_event():
+    load_symbol_data()
     with conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users LIMIT 3")
@@ -443,6 +491,13 @@ async def startup_event():
 def register_user(user: User):
     try:
         logger.info(f"Attempting to register user: {user.username}")
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT username FROM users WHERE username = ?", (user.username,))
+            if cursor.fetchone():
+                logger.info(f"User {user.username} already exists. Skipping registration.")
+                return {"message": "User already registered"}
+        
         api_client, auth_token, refresh_token, feed_token = authenticate_user(
             user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.imei
         )
@@ -452,21 +507,13 @@ def register_user(user: User):
             cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                            (user.username, user.password, user.broker, user.api_key, user.totp_token, user.vendor_code, user.default_quantity, user.imei))
             conn.commit()
-        logger.info(f"User {user.username} inserted into database. Starting WebSocket...")
         smart_api_instances[user.username] = api_client
         auth_tokens[user.username] = auth_token
         if user.broker == "AngelOne":
             refresh_tokens[user.username] = refresh_token
         feed_tokens[user.username] = feed_token
-        try:
-            threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
-            logger.info(f"WebSocket thread started for {user.username}")
-        except Exception as e:
-            logger.error(f"Failed to start WebSocket for {user.username}: {e}")
+        threading.Thread(target=start_websocket, args=(user.username, user.broker, user.api_key, auth_token, feed_token), daemon=True).start()
         return {"message": "User registered and authenticated successfully"}
-    except sqlite3.IntegrityError:
-        logger.error(f"Database error: User {user.username} already exists")
-        raise HTTPException(status_code=400, detail="User already exists")
     except Exception as e:
         logger.error(f"Registration failed for {user.username}: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
@@ -504,7 +551,7 @@ def get_trades():
         trades = cursor.fetchall()
     return {"trades": [dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                                  "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
-                                 "sell_type", "sell_threshold", "previous_close"], row)) for row in trades]}
+                                 "sell_type", "sell_threshold", "previous_close", "exchange"], row)) for row in trades]}
 
 @app.post("/api/initiate_buy_trade")
 async def initiate_trade(request: TradeRequest):
@@ -576,7 +623,8 @@ async def initiate_trade(request: TradeRequest):
             'symboltoken': params['symboltoken'],
             'sell_type': params.get('sell_type'),
             'sell_threshold': params.get('sell_threshold'),
-            'previous_close': params.get('previous_close')
+            'previous_close': params.get('previous_close'),
+            'exchange': params['exchange']
         }
 
         position_id = f"{username}_{params['tradingsymbol']}_{int(time.time())}"
@@ -603,7 +651,7 @@ async def update_trade_conditions(request: UpdateTradeRequest):
         
         pos_data = dict(zip(["position_id", "username", "symbol", "symboltoken", "entry_price", "buy_threshold", "stop_loss_type", 
                              "stop_loss_value", "points_condition", "position_type", "position_active", "highest_price", "base_price", 
-                             "sell_type", "sell_threshold", "previous_close"], position))
+                             "sell_type", "sell_threshold", "previous_close", "exchange"], position))
         if pos_data['username'] != username:
             raise HTTPException(status_code=403, detail="Unauthorized to modify this position")
 
@@ -646,136 +694,87 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
         if broker != "Shoonya":
             raise HTTPException(status_code=400, detail="Market/option chain data is only available for Shoonya broker")
 
-        # Validate exchange (allow NFO, MCX, NSE, BSE)
         valid_exchanges = ["NFO", "MCX", "NSE", "BSE"]
         if request.exchange not in valid_exchanges:
             raise HTTPException(status_code=400, detail=f"Exchange must be one of {valid_exchanges}, not {request.exchange}")
 
-        # Clean symbol input
         symbol = request.symbol.strip().upper()
         logger.info(f"Received symbol input: {symbol} for user {username} on exchange {request.exchange}")
 
         if request.exchange == "NFO":
-            # Handle option chain for NFO (Nifty Futures & Options)
-            # Parse expiry date (required for NFO)
             try:
                 expiry_date = datetime.datetime.strptime(request.expiry_date, '%d-%m-%Y')
-                expiry_str = expiry_date.strftime('%d%b%y').upper()  # e.g., "27MAR25"
+                expiry_str = expiry_date.strftime('%d-%b-%Y').upper()
             except ValueError:
                 logger.error(f"Invalid expiry date format for {username}: {request.expiry_date}")
                 raise HTTPException(status_code=400, detail="Invalid date format for NFO. Please use DD-MM-YYYY")
 
-            # Search for the base symbol (e.g., "NIFTY" or "BANKNIFTY" futures)
-            search_query = f"{symbol} {expiry_str}"
-            logger.info(f"Searching for {search_query} on NFO for user {username}")
-            search_result = api_client.searchscrip(exchange="NFO", searchtext=search_query)
-            
-            if not search_result or 'values' not in search_result or not search_result['values']:
-                logger.error(f"No symbols found for {search_query} on NFO for user {username}")
-                raise HTTPException(status_code=400, detail=f"No symbols found for {search_query} on NFO")
+            symbols = find_symbols("NFO", symbol, request.expiry_date)
+            if not symbols:
+                logger.warning(f"No symbols found for {symbol} with expiry {expiry_str} in local NFO data")
+                return {"message": f"No symbols found for {symbol} with expiry {expiry_str}", "data": [], "total_strikes": 0}
 
-            # Use the first result as the base symbol (e.g., "NIFTY27MAR25FUT")
-            base_symbol = search_result['values'][0]['tsym']
-            logger.info(f"Resolved base symbol: {base_symbol} for user {username}")
-
-            # Fetch the full option chain for this base symbol
-            chain = api_client.get_option_chain(
-                exchange="NFO",
-                tradingsymbol=base_symbol,
-                strikeprice=str(request.strike_price) if request.strike_price else "0",  # Use provided strike or fetch all
-                count=str(request.strike_count) if request.strike_count else "0"  # Use provided count or fetch all
-            )
-
-            if not chain or 'values' not in chain:
-                error_msg = chain.get('emsg', 'Unknown error') if chain else 'No response'
-                logger.error(f"No option chain data available for {base_symbol} on NFO: {error_msg}")
-                if "market" in error_msg.lower() or "closed" in error_msg.lower():
-                    return {"message": "Market is closed, no live option chain data available", "data": []}
-                raise HTTPException(status_code=400, detail=f"No option chain data available: {error_msg}")
-
-            # Collect and organize option chain data by strike price
             chain_data = {}
             tokens = []
-            for scrip in chain['values']:
-                tsym = scrip['tsym']
-                token = scrip['token']
-                # Parse trading symbol to extract strike and option type
-                opt_match = re.compile(r"([A-Za-z]+)(\d{2}[A-Za-z]{3}\d{2})(\d+)(CE|PE)", re.IGNORECASE).match(tsym)
-                if opt_match:
-                    root_symbol, expiry, strike, opt_type = opt_match.groups()
-                    strike_price = float(strike)
-                    if expiry != expiry_str:  # Ensure expiry matches user input
-                        continue
+            for scrip in symbols:
+                tsym = scrip['TradingSymbol']
+                token = str(scrip['Token'])
+                strike_price = float(scrip['StrikePrice'])
+                opt_type = scrip['OptionType']
 
-                    # Fetch real-time quotes
-                    quote = api_client.get_quotes(exchange="NFO", token=token)
-                    if quote and quote.get('stat') == 'Ok':
-                        ltp = float(quote.get('lp', 0)) if quote.get('lp') else 0
-                        bid = float(quote.get('bp', 0)) if quote.get('bp') else 0
-                        ask = float(quote.get('ap', 0)) if quote.get('ap') else 0
-                        oi = float(quote.get('oi', 0)) / 100000 if quote.get('oi') else 0  # Convert OI to lakhs
+                quote = api_client.get_quotes(exchange="NFO", token=token)
+                if quote and quote.get('stat') == 'Ok':
+                    ltp = float(quote.get('lp', 0)) if quote.get('lp') else 0
+                    bid = float(quote.get('bp', 0)) if quote.get('bp') else 0
+                    ask = float(quote.get('ap', 0)) if quote.get('ap') else 0
+                    oi = float(quote.get('oi', 0)) / 100000 if quote.get('oi') else 0
 
-                        if strike_price not in chain_data:
-                            chain_data[strike_price] = {'Call': {}, 'Put': {}}
+                    if strike_price not in chain_data:
+                        chain_data[strike_price] = {'Call': {}, 'Put': {}}
 
-                        if opt_type == 'CE':
-                            chain_data[strike_price]['Call'] = {
-                                'LTP': ltp,
-                                'Bid': bid,
-                                'Ask': ask,
-                                'OI': oi,
-                                'TradingSymbol': tsym,
-                                'Token': token
-                            }
-                        elif opt_type == 'PE':
-                            chain_data[strike_price]['Put'] = {
-                                'LTP': ltp,
-                                'Bid': bid,
-                                'Ask': ask,
-                                'OI': oi,
-                                'TradingSymbol': tsym,
-                                'Token': token
-                            }
-                        tokens.append(token)
+                    if opt_type == 'CE':
+                        chain_data[strike_price]['Call'] = {
+                            'LTP': ltp, 'Bid': bid, 'Ask': ask, 'OI': oi,
+                            'TradingSymbol': tsym, 'Token': token
+                        }
+                    elif opt_type == 'PE':
+                        chain_data[strike_price]['Put'] = {
+                            'LTP': ltp, 'Bid': bid, 'Ask': ask, 'OI': oi,
+                            'TradingSymbol': tsym, 'Token': token
+                        }
+                    tokens.append(token)
 
-            # Subscribe to real-time updates for all tokens
+            if request.strike_count:
+                sorted_strikes = sorted(chain_data.keys())
+                mid_point = len(sorted_strikes) // 2
+                start_idx = max(0, mid_point - request.strike_count // 2)
+                end_idx = min(len(sorted_strikes), start_idx + request.strike_count)
+                chain_data = {k: chain_data[k] for k in sorted_strikes[start_idx:end_idx]}
+
             if tokens:
-                option_chain_subscriptions[username] = tokens  # Store all tokens for this user
-                api_client.subscribe(','.join(tokens))  # Subscribe to all tokens
+                option_chain_subscriptions[username] = tokens
+                api_client.subscribe(','.join(tokens))
 
-            # Format the response to match the screenshot pattern (sorted by strike price)
-            formatted_data = []
-            for strike_price in sorted(chain_data.keys()):
-                call_data = chain_data[strike_price]['Call']
-                put_data = chain_data[strike_price]['Put']
-                formatted_data.append({
-                    'StrikePrice': strike_price,
-                    'Call': call_data,
-                    'Put': put_data
-                })
-
+            formatted_data = [
+                {'StrikePrice': strike, 'Call': chain_data[strike]['Call'], 'Put': chain_data[strike]['Put']}
+                for strike in sorted(chain_data.keys())
+            ]
             return {
                 "message": f"Option chain for {symbol} with expiry {expiry_str} on NFO",
                 "data": formatted_data,
                 "total_strikes": len(formatted_data)
             }
 
-        else:  # Handle MCX, NSE, BSE (cash markets/commodities)
-            # Search for the symbol on the specified exchange
-            search_query = symbol
-            logger.info(f"Searching for {search_query} on {request.exchange} for user {username}")
-            search_result = api_client.searchscrip(exchange=request.exchange, searchtext=search_query)
-            
-            if not search_result or 'values' not in search_result or not search_result['values']:
-                logger.error(f"No symbols found for {search_query} on {request.exchange} for user {username}")
-                raise HTTPException(status_code=400, detail=f"No symbols found for {search_query} on {request.exchange}")
+        else:
+            symbols = find_symbols(request.exchange, symbol)
+            if not symbols:
+                logger.error(f"No symbols found for {symbol} on {request.exchange} in local data")
+                raise HTTPException(status_code=400, detail=f"No symbols found for {symbol} on {request.exchange}")
 
-            # Use the first result as the base symbol (e.g., stock or commodity symbol)
-            base_symbol = search_result['values'][0]['tsym']
-            token = search_result['values'][0]['token']
+            base_symbol = symbols[0]['TradingSymbol']
+            token = str(symbols[0]['Token'])
             logger.info(f"Resolved base symbol: {base_symbol} with token {token} for user {username}")
 
-            # Fetch real-time market data for the symbol
             quotes = api_client.get_quotes(exchange=request.exchange, token=token)
             if not quotes or quotes.get('stat') != 'Ok':
                 error_msg = quotes.get('emsg', 'No response from API')
@@ -784,17 +783,15 @@ async def get_shoonya_option_chain_endpoint(request: OptionChainRequest):
                     return {"message": "Market is closed, no live market data available", "data": []}
                 raise HTTPException(status_code=400, detail=f"No market data available: {error_msg}")
 
-            # Collect market data
             ltp = float(quotes.get('lp', 0)) if quotes.get('lp') else 0
             bid = float(quotes.get('bp', 0)) if quotes.get('bp') else 0
             ask = float(quotes.get('ap', 0)) if quotes.get('ap') else 0
-            oi = float(quotes.get('oi', 0)) if quotes.get('oi') else 0  # OI might not apply to cash markets, but included for consistency
+            oi = float(quotes.get('oi', 0)) if quotes.get('oi') else 0
             volume = float(quotes.get('v', 0)) if quotes.get('v') else 0
 
-            # Subscribe to real-time updates for this token
             if token:
-                option_chain_subscriptions[username] = [token]  # Store token for this user
-                api_client.subscribe(token)  # Subscribe to the token
+                option_chain_subscriptions[username] = [token]
+                api_client.subscribe(token)
 
             return {
                 "message": f"Market data for {base_symbol} on {request.exchange}",
@@ -826,15 +823,13 @@ async def websocket_option_chain(websocket: WebSocket, username: str, token: str
             await websocket.close()
             return
 
-        # Add WebSocket to the subscription for this token
-        symbol_key = f"{token}"  # Use token directly, adjust exchange dynamically if needed
+        symbol_key = f"{token}"
         if symbol_key not in option_chain_subscriptions:
             option_chain_subscriptions[symbol_key] = []
         option_chain_subscriptions[symbol_key].append(websocket)
 
         while True:
-            # This will rely on the on_data_shoonya callback to push updates
-            await websocket.receive_text()  # Keep connection alive
+            await websocket.receive_text()
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected for user {username}, token {token}")
         if symbol_key in option_chain_subscriptions:
@@ -860,8 +855,6 @@ async def get_market_data(username: str, token: str):
         if broker != "Shoonya":
             raise HTTPException(status_code=400, detail="Market data is only available for Shoonya broker")
 
-        # Fetch real-time market data for the token (determine exchange dynamically if needed)
-        # Assume NFO for options, but could be MCX/NSE/BSE based on token context
         exchanges = ["NFO", "MCX", "NSE", "BSE"]
         for exchange in exchanges:
             quotes = api_client.get_quotes(exchange=exchange, token=token)
@@ -870,8 +863,8 @@ async def get_market_data(username: str, token: str):
                     "ltp": float(quotes.get('lp', 0)),
                     "oi": quotes.get('oi', 0),
                     "market_data": {
-                        "v": quotes.get('v', 0),  # Volume
-                        "ft": time.strftime('%Y-%m-%d %H:%M:%S')  # Fetch time
+                        "v": quotes.get('v', 0),
+                        "ft": time.strftime('%Y-%m-%d %H:%M:%S')
                     }
                 }
         raise HTTPException(status_code=400, detail="No market data available for this token across exchanges")
@@ -882,5 +875,5 @@ async def get_market_data(username: str, token: str):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))  # Use Render's PORT or default to 8000 locally
+    port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
