@@ -5,6 +5,7 @@ import {
   faUserCog, faUserPlus, faUsers, faSignInAlt, faShoppingCart, faExchangeAlt, faChartLine, faCalendarAlt, faDollarSign,
   faArrowRight, faSearch, faArrowLeft, faCheckCircle, faCheck, faEdit, faQuestionCircle
 } from '@fortawesome/free-solid-svg-icons';
+import { Link } from 'react-router-dom'; // Added for back navigation
 import './css/landing.css';
 
 const Landing = () => {
@@ -213,13 +214,13 @@ const Landing = () => {
     let newThreshold;
     switch (buy_type) {
       case "Fixed":
-        newThreshold = parseFloat(buy_threshold) || currentLtp; // Fixed price to buy at
+        newThreshold = parseFloat(buy_threshold) || currentLtp;
         break;
       case "Percentage":
-        newThreshold = previous_close * (1 + (parseFloat(buy_threshold) || 0) / 100); // % increase from prev close
+        newThreshold = previous_close * (1 + (parseFloat(buy_threshold) || 0) / 100);
         break;
       case "Points":
-        newThreshold = currentLtp + (parseFloat(buy_threshold) || 0); // Points above current LTP
+        newThreshold = currentLtp + (parseFloat(buy_threshold) || 0);
         break;
       default:
         newThreshold = currentLtp;
@@ -232,10 +233,10 @@ const Landing = () => {
     let newThreshold;
     switch (sell_type) {
       case "Fixed":
-        newThreshold = parseFloat(sell_threshold) || 0; // Fixed price to sell at
+        newThreshold = parseFloat(sell_threshold) || 0;
         break;
       case "Percentage":
-        newThreshold = previous_close * (1 - (parseFloat(sell_threshold) || 0) / 100); // % decrease from prev close
+        newThreshold = previous_close * (1 - (parseFloat(sell_threshold) || 0) / 100);
         break;
       default:
         newThreshold = 0;
@@ -316,7 +317,7 @@ const Landing = () => {
       if (formData.broker === "Shoonya") {
         payload.vendor_code = formData.vendor_code;
       }
-      const response = await fetch("https://mtb-8ra9.onrender.com/api/register_user", {
+      const response = await fetch("https://mtWEB-8ra9.onrender.com/api/register_user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -466,6 +467,26 @@ const Landing = () => {
 
   return (
     <Container fluid className="p-4" style={{ minHeight: "100vh", background: "linear-gradient(135deg, #e6f0fa 0%, #d1e0e8 100%)" }}>
+      {/* Back to Home Button */}
+      <Row className="mb-4">
+        <Col>
+          <Link
+            to="/"
+            className="btn btn-outline-secondary"
+            style={{
+              fontSize: '20px',
+              padding: '0.3em 1em',
+              border: '2px solid #2ea3f2',
+              borderRadius: '3px',
+              color: '#2ea3f2',
+              textDecoration: 'none',
+            }}
+          >
+            <FontAwesomeIcon icon={faArrowLeft} /> Back to Home
+          </Link>
+        </Col>
+      </Row>
+
       <Row className="mb-4">
         <Col>
           {message.text && (
